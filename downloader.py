@@ -449,9 +449,13 @@ class SteamWorkshopDownloader(QWidget):
         header.setContextMenuPolicy(Qt.CustomContextMenu)
         header.customContextMenuRequested.connect(self.open_header_context_menu)
 
+        # Restore column widths and hidden state from the configuration
         column_widths = self.config.get('queue_tree_column_widths', [150, 300, 100])  # Default widths
+        column_hidden = self.config.get('queue_tree_column_hidden', [False, False, False])  # Default: all columns visible
         for i, width in enumerate(column_widths):
             self.queue_tree.setColumnWidth(i, width)
+        for i, hidden in enumerate(column_hidden):
+            self.queue_tree.setColumnHidden(i, hidden)
 
         main_layout.addWidget(self.queue_label)
         main_layout.addWidget(self.queue_tree, stretch=3)
@@ -544,14 +548,18 @@ class SteamWorkshopDownloader(QWidget):
                 return
         else:
             event.accept()
-    
+
         # Save window size before closing
         self.config['window_size'] = {'width': self.width(), 'height': self.height()}
-    
+
         # Save column widths for the download queue tree
         column_widths = [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())]
         self.config['queue_tree_column_widths'] = column_widths
-    
+
+        # Save column visibility for the download queue tree
+        column_hidden = [self.queue_tree.isColumnHidden(i) for i in range(self.queue_tree.columnCount())]
+        self.config['queue_tree_column_hidden'] = column_hidden
+
         # Save configuration
         self.save_config()
 
