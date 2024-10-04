@@ -352,27 +352,27 @@ class SteamWorkshopDownloader(QWidget):
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         self.current_process = None
         self.load_config()  # Load configuration here
-    
+
         # Now initialize the UI after loading the config
         self.initUI()
-    
+
         # Load the application settings
         self.app_ids = self.load_app_ids()
         self.app_id_to_game = {v: k for k, v in self.app_ids.items()}
         self.populate_game_dropdown()
         self.populate_steam_accounts()
         self.apply_settings()
-    
+
         self.download_counter = 0
         self.consecutive_failures = 0
-    
+
         # Set up signals and threads
         self.log_signal.connect(self.append_log)
         self.update_queue_signal.connect(self.update_queue_status)
-    
+
         # Setup SteamCMD asynchronously
         threading.Thread(target=self.setup_steamcmd, daemon=True).start()
-    
+
         # Restore the saved window size if it exists
         window_size = self.config.get('window_size')
         if window_size:
@@ -443,11 +443,16 @@ class SteamWorkshopDownloader(QWidget):
         self.queue_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.queue_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue_tree.customContextMenuRequested.connect(self.open_context_menu)
-        
+
+        # Add context menu to the header for hiding columns
+        header = self.queue_tree.header()
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.customContextMenuRequested.connect(self.open_header_context_menu)
+
         column_widths = self.config.get('queue_tree_column_widths', [150, 300, 100])  # Default widths
         for i, width in enumerate(column_widths):
             self.queue_tree.setColumnWidth(i, width)
-            
+
         main_layout.addWidget(self.queue_label)
         main_layout.addWidget(self.queue_tree, stretch=3)
 
@@ -471,6 +476,21 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addLayout(log_layout, stretch=1)
 
         self.setLayout(main_layout)
+
+    def open_header_context_menu(self, position: QPoint):
+        menu = QMenu()
+        for column in range(self.queue_tree.columnCount()):
+            column_name = self.queue_tree.headerItem().text(column)
+            action = QAction(f"Hide {column_name}", self)
+            action.setCheckable(True)
+            action.setChecked(self.queue_tree.header().isSectionHidden(column))
+            action.toggled.connect(lambda checked, col=column: self.toggle_column_visibility(col, checked))
+            menu.addAction(action)
+        
+        menu.exec(self.queue_tree.header().viewport().mapToGlobal(position))
+
+    def toggle_column_visibility(self, column: int, hide: bool):
+        self.queue_tree.setColumnHidden(column, hide)
 
     def get_config_path(self):
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
