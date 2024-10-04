@@ -384,7 +384,7 @@ class SteamWorkshopDownloader(QWidget):
             self.resize(670, 750)
 
     def initUI(self):
-        self.setWindowTitle('Streamline')
+        self.setWindowTitle('Streamline: Steam Workshop Downloader')
         main_layout = QVBoxLayout()
 
         top_layout = QHBoxLayout()
