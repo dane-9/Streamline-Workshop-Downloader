@@ -344,29 +344,36 @@ class SteamWorkshopDownloader(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.initUI()
-        self.download_queue = []
+        self.download_queue = []  # Initialize download queue
         self.is_downloading = False
-        self.config = {}
+        self.config = {}  # Initialize config dictionary to avoid AttributeError
         self.config_path = self.get_config_path()
         self.steamcmd_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'steamcmd')
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         self.current_process = None
-        self.load_config()
+        self.load_config()  # Load configuration here
+    
+        # Now initialize the UI after loading the config
+        self.initUI()
+    
+        # Load the application settings
         self.app_ids = self.load_app_ids()
         self.app_id_to_game = {v: k for k, v in self.app_ids.items()}
         self.populate_game_dropdown()
         self.populate_steam_accounts()
         self.apply_settings()
-
+    
         self.download_counter = 0
         self.consecutive_failures = 0
-
+    
+        # Set up signals and threads
         self.log_signal.connect(self.append_log)
         self.update_queue_signal.connect(self.update_queue_status)
-
+    
+        # Setup SteamCMD asynchronously
         threading.Thread(target=self.setup_steamcmd, daemon=True).start()
-
+    
+        # Restore the saved window size if it exists
         window_size = self.config.get('window_size')
         if window_size:
             self.resize(window_size.get('width', 670), window_size.get('height', 750))
@@ -436,6 +443,11 @@ class SteamWorkshopDownloader(QWidget):
         self.queue_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.queue_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue_tree.customContextMenuRequested.connect(self.open_context_menu)
+        
+        column_widths = self.config.get('queue_tree_column_widths', [150, 300, 100])  # Default widths
+        for i, width in enumerate(column_widths):
+            self.queue_tree.setColumnWidth(i, width)
+            
         main_layout.addWidget(self.queue_label)
         main_layout.addWidget(self.queue_tree, stretch=3)
 
@@ -509,10 +521,18 @@ class SteamWorkshopDownloader(QWidget):
                 event.accept()  # Allow the window to close
             else:
                 event.ignore()  # Prevent the window from closing
+                return
         else:
             event.accept()
+    
         # Save window size before closing
         self.config['window_size'] = {'width': self.width(), 'height': self.height()}
+    
+        # Save column widths for the download queue tree
+        column_widths = [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())]
+        self.config['queue_tree_column_widths'] = column_widths
+    
+        # Save configuration
         self.save_config()
 
     def load_app_ids(self):
