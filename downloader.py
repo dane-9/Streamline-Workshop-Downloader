@@ -739,33 +739,49 @@ class SteamWorkshopDownloader(QWidget):
         if not mod_input:
             QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
             return
-    
+
         mod_id = self.extract_id(mod_input)
         if not mod_id:
             QMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
-    
+
+        # Detect if the input ID corresponds to a collection
+        is_collection = self.is_collection(mod_id)
+        if is_collection:
+            reply = QMessageBox.question(
+                self,
+                'Detected a Collection',
+                'The ID corresponds to a Collection. Do you want to add it as a Collection?',
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.collection_input.setText(mod_input)
+                self.add_collection_to_queue()
+            else:
+                QMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
+            return
+
         if self.is_mod_in_queue(mod_id):
             self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
             return
-    
+
         # Fetch mod info using mod_id
         game_name, app_id, mod_title = self.get_mod_info(mod_id)
         if not mod_title:
             mod_title = "Unknown Title"  # Default to 'Unknown Title' if fetching fails
-    
+
         # Update game selection in the UI if game_name was successfully fetched
         if game_name:
             self.update_game_selection(game_name)
-    
+
         # Add mod to download queue
         self.download_queue.append({'mod_id': mod_id, 'mod_name': mod_title, 'status': 'Queued', 'retry_count': 0})
         tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued'])
         self.queue_tree.addTopLevelItem(tree_item)
-    
+
         # Enable the export button if the queue is not empty
         self.export_queue_btn.setEnabled(bool(self.download_queue))
-    
+
         self.mod_input.clear()
         self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
 
@@ -774,26 +790,42 @@ class SteamWorkshopDownloader(QWidget):
         if not collection_input:
             QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Collection URL or ID.')
             return
-    
+
         collection_id = self.extract_id(collection_input)
         if not collection_id:
             QMessageBox.warning(self, 'Input Error', 'Invalid Workshop Collection URL or ID.')
             return
-    
+
+        # Detect if the input ID corresponds to a mod
+        is_collection = self.is_collection(collection_id)
+        if not is_collection:
+            reply = QMessageBox.question(
+                self,
+                'Detected a Mod',
+                'The ID corresponds to a Mod. Do you want to add it as a Mod?',
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.mod_input.setText(collection_input)
+                self.add_mod_to_queue()
+            else:
+                QMessageBox.information(self, 'Action Cancelled', 'The mod was not added.')
+            return
+
         try:
             url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={collection_id}"
             headers = {'User-Agent': 'Mozilla/5.0'}
             response = requests.get(url, headers=headers)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
-    
+
             game_name, app_id = self.get_game_info_from_soup(soup)
             if not app_id:
                 self.log_signal.emit(f"Failed to retrieve App ID for collection {collection_id}.")
                 return
-    
+
             self.update_game_selection(game_name)
-    
+
             collection_items = soup.find_all('div', class_='collectionItem')
             added_count = 0
             for item in collection_items:
@@ -809,16 +841,30 @@ class SteamWorkshopDownloader(QWidget):
                     tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued'])
                     self.queue_tree.addTopLevelItem(tree_item)
                     added_count += 1
-    
+
             self.log_signal.emit(f"Collection {collection_id} added to the queue with {added_count} mods.")
             self.collection_input.clear()
-    
+
             # Ensure export button is enabled if there's anything in the queue
             if self.download_queue:
                 self.export_queue_btn.setEnabled(True)
-    
+
         except Exception as e:
             self.log_signal.emit(f"Error fetching collection: {e}")
+
+    def is_collection(self, item_id):
+        try:
+            url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Check for collection-specific elements
+            collection_items = soup.find_all('div', class_='collectionItem')
+            return len(collection_items) > 0
+        except Exception as e:
+            self.log_signal.emit(f"Error determining if item {item_id} is a collection: {e}")
+            return False
 
     def extract_id(self, input_str):
         pattern = r'https?://steamcommunity\.com/sharedfiles/filedetails/\?id=(\d+)'
@@ -1073,32 +1119,38 @@ class SteamWorkshopDownloader(QWidget):
         if not mod_input:
             QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
             return
-    
+
         mod_id = self.extract_id(mod_input)
         if not mod_id:
             QMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
-    
+
+        # Detect if the input ID corresponds to a collection
+        is_collection = self.is_collection(mod_id)
+        if is_collection:
+            QMessageBox.information(self, 'THIS IS NOT A MOD', 'The ID corresponds to a Collection. Please add the collection to the queue instead.')
+            return
+
         if self.is_mod_in_queue(mod_id):
             self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
             return
-    
+
         # Fetch mod info using mod_id
         game_name, app_id, mod_title = self.get_mod_info(mod_id)
         if not app_id:
             self.log_signal.emit(f"Failed to retrieve App ID for mod {mod_id}.")
             return
-    
+
         # Update game selection in the UI
         self.update_game_selection(game_name)
-    
+
         self.download_queue.append({'mod_id': mod_id, 'mod_name': mod_title, 'status': 'Queued', 'retry_count': 0})
         tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued'])
         self.queue_tree.addTopLevelItem(tree_item)
         self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
-    
+
         self.mod_input.clear()
-    
+
         self.start_download()
 
     def open_context_menu(self, position: QPoint):
