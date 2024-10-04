@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
-    QMenu, QCheckBox,
+    QMenu, QCheckBox, QFileDialog
 )
 from PySide6.QtCore import Qt, Signal, QPoint, QThread, QSize
 from PySide6.QtGui import QTextCursor, QAction
@@ -439,7 +439,21 @@ class SteamWorkshopDownloader(QWidget):
         collection_layout.addWidget(self.add_collection_btn)
         main_layout.addLayout(collection_layout)
 
+        queue_layout = QHBoxLayout()
         self.queue_label = QLabel('Download Queue:')
+        queue_layout.addWidget(self.queue_label)
+
+        self.import_queue_btn = QPushButton('Import Queue')
+        self.import_queue_btn.clicked.connect(self.import_queue)
+        queue_layout.addWidget(self.import_queue_btn)
+
+        self.export_queue_btn = QPushButton('Export Queue')
+        self.export_queue_btn.clicked.connect(self.export_queue)
+        self.export_queue_btn.setEnabled(False)  # Disable initially as the queue is empty
+        queue_layout.addWidget(self.export_queue_btn)
+
+        main_layout.addLayout(queue_layout)
+
         self.queue_tree = QTreeWidget()
         self.queue_tree.setColumnCount(3)
         self.queue_tree.setHeaderLabels(['Mod ID', 'Mod Name', 'Status'])
@@ -463,7 +477,6 @@ class SteamWorkshopDownloader(QWidget):
                 self.column_width_backup[i] = self.queue_tree.columnWidth(i)
             self.queue_tree.setColumnHidden(i, hidden)
 
-        main_layout.addWidget(self.queue_label)
         main_layout.addWidget(self.queue_tree, stretch=3)
 
         button_layout = QHBoxLayout()
@@ -509,6 +522,37 @@ class SteamWorkshopDownloader(QWidget):
             self.queue_tree.setColumnHidden(column, False)
             if column in self.column_width_backup:
                 self.queue_tree.setColumnWidth(column, self.column_width_backup[column])
+                
+    def import_queue(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Import Queue", "", "Text Files (*.txt)")
+        if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as file:
+                    for line in file:
+                        mod_id, mod_name = line.strip().split('|', 1)
+                        if not self.is_mod_in_queue(mod_id):
+                            self.download_queue.append({'mod_id': mod_id, 'mod_name': mod_name, 'status': 'Queued', 'retry_count': 0})
+                            tree_item = QTreeWidgetItem([mod_id, mod_name, 'Queued'])
+                            self.queue_tree.addTopLevelItem(tree_item)
+                self.log_signal.emit(f"Queue imported from {file_path}.")
+                self.export_queue_btn.setEnabled(bool(self.download_queue))
+            except Exception as e:
+                QMessageBox.critical(self, "Import Error", f"Failed to import queue: {e}")
+
+    def export_queue(self):
+        if not self.download_queue:
+            QMessageBox.information(self, "No Items to Export", "There are no items in the queue to export.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Queue", "", "Text Files (*.txt)")
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as file:
+                    for mod in self.download_queue:
+                        file.write(f"{mod['mod_id']}|{mod['mod_name']}\n")
+                self.log_signal.emit(f"Queue exported to {file_path}.")
+            except Exception as e:
+                QMessageBox.critical(self, "Export Error", f"Failed to export queue: {e}")
 
     def get_config_path(self):
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -692,8 +736,6 @@ class SteamWorkshopDownloader(QWidget):
 
     def add_mod_to_queue(self):
         mod_input = self.mod_input.text().strip()
-        if not self.validate_steamcmd():
-            return
         if not mod_input:
             QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
             return
@@ -709,47 +751,49 @@ class SteamWorkshopDownloader(QWidget):
     
         # Fetch mod info using mod_id
         game_name, app_id, mod_title = self.get_mod_info(mod_id)
-        if not app_id:
-            self.log_signal.emit(f"Failed to retrieve App ID for mod {mod_id}.")
-            return
+        if not mod_title:
+            mod_title = "Unknown Title"  # Default to 'Unknown Title' if fetching fails
     
-        # Update game selection in the UI
-        self.update_game_selection(game_name)
+        # Update game selection in the UI if game_name was successfully fetched
+        if game_name:
+            self.update_game_selection(game_name)
     
+        # Add mod to download queue
         self.download_queue.append({'mod_id': mod_id, 'mod_name': mod_title, 'status': 'Queued', 'retry_count': 0})
         tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued'])
         self.queue_tree.addTopLevelItem(tree_item)
-        self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
+    
+        # Enable the export button if the queue is not empty
+        self.export_queue_btn.setEnabled(bool(self.download_queue))
     
         self.mod_input.clear()
+        self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
 
     def add_collection_to_queue(self):
         collection_input = self.collection_input.text().strip()
-        if not self.validate_steamcmd():
-            return
         if not collection_input:
             QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Collection URL or ID.')
             return
-
+    
         collection_id = self.extract_id(collection_input)
         if not collection_id:
             QMessageBox.warning(self, 'Input Error', 'Invalid Workshop Collection URL or ID.')
             return
-
+    
         try:
             url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={collection_id}"
             headers = {'User-Agent': 'Mozilla/5.0'}
             response = requests.get(url, headers=headers)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
-
+    
             game_name, app_id = self.get_game_info_from_soup(soup)
             if not app_id:
                 self.log_signal.emit(f"Failed to retrieve App ID for collection {collection_id}.")
                 return
-
+    
             self.update_game_selection(game_name)
-
+    
             collection_items = soup.find_all('div', class_='collectionItem')
             added_count = 0
             for item in collection_items:
@@ -765,9 +809,14 @@ class SteamWorkshopDownloader(QWidget):
                     tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued'])
                     self.queue_tree.addTopLevelItem(tree_item)
                     added_count += 1
-
+    
             self.log_signal.emit(f"Collection {collection_id} added to the queue with {added_count} mods.")
             self.collection_input.clear()
+    
+            # Ensure export button is enabled if there's anything in the queue
+            if self.download_queue:
+                self.export_queue_btn.setEnabled(True)
+    
         except Exception as e:
             self.log_signal.emit(f"Error fetching collection: {e}")
 
@@ -988,8 +1037,6 @@ class SteamWorkshopDownloader(QWidget):
                 item.setText(2, status)
                 self.log_signal.emit(f"Mod {mod_id} status updated to {status}.")
                 if status == 'Downloaded':
-                    # Remove from download_queue
-                    # self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] != mod_id]
                     # Mark item for removal from queue_tree
                     item_to_remove = item
                     self.log_signal.emit(f"Mod {mod_id} removed from the queue.")
@@ -1008,6 +1055,9 @@ class SteamWorkshopDownloader(QWidget):
             index = self.queue_tree.indexOfTopLevelItem(item_to_remove)
             self.queue_tree.takeTopLevelItem(index)
             self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] != mod_id]
+        
+        # Disable the export button if the queue is empty
+        self.export_queue_btn.setEnabled(bool(self.download_queue))
 
     def append_log(self, message):
         self.log_area.append(message)
@@ -1067,7 +1117,7 @@ class SteamWorkshopDownloader(QWidget):
 
     def remove_mod_from_queue(self, mod_id):
         self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] != mod_id]
-        
+    
         # Remove from the GUI tree
         item_to_remove = None
         for index in range(self.queue_tree.topLevelItemCount()):
@@ -1075,11 +1125,14 @@ class SteamWorkshopDownloader(QWidget):
             if item.text(0) == mod_id:
                 item_to_remove = item
                 break
-        
+    
         if item_to_remove:
             index = self.queue_tree.indexOfTopLevelItem(item_to_remove)
             self.queue_tree.takeTopLevelItem(index)
             self.log_signal.emit(f"Mod {mod_id} removed from the queue.")
+    
+        # Disable the export button if the queue is empty
+        self.export_queue_btn.setEnabled(bool(self.download_queue))
             
     def remove_mods_from_queue(self, selected_items):
         mod_ids_to_remove = [item.text(0) for item in selected_items]
@@ -1095,6 +1148,9 @@ class SteamWorkshopDownloader(QWidget):
     
         for mod_id in mod_ids_to_remove:
             self.log_signal.emit(f"Mod {mod_id} removed from the queue.")
+    
+        # Disable the export button if the queue is empty
+        self.export_queue_btn.setEnabled(bool(self.download_queue))
 
     def open_downloads_folder(self):
         app_id = self.get_selected_app_id()
