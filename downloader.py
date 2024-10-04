@@ -353,6 +353,9 @@ class SteamWorkshopDownloader(QWidget):
         self.current_process = None
         self.load_config()  # Load configuration here
 
+        # Dictionary to keep track of the hidden column widths
+        self.column_width_backup = {}
+
         # Now initialize the UI after loading the config
         self.initUI()
 
@@ -455,6 +458,9 @@ class SteamWorkshopDownloader(QWidget):
         for i, width in enumerate(column_widths):
             self.queue_tree.setColumnWidth(i, width)
         for i, hidden in enumerate(column_hidden):
+            if hidden:
+                # Backup the column width before hiding it
+                self.column_width_backup[i] = self.queue_tree.columnWidth(i)
             self.queue_tree.setColumnHidden(i, hidden)
 
         main_layout.addWidget(self.queue_label)
@@ -494,7 +500,15 @@ class SteamWorkshopDownloader(QWidget):
         menu.exec(self.queue_tree.header().viewport().mapToGlobal(position))
 
     def toggle_column_visibility(self, column: int, hide: bool):
-        self.queue_tree.setColumnHidden(column, hide)
+        if hide:
+            # Backup the current width before hiding
+            self.column_width_backup[column] = self.queue_tree.columnWidth(column)
+            self.queue_tree.setColumnHidden(column, True)
+        else:
+            # Restore the column's width if it was previously hidden
+            self.queue_tree.setColumnHidden(column, False)
+            if column in self.column_width_backup:
+                self.queue_tree.setColumnWidth(column, self.column_width_backup[column])
 
     def get_config_path(self):
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
