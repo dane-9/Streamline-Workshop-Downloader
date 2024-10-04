@@ -9,14 +9,14 @@ import zipfile
 import webbrowser
 import time
 from io import BytesIO
-from PyQt5.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
-    QAction, QMenu, QCheckBox, QApplication
+    QMenu, QCheckBox,
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QPoint, QThread, QSize
-from PyQt5.QtGui import QTextCursor
+from PySide6.QtCore import Qt, Signal, QPoint, QThread, QSize
+from PySide6.QtGui import QTextCursor, QAction
 from bs4 import BeautifulSoup
 
 class SettingsDialog(QDialog):
@@ -48,7 +48,6 @@ class SettingsDialog(QDialog):
             'show_logs': self.show_logs_checkbox.isChecked(),
         }
 
-
 class AddSteamAccountDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -69,10 +68,10 @@ class AddSteamAccountDialog(QDialog):
 
     def get_username(self):
         return self.username_input.text().strip()
-        
+
 class TokenMonitorWorker(QThread):
-    token_found = pyqtSignal(str)
-    timeout = pyqtSignal()
+    token_found = Signal(str)
+    timeout = Signal()
 
     def __init__(self, steamcmd_dir, existing_tokens, timeout_duration=300):
         super().__init__()
@@ -106,24 +105,22 @@ class TokenMonitorWorker(QThread):
                 if '"ConnectCache"' in line:
                     in_connect_cache = True
                 elif in_connect_cache:
-                    # End of ConnectCache section
                     if "}" in line:
                         break
-                    # Look for token lines
                     match = re.match(r'\s*"([^"]+)"\s*"\d{2,}.*"', line)
                     if match:
                         token_ids.add(match.group(1))
         except Exception as e:
             print(f"Error reading config.vdf: {e}")
         return token_ids
-        
+
 class ConfigureSteamAccountsDialog(QDialog):
     def __init__(self, config, steamcmd_dir, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Configure Steam Accounts")
         self.setModal(True)
         self.resize(500, 400)
-        self.config = config  # Store the passed config
+        self.config = config
         self.steamcmd_dir = steamcmd_dir
         self.token_monitor_worker = None
         self.steamcmd_process = None
@@ -156,7 +153,7 @@ class ConfigureSteamAccountsDialog(QDialog):
 
     def add_steam_account(self):
         dialog = AddSteamAccountDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.Accepted:
             username = dialog.get_username()
             if not username:
                 QMessageBox.warning(self, 'Input Error', 'Username cannot be empty.')
@@ -166,8 +163,7 @@ class ConfigureSteamAccountsDialog(QDialog):
                 return
             existing_tokens = self.get_all_token_ids()
             self.launch_steamcmd(username)
-    
-            # Start the token monitoring worker
+
             self.token_monitor_worker = TokenMonitorWorker(self.steamcmd_dir, existing_tokens)
             self.token_monitor_worker.token_found.connect(lambda token_id: self.on_token_found(username, token_id))
             self.token_monitor_worker.timeout.connect(lambda: self.on_token_timeout(username))
@@ -180,14 +176,13 @@ class ConfigureSteamAccountsDialog(QDialog):
         })
         self.load_accounts()
         QMessageBox.information(self, 'Success', f"Steam account '{username}' added.")
-        # Terminate SteamCMD process
         if self.steamcmd_process and self.steamcmd_process.poll() is None:
             self.steamcmd_process.terminate()
         self.token_monitor_worker = None
 
     def on_token_timeout(self, username):
         QMessageBox.warning(self, 'Error', f"Failed to retrieve token ID for account '{username}'. Please ensure you have logged in successfully.")
-        self.token_monitor_worker = None  # Clean up the worker
+        self.token_monitor_worker = None
 
     def open_context_menu(self, position):
         selected_items = self.accounts_list.selectedItems()
@@ -200,7 +195,7 @@ class ConfigureSteamAccountsDialog(QDialog):
         remove_action.triggered.connect(self.remove_account)
         menu.addAction(reauth_action)
         menu.addAction(remove_action)
-        menu.exec_(self.accounts_list.viewport().mapToGlobal(position))
+        menu.exec(self.accounts_list.viewport().mapToGlobal(position))
 
     def reauthenticate_account(self):
         selected_items = self.accounts_list.selectedItems()
@@ -213,7 +208,6 @@ class ConfigureSteamAccountsDialog(QDialog):
             existing_tokens = self.get_all_token_ids()
             self.launch_steamcmd(username)
 
-            # Start the token monitoring worker
             self.token_monitor_worker = TokenMonitorWorker(self.steamcmd_dir, existing_tokens)
             self.token_monitor_worker.token_found.connect(lambda new_token_id: self.on_token_found_reauth(username, new_token_id))
             self.token_monitor_worker.timeout.connect(lambda: self.on_token_timeout_reauth(username))
@@ -228,14 +222,13 @@ class ConfigureSteamAccountsDialog(QDialog):
                 break
         self.load_accounts()
         QMessageBox.information(self, 'Success', f"Account '{username}' reauthenticated.")
-        # Terminate SteamCMD process
         if self.steamcmd_process and self.steamcmd_process.poll() is None:
             self.steamcmd_process.terminate()
         self.token_monitor_worker = None
 
     def on_token_timeout_reauth(self, username):
         QMessageBox.warning(self, 'Error', f"Failed to retrieve new token ID for account '{username}'. Please ensure you have logged in successfully.")
-        self.token_monitor_worker = None  # Clean up the worker
+        self.token_monitor_worker = None
 
     def remove_account(self):
         selected_items = self.accounts_list.selectedItems()
@@ -259,7 +252,6 @@ class ConfigureSteamAccountsDialog(QDialog):
     def purge_accounts(self):
         reply = QMessageBox.question(self, 'Purge Accounts', 'Are you sure you want to remove all accounts?', QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
-            # Remove tokens from config.vdf for all accounts
             for account in self.config['steam_accounts']:
                 token_id = account.get('token_id', '')
                 if token_id:
@@ -309,9 +301,9 @@ class ConfigureSteamAccountsDialog(QDialog):
                 elif in_connect_cache:
                     if skip_next_line:
                         skip_next_line = False
-                        continue  # Skip the line after the token line
+                        continue
                     if f'"{token_id}"' in line:
-                        skip_next_line = True  # Skip this line and the next line
+                        skip_next_line = True
                         continue
                     elif "}" in line:
                         in_connect_cache = False
@@ -335,7 +327,6 @@ class ConfigureSteamAccountsDialog(QDialog):
             return
         cmd_command = [cmd, '+login', username]
         try:
-            # Start SteamCMD process and keep a reference
             self.steamcmd_process = subprocess.Popen(
                 cmd_command,
                 cwd=self.steamcmd_dir,
@@ -343,13 +334,13 @@ class ConfigureSteamAccountsDialog(QDialog):
             )
         except Exception as e:
             QMessageBox.critical(self, 'Error', f"Failed to launch SteamCMD: {e}")
-    
+
     def get_updated_config(self):
         return self.config
 
 class SteamWorkshopDownloader(QWidget):
-    log_signal = pyqtSignal(str)
-    update_queue_signal = pyqtSignal(str, str)  # ModID, Status
+    log_signal = Signal(str)
+    update_queue_signal = Signal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -376,7 +367,6 @@ class SteamWorkshopDownloader(QWidget):
 
         threading.Thread(target=self.setup_steamcmd, daemon=True).start()
 
-        # Restore window size from config if available
         window_size = self.config.get('window_size')
         if window_size:
             self.resize(window_size.get('width', 670), window_size.get('height', 750))
@@ -584,7 +574,7 @@ class SteamWorkshopDownloader(QWidget):
         current_batch_size = self.config.get('batch_size', 20)
         show_logs = self.config.get('show_logs', True)
         dialog = SettingsDialog(current_batch_size, show_logs, self)
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.Accepted:
             settings = dialog.get_settings()
             self.config.update(settings)
             self.save_config()
@@ -594,7 +584,7 @@ class SteamWorkshopDownloader(QWidget):
 
     def open_configure_steam_accounts(self):
         dialog = ConfigureSteamAccountsDialog(self.config, self.steamcmd_dir, self)
-        dialog.exec_()
+        dialog.exec()
         # Update the config with any changes made in the dialog
         self.config = dialog.get_updated_config()
         self.save_config()
@@ -1011,7 +1001,7 @@ class SteamWorkshopDownloader(QWidget):
         remove_action = QAction("Remove", self)
         remove_action.triggered.connect(lambda: self.remove_mods_from_queue(selected_items))
         menu.addAction(remove_action)
-        menu.exec_(self.queue_tree.viewport().mapToGlobal(position))
+        menu.exec(self.queue_tree.viewport().mapToGlobal(position))
 
     def remove_mod_from_queue(self, mod_id):
         self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] != mod_id]
@@ -1065,12 +1055,12 @@ class SteamWorkshopDownloader(QWidget):
 
 
 if __name__ == '__main__':
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     downloader = SteamWorkshopDownloader()
     downloader.resize(670, 750)
     downloader.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
     
 if __name__ == '__main__':
     main()
