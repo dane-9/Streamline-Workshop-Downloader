@@ -1175,7 +1175,7 @@ class SteamWorkshopDownloader(QWidget):
                 filename = filename.strip()  # Use the filename from the response directly
             else:
                 # If filename is not available, use title with appropriate extension based on URL
-                filename = f"{title}.zip" if file_url.endswith('.zip') else f"{title}.mod"
+                filename = f"{title}.zip" if file_url.endswith('.zip') else f"{title}"
     
             # remove illegal characters from filename
             filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
