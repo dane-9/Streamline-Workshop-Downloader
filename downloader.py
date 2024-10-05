@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QPoint, QThread, QSize
 from PySide6.QtGui import QTextCursor, QAction
 from bs4 import BeautifulSoup
+from collections import defaultdict
 
 class SettingsDialog(QDialog):
     def __init__(self, current_batch_size, show_logs, parent=None):
@@ -344,16 +345,15 @@ class SteamWorkshopDownloader(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.download_queue = []  # Initialize download queue
+        self.download_queue = []
         self.is_downloading = False
-        self.config = {}  # Initialize config dictionary to avoid AttributeError
+        self.config = {}
         self.config_path = self.get_config_path()
         self.steamcmd_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'steamcmd')
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         self.current_process = None
-        self.load_config()  # Load configuration here
+        self.load_config()
 
-        # Dictionary to keep track of the hidden column widths
         self.column_width_backup = {}
 
         # Now initialize the UI after loading the config
@@ -455,8 +455,8 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addLayout(queue_layout)
 
         self.queue_tree = QTreeWidget()
-        self.queue_tree.setColumnCount(3)
-        self.queue_tree.setHeaderLabels(['Mod ID', 'Mod Name', 'Status'])
+        self.queue_tree.setColumnCount(4)  # Updated column count to 4
+        self.queue_tree.setHeaderLabels(['Mod ID', 'Mod Name', 'Status', 'Provider'])
         self.queue_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.queue_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue_tree.customContextMenuRequested.connect(self.open_context_menu)
@@ -467,8 +467,8 @@ class SteamWorkshopDownloader(QWidget):
         header.customContextMenuRequested.connect(self.open_header_context_menu)
 
         # Restore column widths and hidden state from the configuration
-        column_widths = self.config.get('queue_tree_column_widths', [150, 300, 100])  # Default widths
-        column_hidden = self.config.get('queue_tree_column_hidden', [False, False, False])  # Default: all columns visible
+        column_widths = self.config.get('queue_tree_column_widths', [150, 300, 100, 100])  # Default widths
+        column_hidden = self.config.get('queue_tree_column_hidden', [False, False, False, False])  # Default: all columns visible
         for i, width in enumerate(column_widths):
             self.queue_tree.setColumnWidth(i, width)
         for i, hidden in enumerate(column_hidden):
@@ -497,6 +497,16 @@ class SteamWorkshopDownloader(QWidget):
         log_layout.addWidget(self.log_label)
         log_layout.addWidget(self.log_area)
         main_layout.addLayout(log_layout, stretch=1)
+
+        provider_layout = QHBoxLayout()
+        provider_label = QLabel('Download Provider:')
+        self.provider_dropdown = QComboBox()
+        self.provider_dropdown.addItems(['Default', 'SteamCMD', 'SteamWebAPI'])
+        self.provider_dropdown.currentIndexChanged.connect(self.on_provider_changed)
+        provider_layout.addStretch()  # Pushes the widgets to the right
+        provider_layout.addWidget(provider_label)
+        provider_layout.addWidget(self.provider_dropdown)
+        main_layout.addLayout(provider_layout)
 
         self.setLayout(main_layout)
 
@@ -610,11 +620,9 @@ class SteamWorkshopDownloader(QWidget):
         # Save window size before closing
         self.config['window_size'] = {'width': self.width(), 'height': self.height()}
 
-        # Save column widths for the download queue tree
         column_widths = [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())]
         self.config['queue_tree_column_widths'] = column_widths
-
-        # Save column visibility for the download queue tree
+        
         column_hidden = [self.queue_tree.isColumnHidden(i) for i in range(self.queue_tree.columnCount())]
         self.config['queue_tree_column_hidden'] = column_hidden
 
@@ -739,19 +747,19 @@ class SteamWorkshopDownloader(QWidget):
         if not mod_input:
             QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
             return
-
+    
         mod_id = self.extract_id(mod_input)
         if not mod_id:
             QMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
-
+    
         # Detect if the input ID corresponds to a collection
         is_collection = self.is_collection(mod_id)
         if is_collection:
             reply = QMessageBox.question(
                 self,
-                'Detected a Collection',
-                'The ID corresponds to a Collection. Do you want to add it as a Collection?',
+                'Detected Collection',
+                'The input corresponds to a collection. Do you want to add it as a collection?',
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
@@ -760,28 +768,46 @@ class SteamWorkshopDownloader(QWidget):
             else:
                 QMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
             return
-
+    
         if self.is_mod_in_queue(mod_id):
             self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
             return
-
+    
         # Fetch mod info using mod_id
         game_name, app_id, mod_title = self.get_mod_info(mod_id)
         if not mod_title:
             mod_title = "Unknown Title"  # Default to 'Unknown Title' if fetching fails
-
+    
         # Update game selection in the UI if game_name was successfully fetched
         if game_name:
             self.update_game_selection(game_name)
-
-        # Add mod to download queue
-        self.download_queue.append({'mod_id': mod_id, 'mod_name': mod_title, 'status': 'Queued', 'retry_count': 0})
-        tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued'])
+    
+        # Determine the provider
+        provider = self.get_provider_for_mod({'app_id': app_id})
+        if provider == 'SteamWebAPI':
+            provider_display = 'SteamWebAPI'
+            if not app_id:
+                self.log_signal.emit(f"App ID not found for mod {mod_id}. Mod will be downloaded using SteamWebAPI.")
+            else:
+                self.log_signal.emit(f"App ID {app_id} not found in AppIDs.txt. Mod {mod_id} will be downloaded using SteamWebAPI.")
+        else:
+            provider_display = 'SteamCMD'
+    
+        # Add mod to download queue, include app_id and provider
+        self.download_queue.append({
+            'mod_id': mod_id,
+            'mod_name': mod_title,
+            'status': 'Queued',
+            'retry_count': 0,
+            'app_id': app_id,
+            'provider': provider
+        })
+        tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued', provider_display])
         self.queue_tree.addTopLevelItem(tree_item)
-
+    
         # Enable the export button if the queue is not empty
         self.export_queue_btn.setEnabled(bool(self.download_queue))
-
+    
         self.mod_input.clear()
         self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
 
@@ -790,19 +816,19 @@ class SteamWorkshopDownloader(QWidget):
         if not collection_input:
             QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Collection URL or ID.')
             return
-
+    
         collection_id = self.extract_id(collection_input)
         if not collection_id:
             QMessageBox.warning(self, 'Input Error', 'Invalid Workshop Collection URL or ID.')
             return
-
+    
         # Detect if the input ID corresponds to a mod
         is_collection = self.is_collection(collection_id)
         if not is_collection:
             reply = QMessageBox.question(
                 self,
-                'Detected a Mod',
-                'The ID corresponds to a Mod. Do you want to add it as a Mod?',
+                'Detected Mod',
+                'The input corresponds to a mod. Do you want to add it as a mod?',
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
@@ -811,21 +837,21 @@ class SteamWorkshopDownloader(QWidget):
             else:
                 QMessageBox.information(self, 'Action Cancelled', 'The mod was not added.')
             return
-
+    
         try:
             url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={collection_id}"
             headers = {'User-Agent': 'Mozilla/5.0'}
             response = requests.get(url, headers=headers)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
-
+    
             game_name, app_id = self.get_game_info_from_soup(soup)
             if not app_id:
                 self.log_signal.emit(f"Failed to retrieve App ID for collection {collection_id}.")
                 return
-
+    
             self.update_game_selection(game_name)
-
+    
             collection_items = soup.find_all('div', class_='collectionItem')
             added_count = 0
             for item in collection_items:
@@ -836,21 +862,54 @@ class SteamWorkshopDownloader(QWidget):
                     # Extract mod title
                     title_tag = item.find('div', class_='workshopItemTitle')
                     mod_title = title_tag.text.strip() if title_tag else 'Unknown Title'
+                    # Fetch mod info to get app_id
+                    _, app_id_mod, _ = self.get_mod_info(mod_id)
+                    # Determine the provider
+                    provider = self.get_provider_for_mod({'app_id': app_id_mod})
+                    if provider == 'SteamWebAPI':
+                        provider_display = 'SteamWebAPI'
+                    else:
+                        provider_display = 'SteamCMD'
                     # Add mod to download queue
-                    self.download_queue.append({'mod_id': mod_id, 'mod_name': mod_title, 'status': 'Queued', 'retry_count': 0})
-                    tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued'])
+                    self.download_queue.append({
+                        'mod_id': mod_id,
+                        'mod_name': mod_title,
+                        'status': 'Queued',
+                        'retry_count': 0,
+                        'app_id': app_id_mod,
+                        'provider': provider
+                    })
+                    tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued', provider_display])
                     self.queue_tree.addTopLevelItem(tree_item)
                     added_count += 1
-
+    
             self.log_signal.emit(f"Collection {collection_id} added to the queue with {added_count} mods.")
             self.collection_input.clear()
-
+    
             # Ensure export button is enabled if there's anything in the queue
             if self.download_queue:
                 self.export_queue_btn.setEnabled(True)
-
+    
         except Exception as e:
             self.log_signal.emit(f"Error fetching collection: {e}")
+
+    def get_provider_for_mod(self, mod):
+        selected_provider = self.provider_dropdown.currentText()
+        if selected_provider == 'Default':
+            app_id = mod.get('app_id')
+            if app_id not in self.app_ids.values():
+                return 'SteamWebAPI'
+            else:
+                return 'SteamCMD'
+        else:
+            return selected_provider
+            
+    def find_queue_item(self, mod_id):
+        for index in range(self.queue_tree.topLevelItemCount()):
+            item = self.queue_tree.topLevelItem(index)
+            if item.text(0) == mod_id:
+                return item
+        return None
 
     def is_collection(self, item_id):
         try:
@@ -963,17 +1022,80 @@ class SteamWorkshopDownloader(QWidget):
 
     def download_worker(self):
         batch_size = self.config.get('batch_size', 20)
-        
+    
         while self.is_downloading:
-            current_batch = [mod for mod in self.download_queue if mod['status'] == 'Queued'][:batch_size]
-            if not current_batch:
+            queued_mods = [mod for mod in self.download_queue if mod['status'] == 'Queued']
+            if not queued_mods:
                 break  # No more mods to download
     
-            self.log_signal.emit(f"Starting batch download of {len(current_batch)} mod(s).")
+            # Separate mods by provider
+            steamcmd_mods = [mod for mod in queued_mods if mod['provider'] == 'SteamCMD'][:batch_size]
+            webapi_mods = [mod for mod in queued_mods if mod['provider'] == 'SteamWebAPI'][:batch_size]
     
+            # Process SteamCMD mods first
+            if steamcmd_mods:
+                self.log_signal.emit(f"Starting SteamCMD download of {len(steamcmd_mods)} mod(s).")
+                self.download_mods_steamcmd(steamcmd_mods)
+    
+            # Then process SteamWebAPI mods
+            if webapi_mods:
+                for mod in webapi_mods:
+                    mod_id = mod['mod_id']
+                    mod['status'] = 'Downloading'
+                    self.update_queue_signal.emit(mod_id, 'Downloading')
+                    success = self.download_mod_webapi(mod)
+                    if success:
+                        mod['status'] = 'Downloaded'
+                        self.update_queue_signal.emit(mod_id, 'Downloaded')
+                    else:
+                        mod['retry_count'] += 1
+                        if mod['retry_count'] < 3:
+                            mod['status'] = 'Queued'
+                            self.update_queue_signal.emit(mod_id, 'Queued')
+                        else:
+                            mod['status'] = 'Failed'
+                            self.update_queue_signal.emit(mod_id, 'Failed')
+    
+            # Remove all mods that have the status "Downloaded"
+            mods_to_remove = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
+            for mod in mods_to_remove:
+                self.remove_mod_from_queue(mod['mod_id'])
+    
+        # End the download process
+        self.log_signal.emit("All downloads have been processed.")
+        self.is_downloading = False
+        self.download_btn.setText('Start Download')
+        self.download_btn.setEnabled(True)
+        
+    def change_provider_for_mods(self, selected_items, new_provider):
+        for item in selected_items:
+            mod_id = item.text(0)
+            mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
+            if mod:
+                mod['provider'] = new_provider
+                item.setText(3, new_provider)
+                self.log_signal.emit(f"Mod {mod_id} provider changed to {new_provider}.")
+        
+    def download_mods_steamcmd(self, steamcmd_mods):
+        # Group mods by app_id
+        mods_by_app_id = defaultdict(list)
+        for mod in steamcmd_mods:
+            app_id = mod.get('app_id')
+            if app_id:
+                mods_by_app_id[app_id].append(mod)
+            else:
+                self.log_signal.emit(f"No app_id for mod {mod['mod_id']}. Skipping.")
+                mod['status'] = 'Failed'
+                self.update_queue_signal.emit(mod['mod_id'], 'Failed')
+
+        for app_id, mods in mods_by_app_id.items():
+            for mod in mods:
+                mod['status'] = 'Downloading'
+                self.update_queue_signal.emit(mod['mod_id'], 'Downloading')
+
             steamcmd_commands = [self.steamcmd_executable]
             active_account = self.config.get('active_account', "Anonymous")
-            
+
             # Set up login credentials
             if active_account != "Anonymous":
                 account = next((acc for acc in self.config['steam_accounts'] if acc['username'] == active_account), None)
@@ -984,18 +1106,17 @@ class SteamWorkshopDownloader(QWidget):
                     steamcmd_commands.extend(['+login', 'anonymous'])
             else:
                 steamcmd_commands.extend(['+login', 'anonymous'])
-    
+
             # Add workshop download commands for each mod in the batch
-            for mod in current_batch:
+            for mod in mods:
                 mod_id = mod['mod_id']
-                mod['status'] = 'Downloading'
-                self.update_queue_signal.emit(mod_id, 'Downloading')
-                steamcmd_commands.extend(['+workshop_download_item', self.get_selected_app_id(), mod_id])
-    
+                steamcmd_commands.extend(['+workshop_download_item', app_id, mod_id])
+
             steamcmd_commands.append('+quit')
-    
+
+            # Now, run SteamCMD with these commands
             try:
-                # Start the SteamCMD process for the entire batch
+                # Start the SteamCMD process for the batch
                 self.current_process = subprocess.Popen(
                     steamcmd_commands,
                     stdout=subprocess.PIPE,
@@ -1004,48 +1125,114 @@ class SteamWorkshopDownloader(QWidget):
                     bufsize=1,
                     cwd=self.steamcmd_dir
                 )
-    
+
                 # Process SteamCMD output line-by-line to track progress
                 for line in self.current_process.stdout:
                     clean_line = line.strip()
                     if clean_line:
                         self.log_signal.emit(clean_line)
-                    
+
                     # Check the log line to determine success or failure
-                    for mod in current_batch:
+                    for mod in mods:
                         self.parse_log_line(clean_line, mod['mod_id'])
-    
+
                 self.current_process.stdout.close()
                 self.current_process.wait()
-    
+
                 if self.current_process.returncode == 0:
-                    self.log_signal.emit("Batch downloads completed successfully.")
+                    self.log_signal.emit(f"Batch downloads for App ID {app_id} completed successfully.")
                 else:
                     self.log_signal.emit(f"SteamCMD exited with code {self.current_process.returncode}. Some downloads might have failed.")
-    
+
             except Exception as e:
-                self.log_signal.emit(f"Error during batch download: {e}")
+                self.log_signal.emit(f"Error during batch download for App ID {app_id}: {e}")
                 # Mark all mods in the current batch as failed
-                for mod in current_batch:
+                for mod in mods:
                     mod['status'] = f'Failed: {e}'
                     self.update_queue_signal.emit(mod['mod_id'], mod['status'])
-                    self.consecutive_failures += 1
+                    mod['retry_count'] += 1
+
+    def download_mod_webapi(self, mod):
+        mod_id = mod['mod_id']
+        mod_details = self.get_published_file_details(mod_id)
+        # Extracting file URL and details from the JSON response
+        try:
+            file_details = mod_details['response']['publishedfiledetails'][0]
+            if 'file_url' not in file_details or not file_details['file_url']:
+                raise ValueError(f"Error: File URL not available for mod {mod_id}. The file might not be downloadable or doesn't exist.")
+        
+            file_url = file_details['file_url']
+            filename = file_details.get('filename', None)
+            title = file_details.get('title', 'Unnamed Mod')  # Default to 'Unnamed Mod'
     
-            # Remove all mods that have the status "Downloaded"
-            mods_to_remove = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
-            for mod in mods_to_remove:
-                self.remove_mod_from_queue(mod['mod_id'])
+            # Use 'filename' from JSON response if available, otherwise fall back to title
+            if filename and filename.strip():
+                filename = filename.strip()  # Use the filename from the response directly
+            else:
+                # If filename is not available, use title with appropriate extension based on URL
+                filename = f"{title}.zip" if file_url.endswith('.zip') else f"{title}.mod"
     
-            # Check for consecutive failures and reset if needed
-            if self.consecutive_failures >= 3:
-                self.log_signal.emit("3 consecutive failures detected. Restarting SteamCMD.")
-                self.consecutive_failures = 0
+            # remove illegal characters from filename
+            filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
     
-        # End the download process
-        self.log_signal.emit("All downloads have been processed.")
-        self.is_downloading = False
-        self.download_btn.setText('Start Download')
-        self.download_btn.setEnabled(True)
+            # Create directories if they don't exist
+            download_path = self.get_download_path(mod)
+            file_path = os.path.join(download_path, filename)
+            directory = os.path.dirname(file_path)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory)
+    
+            # Downloading the file
+            self.log_signal.emit(f"Downloading mod {mod_id} ('{title}') to '{filename}'")
+            response = requests.get(file_url, stream=True)
+            if response.status_code == 200:
+                with open(file_path, 'wb') as file:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        file.write(chunk)
+                self.log_signal.emit(f"Downloaded mod {mod_id}: {filename}")
+                return True
+            else:
+                self.log_signal.emit(f"Failed to download the mod {mod_id}. HTTP Status Code: {response.status_code}")
+                return False
+        except KeyError:
+            self.log_signal.emit(f"Error: Invalid response structure while fetching details for mod {mod_id}.")
+            return False
+        except ValueError as ve:
+            self.log_signal.emit(str(ve))
+            return False
+        except Exception as e:
+            self.log_signal.emit(f"An error occurred while downloading mod {mod_id}: {e}")
+            return False
+
+    def get_published_file_details(self, file_id):
+        url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
+        payload = {
+            'itemcount': 1,
+            'publishedfileids[0]': file_id,
+        }
+        response = requests.post(url, data=payload)
+        return response.json()
+
+    def get_download_path(self, mod):
+        provider = mod.get('provider')
+        if provider == 'SteamWebAPI':
+            # Use Downloads folder next to the script
+            script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            download_path = os.path.join(script_dir, 'Downloads')
+        else:
+            app_id = mod.get('app_id')
+            if app_id:
+                download_path = os.path.join(
+                    self.steamcmd_dir,
+                    'steamapps',
+                    'workshop',
+                    'content',
+                    app_id
+                )
+            else:
+                # If app_id is not available, use a default download folder inside steamcmd_dir
+                download_path = os.path.join(self.steamcmd_dir, 'downloads')
+        return download_path
 
     def parse_log_line(self, log_line, mod_id):
         success_pattern = re.compile(r'Success\. Downloaded item (\d+) to .* \((\d+) bytes\)', re.IGNORECASE)
@@ -1076,34 +1263,12 @@ class SteamWorkshopDownloader(QWidget):
             return
 
     def update_queue_status(self, mod_id, status):
-        item_to_remove = None
         for index in range(self.queue_tree.topLevelItemCount()):
             item = self.queue_tree.topLevelItem(index)
             if item.text(0) == mod_id:
                 item.setText(2, status)
                 self.log_signal.emit(f"Mod {mod_id} status updated to {status}.")
-                if status == 'Downloaded':
-                    # Mark item for removal from queue_tree
-                    item_to_remove = item
-                    self.log_signal.emit(f"Mod {mod_id} removed from the queue.")
-                elif status.startswith('Failed'):
-                    for mod in self.download_queue:
-                        if mod['mod_id'] == mod_id:
-                            if mod['retry_count'] < 3:
-                                mod['retry_count'] += 1
-                                mod['status'] = 'Queued'
-                                self.log_signal.emit(f"Retrying mod {mod_id}. Attempt {mod['retry_count']}.")
-                            else:
-                                self.log_signal.emit(f"Mod {mod_id} failed after 3 attempts.")
-                            break
                 break
-        if item_to_remove:
-            index = self.queue_tree.indexOfTopLevelItem(item_to_remove)
-            self.queue_tree.takeTopLevelItem(index)
-            self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] != mod_id]
-        
-        # Disable the export button if the queue is empty
-        self.export_queue_btn.setEnabled(bool(self.download_queue))
 
     def append_log(self, message):
         self.log_area.append(message)
@@ -1119,39 +1284,112 @@ class SteamWorkshopDownloader(QWidget):
         if not mod_input:
             QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
             return
-
+    
         mod_id = self.extract_id(mod_input)
         if not mod_id:
             QMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
-
+    
         # Detect if the input ID corresponds to a collection
         is_collection = self.is_collection(mod_id)
         if is_collection:
             QMessageBox.information(self, 'THIS IS NOT A MOD', 'The ID corresponds to a Collection. Please add the collection to the queue instead.')
             return
-
+    
         if self.is_mod_in_queue(mod_id):
             self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
             return
-
+    
         # Fetch mod info using mod_id
         game_name, app_id, mod_title = self.get_mod_info(mod_id)
         if not app_id:
             self.log_signal.emit(f"Failed to retrieve App ID for mod {mod_id}.")
             return
-
+    
         # Update game selection in the UI
         self.update_game_selection(game_name)
-
-        self.download_queue.append({'mod_id': mod_id, 'mod_name': mod_title, 'status': 'Queued', 'retry_count': 0})
-        tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued'])
+    
+        # Determine the provider
+        provider = self.get_provider_for_mod({'app_id': app_id})
+        if provider == 'SteamWebAPI':
+            provider_display = 'SteamWebAPI'
+            if not app_id:
+                self.log_signal.emit(f"App ID not found. Mod {mod_id} will be downloaded using SteamWebAPI.")
+            else:
+                self.log_signal.emit(f"App ID {app_id} not found in AppIDs.txt. Mod {mod_id} will be downloaded using SteamWebAPI.")
+        else:
+            provider_display = 'SteamCMD'
+    
+        self.download_queue.append({
+            'mod_id': mod_id,
+            'mod_name': mod_title,
+            'status': 'Queued',
+            'retry_count': 0,
+            'app_id': app_id,
+            'provider': provider
+        })
+        tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued', provider_display])
         self.queue_tree.addTopLevelItem(tree_item)
         self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
-
+    
         self.mod_input.clear()
-
+    
         self.start_download()
+        
+    def on_provider_changed(self):
+        selected_provider = self.provider_dropdown.currentText()
+        if selected_provider != 'Default' and self.download_queue:
+            # Check if there are mods with different providers in the queue
+            mods_with_different_providers = any(mod['provider'] != selected_provider for mod in self.download_queue)
+            if mods_with_different_providers:
+                reply = QMessageBox.question(
+                    self,
+                    'Override Providers',
+                    'Doing this will override all providers for mods in the queue. Are you sure?',
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    # Override providers for all mods in the queue
+                    for mod in self.download_queue:
+                        mod['provider'] = selected_provider
+                    # Update the provider column in the queue_tree
+                    for index in range(self.queue_tree.topLevelItemCount()):
+                        item = self.queue_tree.topLevelItem(index)
+                        item.setText(3, selected_provider)
+                    self.log_signal.emit(f"All mod providers have been set to '{selected_provider}'.")
+                else:
+                    # Revert to previous selection
+                    self.provider_dropdown.blockSignals(True)
+                    previous_provider = 'Default'
+                    self.provider_dropdown.setCurrentText(previous_provider)
+                    self.provider_dropdown.blockSignals(False)
+        elif selected_provider == 'Default' and self.download_queue:
+            # Check if all mods have the same provider
+            mods_with_steamcmd = all(mod['provider'] == 'SteamCMD' for mod in self.download_queue)
+            mods_with_webapi = all(mod['provider'] == 'SteamWebAPI' for mod in self.download_queue)
+            if mods_with_steamcmd or mods_with_webapi:
+                reply = QMessageBox.question(
+                    self,
+                    'Override Providers',
+                    'Doing this will override all providers for mods in the queue. Are you sure?',
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    # Reset providers to default behavior
+                    for mod in self.download_queue:
+                        mod['provider'] = self.get_provider_for_mod(mod)
+                        # Update the provider display in the queue_tree
+                        provider_display = mod['provider']
+                        item = self.find_queue_item(mod['mod_id'])
+                        if item:
+                            item.setText(3, provider_display)
+                    self.log_signal.emit("Mod providers have been reset to default behavior.")
+                else:
+                    # Revert to previous selection
+                    self.provider_dropdown.blockSignals(True)
+                    previous_provider = 'SteamCMD' if mods_with_steamcmd else 'SteamWebAPI'
+                    self.provider_dropdown.setCurrentText(previous_provider)
+                    self.provider_dropdown.blockSignals(False)
 
     def open_context_menu(self, position: QPoint):
         if self.is_downloading:
@@ -1205,24 +1443,39 @@ class SteamWorkshopDownloader(QWidget):
         self.export_queue_btn.setEnabled(bool(self.download_queue))
 
     def open_downloads_folder(self):
-        app_id = self.get_selected_app_id()
-        if not app_id:
-            QMessageBox.warning(self, 'Error', 'No game selected. Please select a game.')
+        selected_items = self.queue_tree.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, 'Error', 'Please select a mod from the queue to open its download folder.')
             return
-
-        download_path = os.path.join(
-            self.steamcmd_dir,
-            'steamapps',
-            'workshop',
-            'content',
-            app_id
-        )
-
+    
+        mod_id = selected_items[0].text(0)
+        mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
+        if not mod:
+            QMessageBox.warning(self, 'Error', 'Selected mod not found in the download queue.')
+            return
+    
+        provider = mod.get('provider')
+        if provider == 'SteamWebAPI':
+            # Open Downloads folder next to the script
+            script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            download_path = os.path.join(script_dir, 'Downloads')
+        else:
+            app_id = mod.get('app_id')
+            if not app_id:
+                QMessageBox.warning(self, 'Error', 'App ID not found for the selected mod.')
+                return
+            download_path = os.path.join(
+                self.steamcmd_dir,
+                'steamapps',
+                'workshop',
+                'content',
+                app_id
+            )
+    
         if os.path.isdir(download_path):
             webbrowser.open(download_path)
         else:
             QMessageBox.warning(self, 'Error', f"Download folder does not exist: {download_path}")
-
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
