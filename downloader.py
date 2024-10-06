@@ -1798,29 +1798,45 @@ class SteamWorkshopDownloader(QWidget):
         self.clipboard.dataChanged.disconnect(self.check_clipboard_for_url)
 
     def check_clipboard_for_url(self):
-         current_text = self.clipboard.text().strip()
-         if current_text != self.last_clipboard_text and self.is_valid_workshop_url(current_text):
-             self.last_clipboard_text = current_text
-             self.log_signal.emit(f"Detected URL from clipboard: {current_text}")
-             
-             mod_id = self.extract_id(current_text)
-             if mod_id:
-                 # Detect if the input ID is a mod or collection
-                 is_collection = self.is_collection(mod_id)
-                 if is_collection:
-                     # Auto-populate the "Workshop Collection" textbox
-                     self.collection_input.setText(current_text)
-                     self.log_signal.emit(f"Auto-populated Workshop Collection: {current_text}")
-                     if self.config.get('auto_add_to_queue', False):
-                         self.add_collection_to_queue()
-                 else:
-                     # Auto-populate the "Workshop Mod" textbox
-                     self.mod_input.setText(current_text)
-                     self.log_signal.emit(f"Auto-populated Workshop Mod: {current_text}")
-                     if self.config.get('auto_add_to_queue', False):
-                         self.add_mod_to_queue()
-             else:
-                 self.log_signal.emit(f"Invalid URL detected: {current_text}")
+        current_text = self.clipboard.text().strip()
+    
+        if self.is_valid_workshop_url(current_text):
+            # Extract mod_id from the URL
+            mod_id = self.extract_id(current_text)
+    
+            # If mod_id is detected
+            if mod_id:
+                is_collection = self.is_collection(mod_id)
+    
+                # Handling for Collection URL
+                if is_collection:
+                    # Check if the collection input already has the same mod_id
+                    current_collection_id = self.extract_id(self.collection_input.text().strip())
+                    if current_collection_id == mod_id:
+                        return
+                    else:
+                        # Populate collection input
+                        self.collection_input.setText(mod_id)
+                        self.log_signal.emit(f"Auto-populated Workshop Collection with mod ID: {mod_id}")
+    
+                        if self.config.get('auto_add_to_queue', False):
+                            self.add_collection_to_queue()
+    
+                # Handling for Mod URL
+                else:
+                    # Check if the mod input already has the same mod_id
+                    current_mod_id = self.extract_id(self.mod_input.text().strip())
+                    if current_mod_id == mod_id:
+                        return
+                    else:
+                        # Populate mod input
+                        self.mod_input.setText(mod_id)
+                        self.log_signal.emit(f"Auto-populated Workshop Mod with mod ID: {mod_id}")
+    
+                        if self.config.get('auto_add_to_queue', False):
+                            self.add_mod_to_queue()
+            else:
+                self.log_signal.emit(f"Invalid URL detected: {current_text}")
 
     def is_valid_workshop_url(self, text):
         return re.match(r'https?://steamcommunity\.com/sharedfiles/filedetails/\?id=\d+', text)
