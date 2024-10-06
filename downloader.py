@@ -8,7 +8,11 @@ import re
 import zipfile
 import webbrowser
 import time
+import asyncio
+import aiohttp
 from io import BytesIO
+from bs4 import BeautifulSoup
+from collections import defaultdict
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
@@ -17,8 +21,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QPoint, QThread, QSize
 from PySide6.QtGui import QTextCursor, QAction
-from bs4 import BeautifulSoup
-from collections import defaultdict
 
 class SettingsDialog(QDialog):
     def __init__(self, current_batch_size, show_logs, show_provider, parent=None):
@@ -74,6 +76,107 @@ class AddSteamAccountDialog(QDialog):
 
     def get_username(self):
         return self.username_input.text().strip()
+        
+class CollectionFetcher(QThread):
+    collection_processed = Signal(list)  # Emits the list of mods with their info
+    error_occurred = Signal(str)  # Emits error messages
+
+    def __init__(self, collection_id, app_id_to_game, existing_mod_ids, parent=None):
+        super().__init__(parent)
+        self.collection_id = collection_id
+        self.app_id_to_game = app_id_to_game
+        self.existing_mod_ids = existing_mod_ids  # List of mod IDs already in the queue
+
+    def run(self):
+        asyncio.run(self.process_collection())
+
+    async def process_collection(self):
+        try:
+            # Create an aiohttp ClientSession
+            async with aiohttp.ClientSession() as session:
+                # Fetch the collection page
+                collection_url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={self.collection_id}"
+                async with session.get(collection_url) as response:
+                    if response.status != 200:
+                        self.error_occurred.emit(f"Failed to fetch collection page. HTTP status: {response.status}")
+                        return
+                    page_content = await response.text()
+
+                # Parse the page content with BeautifulSoup
+                soup = BeautifulSoup(page_content, 'html.parser')
+
+                # Get game info from the collection page
+                game_name, app_id = self.get_game_info_from_soup(soup)
+
+                # Find all mod IDs in the collection
+                collection_items = soup.find_all('div', class_='collectionItem')
+
+                mod_ids = []
+                for item in collection_items:
+                    # Extract mod ID
+                    a_tag = item.find('a', href=True)
+                    mod_id = self.extract_id(a_tag['href']) if a_tag else None
+                    if mod_id and mod_id not in self.existing_mod_ids:
+                        mod_ids.append(mod_id)
+
+                # Fetch mod info for all mods concurrently
+                tasks = [self.fetch_mod_info(session, mod_id) for mod_id in mod_ids]
+                mods_info = await asyncio.gather(*tasks)
+
+                # Include game_name and app_id for updating game selection
+                self.collection_processed.emit([mods_info, game_name])
+        except Exception as e:
+            self.error_occurred.emit(f"Error processing collection: {e}")
+
+    async def fetch_mod_info(self, session, mod_id):
+        try:
+            url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={mod_id}"
+            async with session.get(url) as response:
+                if response.status != 200:
+                    return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None}
+                page_content = await response.text()
+                soup = BeautifulSoup(page_content, 'html.parser')
+
+                # Fetch game info
+                game_tag = soup.find('a', attrs={'data-panel': '{"noFocusRing":true}'})
+                game_name, app_id = None, None
+                if game_tag and 'href' in game_tag.attrs:
+                    href = game_tag['href']
+                    app_id_match = re.search(r'/app/(\d+)', href)
+                    if app_id_match:
+                        app_id = app_id_match.group(1)
+                        game_name = self.app_id_to_game.get(app_id, None)
+                # Fetch mod title
+                title_tag = soup.find('div', class_='workshopItemTitle')
+                mod_title = title_tag.text.strip() if title_tag else 'Unknown Title'
+                return {'mod_id': mod_id, 'mod_name': mod_title, 'app_id': app_id}
+        except Exception as e:
+            return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None}
+
+    def extract_id(self, input_str):
+        pattern = r'https?://steamcommunity\.com/sharedfiles/filedetails/\?id=(\d+)'
+        match = re.match(pattern, input_str)
+        if match:
+            return match.group(1)
+        elif input_str.isdigit():
+            return input_str  # Directly return if it's an ID
+        else:
+            # Attempt to extract numbers from the input
+            id_match = re.search(r'(\d+)', input_str)
+            if id_match:
+                return id_match.group(1)
+        return None
+
+    def get_game_info_from_soup(self, soup):
+        game_tag = soup.find('a', attrs={'data-panel': '{"noFocusRing":true}'})
+        if game_tag and 'href' in game_tag.attrs:
+            href = game_tag['href']
+            app_id_match = re.search(r'/app/(\d+)', href)
+            if app_id_match:
+                game_app_id = app_id_match.group(1)
+                game_name = self.app_id_to_game.get(game_app_id, None)
+                return game_name, game_app_id
+        return None, None
 
 class TokenMonitorWorker(QThread):
     token_found = Signal(str)
@@ -859,12 +962,12 @@ class SteamWorkshopDownloader(QWidget):
         if not collection_input:
             QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Collection URL or ID.')
             return
-    
+
         collection_id = self.extract_id(collection_input)
         if not collection_id:
             QMessageBox.warning(self, 'Input Error', 'Invalid Workshop Collection URL or ID.')
             return
-    
+
         # Detect if the input ID corresponds to a mod
         is_collection = self.is_collection(collection_id)
         if not is_collection:
@@ -880,61 +983,61 @@ class SteamWorkshopDownloader(QWidget):
             else:
                 QMessageBox.information(self, 'Action Cancelled', 'The mod was not added.')
             return
-    
-        try:
-            url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={collection_id}"
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-    
-            game_name, app_id = self.get_game_info_from_soup(soup)
-            if not app_id:
-                self.log_signal.emit(f"Failed to retrieve App ID for collection {collection_id}.")
-                return
-    
+
+        # Get the list of existing mod IDs to avoid duplicates
+        existing_mod_ids = [mod['mod_id'] for mod in self.download_queue]
+
+        # Create an instance of CollectionFetcher
+        self.collection_fetcher = CollectionFetcher(
+            collection_id=collection_id,
+            app_id_to_game=self.app_id_to_game,
+            existing_mod_ids=existing_mod_ids
+        )
+        self.collection_fetcher.collection_processed.connect(self.on_collection_processed)
+        self.collection_fetcher.error_occurred.connect(self.on_collection_error)
+        self.collection_fetcher.start()
+        self.log_signal.emit(f"Processing collection {collection_id}...")
+
+    def on_collection_processed(self, result):
+        mods_info, game_name = result
+        added_count = 0
+        for mod_info in mods_info:
+            mod_id = mod_info['mod_id']
+            mod_title = mod_info['mod_name']
+            app_id = mod_info['app_id']
+            if self.is_mod_in_queue(mod_id):
+                continue
+            # Determine the provider
+            provider = self.get_provider_for_mod({'app_id': app_id})
+            provider_display = provider
+
+            # Add mod to download queue
+            self.download_queue.append({
+                'mod_id': mod_id,
+                'mod_name': mod_title,
+                'status': 'Queued',
+                'retry_count': 0,
+                'app_id': app_id,
+                'provider': provider
+            })
+            tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued', provider_display])
+            self.queue_tree.addTopLevelItem(tree_item)
+            added_count += 1
+
+        # Update game selection in the UI if game_name was successfully fetched
+        if game_name:
             self.update_game_selection(game_name)
-    
-            collection_items = soup.find_all('div', class_='collectionItem')
-            added_count = 0
-            for item in collection_items:
-                # Extract mod ID
-                a_tag = item.find('a', href=True)
-                mod_id = self.extract_id(a_tag['href']) if a_tag else None
-                if mod_id and not self.is_mod_in_queue(mod_id):
-                    # Extract mod title
-                    title_tag = item.find('div', class_='workshopItemTitle')
-                    mod_title = title_tag.text.strip() if title_tag else 'Unknown Title'
-                    # Fetch mod info to get app_id
-                    _, app_id_mod, _ = self.get_mod_info(mod_id)
-                    # Determine the provider
-                    provider = self.get_provider_for_mod({'app_id': app_id_mod})
-                    if provider == 'SteamWebAPI':
-                        provider_display = 'SteamWebAPI'
-                    else:
-                        provider_display = 'SteamCMD'
-                    # Add mod to download queue
-                    self.download_queue.append({
-                        'mod_id': mod_id,
-                        'mod_name': mod_title,
-                        'status': 'Queued',
-                        'retry_count': 0,
-                        'app_id': app_id_mod,
-                        'provider': provider
-                    })
-                    tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued', provider_display])
-                    self.queue_tree.addTopLevelItem(tree_item)
-                    added_count += 1
-    
-            self.log_signal.emit(f"Collection {collection_id} added to the queue with {added_count} mods.")
-            self.collection_input.clear()
-    
-            # Ensure export button is enabled if there's anything in the queue
-            if self.download_queue:
-                self.export_queue_btn.setEnabled(True)
-    
-        except Exception as e:
-            self.log_signal.emit(f"Error fetching collection: {e}")
+
+        self.log_signal.emit(f"Collection processed. {added_count} mods added to the queue.")
+        self.collection_input.clear()
+
+        # Ensure export button is enabled if there's anything in the queue
+        if self.download_queue:
+            self.export_queue_btn.setEnabled(True)
+
+    def on_collection_error(self, error_message):
+        QMessageBox.critical(self, 'Error', error_message)
+        self.log_signal.emit(error_message)
 
     def get_provider_for_mod(self, mod):
         selected_provider = self.provider_dropdown.currentText()
