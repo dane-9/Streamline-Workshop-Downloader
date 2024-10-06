@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QMenu, QCheckBox, QFileDialog
 )
 from PySide6.QtCore import Qt, Signal, QPoint, QThread, QSize
-from PySide6.QtGui import QTextCursor, QAction, QClipboard
+from PySide6.QtGui import QTextCursor, QAction, QClipboard, QIcon
 
 class SettingsDialog(QDialog):
     def __init__(self, current_batch_size, show_logs, show_provider, auto_detect_urls, auto_add_to_queue, parent=None):
@@ -1863,6 +1863,8 @@ class SteamWorkshopDownloader(QWidget):
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
+    app_icon = QIcon("logo.ico")
+    app.setWindowIcon(app_icon)
     downloader = SteamWorkshopDownloader()
     downloader.resize(670, 750)
     downloader.show()
