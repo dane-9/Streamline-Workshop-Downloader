@@ -565,8 +565,12 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addLayout(collection_layout)
 
         queue_layout = QHBoxLayout()
-        self.queue_label = QLabel('Download Queue:')
+        self.queue_label = QLabel('In Download Queue:')
         queue_layout.addWidget(self.queue_label)
+        
+        self.queue_count_label = QLabel('0')
+        queue_layout.addWidget(self.queue_count_label)
+        queue_layout.addStretch()
         
         self.import_queue_btn = QPushButton('Import Queue')
         self.import_queue_btn.setFixedWidth(90)
@@ -650,6 +654,10 @@ class SteamWorkshopDownloader(QWidget):
                 attr.setFixedHeight(button_height)
             elif isinstance(attr, QComboBox) and "_dropdown" in attr_name:
                 attr.setFixedHeight(dropdown_height)
+                
+    def update_queue_count(self):
+        count = len(self.download_queue)
+        self.queue_count_label.setText(f'{count}')
 
     def open_header_context_menu(self, position: QPoint):
         menu = QMenu()
@@ -950,6 +958,7 @@ class SteamWorkshopDownloader(QWidget):
         })
         tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued', provider_display])
         self.queue_tree.addTopLevelItem(tree_item)
+        self.update_queue_count()
     
         # Enable the export button if the queue is not empty
         self.export_queue_btn.setEnabled(bool(self.download_queue))
@@ -1023,6 +1032,7 @@ class SteamWorkshopDownloader(QWidget):
             tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued', provider_display])
             self.queue_tree.addTopLevelItem(tree_item)
             added_count += 1
+            self.update_queue_count()
 
         # Update game selection in the UI if game_name was successfully fetched
         if game_name:
@@ -1593,6 +1603,7 @@ class SteamWorkshopDownloader(QWidget):
             index = self.queue_tree.indexOfTopLevelItem(item_to_remove)
             self.queue_tree.takeTopLevelItem(index)
             self.log_signal.emit(f"Mod {mod_id} removed from the queue.")
+            self.update_queue_count()
     
         # Disable the export button if the queue is empty
         self.export_queue_btn.setEnabled(bool(self.download_queue))
@@ -1611,6 +1622,7 @@ class SteamWorkshopDownloader(QWidget):
     
         for mod_id in mod_ids_to_remove:
             self.log_signal.emit(f"Mod {mod_id} removed from the queue.")
+            self.update_queue_count()
     
         # Disable the export button if the queue is empty
         self.export_queue_btn.setEnabled(bool(self.download_queue))
