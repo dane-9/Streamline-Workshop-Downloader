@@ -21,40 +21,83 @@ from PySide6.QtWidgets import (
     QMenu, QCheckBox, QFileDialog
 )
 from PySide6.QtCore import Qt, Signal, QPoint, QThread, QSize
-from PySide6.QtGui import QTextCursor, QAction
+from PySide6.QtGui import QTextCursor, QAction, QClipboard
 
 class SettingsDialog(QDialog):
-    def __init__(self, current_batch_size, show_logs, show_provider, parent=None):
+    def __init__(self, current_batch_size, show_logs, show_provider, auto_detect_urls, auto_add_to_queue, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.resize(320, 120)
+        self.resize(320, 200)
 
         layout = QFormLayout(self)
 
+        # Batch Size Setting
         self.batch_size_spinbox = QSpinBox()
         self.batch_size_spinbox.setRange(1, 1000)
         self.batch_size_spinbox.setValue(current_batch_size)
         layout.addRow("Batch Size:", self.batch_size_spinbox)
 
+        # Show Logs Setting
         self.show_logs_checkbox = QCheckBox("Show Logs")
         self.show_logs_checkbox.setChecked(show_logs)
         layout.addRow(self.show_logs_checkbox)
 
+        # Show Provider Setting
         self.show_provider_checkbox = QCheckBox("Show Download Provider")
         self.show_provider_checkbox.setChecked(show_provider)
         layout.addRow(self.show_provider_checkbox)
 
+        # Auto-Detect URLs Setting
+        self.auto_detect_urls_checkbox = QCheckBox("Auto-detect URLs from Clipboard")
+        self.auto_detect_urls_checkbox.setChecked(auto_detect_urls)
+        self.auto_detect_urls_checkbox.stateChanged.connect(self.toggle_auto_add_checkbox)
+        layout.addRow(self.auto_detect_urls_checkbox)
+
+        # Auto-Add URLs to Queue Setting
+        offset_layout = QHBoxLayout()
+        offset_layout.addSpacing(20)
+        self.auto_add_to_queue_checkbox = QCheckBox("Auto-add detected URLs to Queue")
+        self.auto_add_to_queue_checkbox.setChecked(auto_add_to_queue)
+        self.auto_add_to_queue_checkbox.setEnabled(auto_detect_urls)  # Initially set based on auto-detect status
+        self.update_checkbox_style()
+        offset_layout.addWidget(self.auto_add_to_queue_checkbox)
+        layout.addRow(offset_layout)
+
+        # Dialog Buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def toggle_auto_add_checkbox(self):
+        # Determine the new state based on "Auto-detect URLs" checkbox
+        new_state = self.auto_detect_urls_checkbox.isChecked()
+    
+        # Update the enabled state of the auto-add checkbox and reset style accordingly
+        self.auto_add_to_queue_checkbox.setEnabled(new_state)
+        
+        # Repaint and refresh the UI explicitly to ensure the state is applied visually
+        self.auto_add_to_queue_checkbox.repaint()
+        self.update_checkbox_style()
+
+    def update_checkbox_style(self):
+        # Set the visual style to match the enabled/disabled state
+        if self.auto_add_to_queue_checkbox.isEnabled():
+            self.auto_add_to_queue_checkbox.setStyleSheet("color: black;")
+        else:
+            self.auto_add_to_queue_checkbox.setStyleSheet("color: grey;")
+        
+        # Ensure the widget gets repainted
+        self.auto_add_to_queue_checkbox.repaint()
 
     def get_settings(self):
         return {
             'batch_size': self.batch_size_spinbox.value(),
             'show_logs': self.show_logs_checkbox.isChecked(),
             'show_provider': self.show_provider_checkbox.isChecked(),
+            'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
+            'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
         }
 
 class AddSteamAccountDialog(QDialog):
@@ -462,6 +505,9 @@ class SteamWorkshopDownloader(QWidget):
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         self.current_process = None
         self.load_config()
+
+        self.clipboard = QApplication.clipboard()
+        self.last_clipboard_text = ""
         
         # Define download paths for SteamCMD and SteamWebAPI
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -742,6 +788,10 @@ class SteamWorkshopDownloader(QWidget):
             self.config['steam_accounts'] = []
         if 'active_account' not in self.config:
             self.config['active_account'] = "Anonymous"
+        if 'auto_detect_urls' not in self.config:
+            self.config['auto_detect_urls'] = False
+        if 'auto_add_to_queue' not in self.config:
+            self.config['auto_add_to_queue'] = False
 
     def save_config(self):
         try:
@@ -840,23 +890,32 @@ class SteamWorkshopDownloader(QWidget):
     def apply_settings(self):
         self.log_area.setVisible(self.config.get('show_logs', True))
         self.log_label.setVisible(self.config.get('show_logs', True))
-        
+    
         self.provider_label.setVisible(self.config.get('show_provider', True))
         self.provider_dropdown.setVisible(self.config.get('show_provider', True))
+    
+        if self.config.get('auto_detect_urls', False):
+            self.start_clipboard_monitoring()
+        else:
+            self.stop_clipboard_monitoring()
+    
+        if not self.config.get('auto_detect_urls', False):
+            self.config['auto_add_to_queue'] = False
 
     def open_settings(self):
         current_batch_size = self.config.get('batch_size', 20)
         show_logs = self.config.get('show_logs', True)
         show_provider = self.config.get('show_provider', True)
-        dialog = SettingsDialog(current_batch_size, show_logs, show_provider, self)
+        auto_detect_urls = self.config.get('auto_detect_urls', False)
+        auto_add_to_queue = self.config.get('auto_add_to_queue', False)
+
+        dialog = SettingsDialog(current_batch_size, show_logs, show_provider, auto_detect_urls, auto_add_to_queue, self)
         if dialog.exec() == QDialog.Accepted:
             settings = dialog.get_settings()
             self.config.update(settings)
             self.save_config()
             self.apply_settings()
-            self.log_signal.emit(f"Batch size set to {settings['batch_size']}.")
-            self.log_signal.emit(f"Log visibility set to {'shown' if settings['show_logs'] else 'hidden'}.")
-            self.log_signal.emit(f"Download provider visibility set to {'shown' if settings['show_provider'] else 'hidden'}.")
+            self.log_signal.emit(f"Settings updated: {settings}")
 
     def open_configure_steam_accounts(self):
         dialog = ConfigureSteamAccountsDialog(self.config, self.steamcmd_dir, self)
@@ -1730,7 +1789,52 @@ class SteamWorkshopDownloader(QWidget):
             download_path = os.path.join(downloads_root_path, 'SteamCMD', app_id)
             if not os.path.isdir(download_path):
                 os.makedirs(download_path)
-            webbrowser.open(download_path)    
+            webbrowser.open(download_path)
+            
+    def start_clipboard_monitoring(self):
+        self.clipboard.dataChanged.connect(self.check_clipboard_for_url)
+
+    def stop_clipboard_monitoring(self):
+        self.clipboard.dataChanged.disconnect(self.check_clipboard_for_url)
+
+    def check_clipboard_for_url(self):
+         current_text = self.clipboard.text().strip()
+         if current_text != self.last_clipboard_text and self.is_valid_workshop_url(current_text):
+             self.last_clipboard_text = current_text
+             self.log_signal.emit(f"Detected URL from clipboard: {current_text}")
+             
+             mod_id = self.extract_id(current_text)
+             if mod_id:
+                 # Detect if the input ID is a mod or collection
+                 is_collection = self.is_collection(mod_id)
+                 if is_collection:
+                     # Auto-populate the "Workshop Collection" textbox
+                     self.collection_input.setText(current_text)
+                     self.log_signal.emit(f"Auto-populated Workshop Collection: {current_text}")
+                     if self.config.get('auto_add_to_queue', False):
+                         self.add_collection_to_queue()
+                 else:
+                     # Auto-populate the "Workshop Mod" textbox
+                     self.mod_input.setText(current_text)
+                     self.log_signal.emit(f"Auto-populated Workshop Mod: {current_text}")
+                     if self.config.get('auto_add_to_queue', False):
+                         self.add_mod_to_queue()
+             else:
+                 self.log_signal.emit(f"Invalid URL detected: {current_text}")
+
+    def is_valid_workshop_url(self, text):
+        return re.match(r'https?://steamcommunity\.com/sharedfiles/filedetails/\?id=\d+', text)
+
+    def add_url_to_queue(self, url):
+        mod_id = self.extract_id(url)
+        if mod_id:
+            if not self.is_mod_in_queue(mod_id):
+                self.mod_input.setText(url)
+                self.add_mod_to_queue()
+            else:
+                self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
+        else:
+            self.log_signal.emit(f"Invalid URL detected: {url}")
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
