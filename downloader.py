@@ -388,20 +388,30 @@ class SteamWorkshopDownloader(QWidget):
         main_layout = QVBoxLayout()
 
         top_layout = QHBoxLayout()
-
+        
         self.settings_btn = QPushButton('Settings')
+        self.settings_btn.setFixedWidth(90)
         self.settings_btn.clicked.connect(self.open_settings)
         top_layout.addWidget(self.settings_btn)
 
         self.configure_steam_accounts_btn = QPushButton('Configure Steam Accounts')
+        self.configure_steam_accounts_btn.setFixedWidth(160)
         self.configure_steam_accounts_btn.clicked.connect(self.open_configure_steam_accounts)
         top_layout.addWidget(self.configure_steam_accounts_btn)
 
+        account_layout = QHBoxLayout()
+
+        self.active_account_label = QLabel("Active Account:")
+        account_layout.addStretch() # Pushes the text closer to the dropdown
+        account_layout.addWidget(self.active_account_label)
+
         self.steam_accounts_dropdown = QComboBox()
         self.steam_accounts_dropdown.addItem("Anonymous")
+        self.steam_accounts_dropdown.setFixedWidth(180)
         self.steam_accounts_dropdown.currentIndexChanged.connect(self.change_active_account)
-        top_layout.addWidget(QLabel("Active Account:"))
-        top_layout.addWidget(self.steam_accounts_dropdown)
+        account_layout.addWidget(self.steam_accounts_dropdown)
+
+        top_layout.addLayout(account_layout)
 
         main_layout.addLayout(top_layout)
 
@@ -416,10 +426,12 @@ class SteamWorkshopDownloader(QWidget):
         self.mod_label = QLabel('Workshop Mod:')
         self.mod_input = QLineEdit()
         self.mod_input.setPlaceholderText('Enter Mod URL or ID')
-
+        
         self.download_mod_btn = QPushButton('Download')
+        self.download_mod_btn.setFixedWidth(80)
         self.download_mod_btn.clicked.connect(self.download_mod_immediately)
         self.add_mod_btn = QPushButton('Add to Queue')
+        self.add_mod_btn.setFixedWidth(90)
         self.add_mod_btn.clicked.connect(self.add_mod_to_queue)
 
         mod_layout.addWidget(self.mod_label)
@@ -433,6 +445,7 @@ class SteamWorkshopDownloader(QWidget):
         self.collection_input = QLineEdit()
         self.collection_input.setPlaceholderText('Enter Collection URL or ID')
         self.add_collection_btn = QPushButton('Add to Queue')
+        self.add_collection_btn.setFixedWidth(90)
         self.add_collection_btn.clicked.connect(self.add_collection_to_queue)
         collection_layout.addWidget(self.collection_label)
         collection_layout.addWidget(self.collection_input)
@@ -442,12 +455,14 @@ class SteamWorkshopDownloader(QWidget):
         queue_layout = QHBoxLayout()
         self.queue_label = QLabel('Download Queue:')
         queue_layout.addWidget(self.queue_label)
-
+        
         self.import_queue_btn = QPushButton('Import Queue')
+        self.import_queue_btn.setFixedWidth(90)
         self.import_queue_btn.clicked.connect(self.import_queue)
         queue_layout.addWidget(self.import_queue_btn)
 
         self.export_queue_btn = QPushButton('Export Queue')
+        self.export_queue_btn.setFixedWidth(90)
         self.export_queue_btn.clicked.connect(self.export_queue)
         self.export_queue_btn.setEnabled(False)  # Disable initially as the queue is empty
         queue_layout.addWidget(self.export_queue_btn)
@@ -455,7 +470,7 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addLayout(queue_layout)
 
         self.queue_tree = QTreeWidget()
-        self.queue_tree.setColumnCount(4)  # Updated column count to 4
+        self.queue_tree.setColumnCount(4)
         self.queue_tree.setHeaderLabels(['Mod ID', 'Mod Name', 'Status', 'Provider'])
         self.queue_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.queue_tree.setContextMenuPolicy(Qt.CustomContextMenu)
