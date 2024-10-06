@@ -1806,35 +1806,31 @@ class SteamWorkshopDownloader(QWidget):
     
             # If mod_id is detected
             if mod_id:
+                # Determine if it's a mod or a collection
                 is_collection = self.is_collection(mod_id)
     
-                # Handling for Collection URL
+                # Check if the detected mod or collection is already in the corresponding input field
                 if is_collection:
-                    # Check if the collection input already has the same mod_id
                     current_collection_id = self.extract_id(self.collection_input.text().strip())
                     if current_collection_id == mod_id:
                         return
-                    else:
-                        # Populate collection input
-                        self.collection_input.setText(mod_id)
-                        self.log_signal.emit(f"Auto-populated Workshop Collection with mod ID: {mod_id}")
-    
-                        if self.config.get('auto_add_to_queue', False):
-                            self.add_collection_to_queue()
-    
-                # Handling for Mod URL
                 else:
-                    # Check if the mod input already has the same mod_id
                     current_mod_id = self.extract_id(self.mod_input.text().strip())
                     if current_mod_id == mod_id:
                         return
+    
+                # Auto-add to queue if the setting is enabled
+                if self.config.get('auto_add_to_queue', False):
+                    self.add_url_to_queue(current_text)
+                else:
+                    # Otherwise, populate the input field
+                    if is_collection:
+                        self.collection_input.setText(mod_id)
+                        self.log_signal.emit(f"Auto-populated Workshop Collection with mod ID: {mod_id}")
                     else:
-                        # Populate mod input
                         self.mod_input.setText(mod_id)
                         self.log_signal.emit(f"Auto-populated Workshop Mod with mod ID: {mod_id}")
     
-                        if self.config.get('auto_add_to_queue', False):
-                            self.add_mod_to_queue()
             else:
                 self.log_signal.emit(f"Invalid URL detected: {current_text}")
 
@@ -1843,14 +1839,26 @@ class SteamWorkshopDownloader(QWidget):
 
     def add_url_to_queue(self, url):
         mod_id = self.extract_id(url)
-        if mod_id:
-            if not self.is_mod_in_queue(mod_id):
-                self.mod_input.setText(url)
-                self.add_mod_to_queue()
-            else:
-                self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
-        else:
+        if not mod_id:
             self.log_signal.emit(f"Invalid URL detected: {url}")
+            return
+    
+        # Check if the mod or collection is already in the queue
+        if self.is_mod_in_queue(mod_id):
+            return
+    
+        # Determine if it's a collection or a mod
+        is_collection = self.is_collection(mod_id)
+        if is_collection:
+            # Auto-add collection to the queue
+            self.collection_input.setText(mod_id)
+            self.log_signal.emit(f"Auto-detected and adding Workshop Collection with mod ID: {mod_id} to queue")
+            self.add_collection_to_queue()
+        else:
+            # Auto-add mod to the queue
+            self.mod_input.setText(mod_id)
+            self.log_signal.emit(f"Auto-detected and adding Workshop Mod with mod ID: {mod_id} to queue")
+            self.add_mod_to_queue()
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
