@@ -1448,10 +1448,32 @@ class SteamWorkshopDownloader(QWidget):
             return
 
         menu = QMenu()
+        
+        # Change Provider submenu
+        change_provider_menu = menu.addMenu("Change Provider")
+        steamcmd_action = QAction("SteamCMD", self)
+        steamcmd_action.triggered.connect(lambda: self.change_provider_for_mods(selected_items, "SteamCMD"))
+        change_provider_menu.addAction(steamcmd_action)
+        
+        steamwebapi_action = QAction("SteamWebAPI", self)
+        steamwebapi_action.triggered.connect(lambda: self.change_provider_for_mods(selected_items, "SteamWebAPI"))
+        change_provider_menu.addAction(steamwebapi_action)
+        
+        # Remove action
         remove_action = QAction("Remove", self)
         remove_action.triggered.connect(lambda: self.remove_mods_from_queue(selected_items))
         menu.addAction(remove_action)
+        
         menu.exec(self.queue_tree.viewport().mapToGlobal(position))
+
+        def change_provider_for_mods(self, selected_items, new_provider):
+            for item in selected_items:
+                mod_id = item.text(0)
+                mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
+                if mod:
+                    mod['provider'] = new_provider
+                    item.setText(3, new_provider)  # Update the provider column in the UI
+                    self.log_signal.emit(f"Mod {mod_id} provider changed to {new_provider}.")
 
     def remove_mod_from_queue(self, mod_id):
         self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] != mod_id]
