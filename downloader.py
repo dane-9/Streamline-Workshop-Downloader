@@ -21,11 +21,11 @@ from bs4 import BeautifulSoup
 from collections import defaultdict
 
 class SettingsDialog(QDialog):
-    def __init__(self, current_batch_size, show_logs, parent=None):
+    def __init__(self, current_batch_size, show_logs, show_provider, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.resize(350, 150)
+        self.resize(320, 120)
 
         layout = QFormLayout(self)
 
@@ -38,6 +38,10 @@ class SettingsDialog(QDialog):
         self.show_logs_checkbox.setChecked(show_logs)
         layout.addRow(self.show_logs_checkbox)
 
+        self.show_provider_checkbox = QCheckBox("Show Download Provider")
+        self.show_provider_checkbox.setChecked(show_provider)
+        layout.addRow(self.show_provider_checkbox)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -47,6 +51,7 @@ class SettingsDialog(QDialog):
         return {
             'batch_size': self.batch_size_spinbox.value(),
             'show_logs': self.show_logs_checkbox.isChecked(),
+            'show_provider': self.show_provider_checkbox.isChecked(),
         }
 
 class AddSteamAccountDialog(QDialog):
@@ -517,15 +522,15 @@ class SteamWorkshopDownloader(QWidget):
         log_layout.addWidget(self.log_area)
         main_layout.addLayout(log_layout, stretch=1)
 
-        provider_layout = QHBoxLayout()
-        provider_label = QLabel('Download Provider:')
+        self.provider_layout = QHBoxLayout()
+        self.provider_label = QLabel('Download Provider:')
         self.provider_dropdown = QComboBox()
         self.provider_dropdown.addItems(['Default', 'SteamCMD', 'SteamWebAPI'])
         self.provider_dropdown.currentIndexChanged.connect(self.on_provider_changed)
-        provider_layout.addStretch()  # Pushes the widgets to the right
-        provider_layout.addWidget(provider_label)
-        provider_layout.addWidget(self.provider_dropdown)
-        main_layout.addLayout(provider_layout)
+        self.provider_layout.addStretch()  # Pushes the widgets to the right
+        self.provider_layout.addWidget(self.provider_label)
+        self.provider_layout.addWidget(self.provider_dropdown)
+        main_layout.addLayout(self.provider_layout)
 
         self.setLayout(main_layout)
         
@@ -716,11 +721,15 @@ class SteamWorkshopDownloader(QWidget):
     def apply_settings(self):
         self.log_area.setVisible(self.config.get('show_logs', True))
         self.log_label.setVisible(self.config.get('show_logs', True))
+        
+        self.provider_label.setVisible(self.config.get('show_provider', True))
+        self.provider_dropdown.setVisible(self.config.get('show_provider', True))
 
     def open_settings(self):
         current_batch_size = self.config.get('batch_size', 20)
         show_logs = self.config.get('show_logs', True)
-        dialog = SettingsDialog(current_batch_size, show_logs, self)
+        show_provider = self.config.get('show_provider', True)
+        dialog = SettingsDialog(current_batch_size, show_logs, show_provider, self)
         if dialog.exec() == QDialog.Accepted:
             settings = dialog.get_settings()
             self.config.update(settings)
@@ -728,6 +737,7 @@ class SteamWorkshopDownloader(QWidget):
             self.apply_settings()
             self.log_signal.emit(f"Batch size set to {settings['batch_size']}.")
             self.log_signal.emit(f"Log visibility set to {'shown' if settings['show_logs'] else 'hidden'}.")
+            self.log_signal.emit(f"Download provider visibility set to {'shown' if settings['show_provider'] else 'hidden'}.")
 
     def open_configure_steam_accounts(self):
         dialog = ConfigureSteamAccountsDialog(self.config, self.steamcmd_dir, self)
