@@ -10,6 +10,7 @@ import webbrowser
 import time
 import asyncio
 import aiohttp
+import shutil
 from io import BytesIO
 from bs4 import BeautifulSoup
 from collections import defaultdict
@@ -461,13 +462,20 @@ class SteamWorkshopDownloader(QWidget):
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         self.current_process = None
         self.load_config()
-
-        self.column_width_backup = {}
-
-        # Now initialize the UI after loading the config
-        self.initUI()
         
-        # Load button and dropdown height
+        # Define download paths for SteamCMD and SteamWebAPI
+        script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        self.downloads_root_path = os.path.join(script_dir, 'Downloads')
+        self.steamcmd_download_path = os.path.join(self.downloads_root_path, 'SteamCMD')
+        self.steamwebapi_download_path = os.path.join(self.downloads_root_path, 'SteamWebAPI')
+
+        # Ensure download directories exist
+        os.makedirs(self.steamcmd_download_path, exist_ok=True)
+        os.makedirs(self.steamwebapi_download_path, exist_ok=True)
+
+        # initialize the UI after loading the config
+        self.column_width_backup = {}
+        self.initUI()
         self.adjust_widget_heights()
 
         # Load the application settings
@@ -1297,6 +1305,10 @@ class SteamWorkshopDownloader(QWidget):
     
                 if self.current_process.returncode == 0:
                     self.log_signal.emit(f"Batch downloads for App ID {app_id} completed successfully.")
+                    # Move downloaded mods to their corresponding folder in Downloads/SteamCMD
+                    for mod in mods:
+                        if mod['status'] == 'Downloaded':
+                            self.move_mod_to_downloads_steamcmd(mod)
                 else:
                     self.log_signal.emit(f"SteamCMD exited with code {self.current_process.returncode}. Some downloads might have failed.")
     
@@ -1321,7 +1333,7 @@ class SteamWorkshopDownloader(QWidget):
             file_details = mod_details['response']['publishedfiledetails'][0]
             if 'file_url' not in file_details or not file_details['file_url']:
                 raise ValueError(f"Error: File URL not available for mod {mod_id}. The file might not be downloadable or doesn't exist.")
-        
+    
             file_url = file_details['file_url']
             filename = file_details.get('filename', None)
             title = file_details.get('title', 'Unnamed Mod')  # Default to 'Unnamed Mod'
@@ -1333,18 +1345,16 @@ class SteamWorkshopDownloader(QWidget):
                 # If filename is not available, use title with appropriate extension based on URL
                 filename = f"{title}.zip" if file_url.endswith('.zip') else f"{title}"
     
-            # remove illegal characters from filename
+            # Remove illegal characters from filename
             filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
     
-            # Create directories if they don't exist
+            # Get the download path and ensure the directory exists
             download_path = self.get_download_path(mod)
             file_path = os.path.join(download_path, filename)
-            directory = os.path.dirname(file_path)
-            if directory and not os.path.exists(directory):
-                os.makedirs(directory)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
     
             # Downloading the file
-            self.log_signal.emit(f"Downloading mod {mod_id} ('{title}') to '{filename}'")
+            self.log_signal.emit(f"Downloading mod {mod_id} ('{title}') to '{file_path}'")
             response = requests.get(file_url, stream=True)
             if response.status_code == 200:
                 with open(file_path, 'wb') as file:
@@ -1377,23 +1387,44 @@ class SteamWorkshopDownloader(QWidget):
     def get_download_path(self, mod):
         provider = mod.get('provider')
         if provider == 'SteamWebAPI':
-            # Use Downloads folder next to the script
-            script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            download_path = os.path.join(script_dir, 'Downloads')
-        else:
+            # Use Downloads folder for SteamWebAPI mods
+            download_path = self.steamwebapi_download_path
+        elif provider == 'SteamCMD':
             app_id = mod.get('app_id')
             if app_id:
-                download_path = os.path.join(
-                    self.steamcmd_dir,
-                    'steamapps',
-                    'workshop',
-                    'content',
-                    app_id
-                )
+                download_path = os.path.join(self.steamcmd_download_path, app_id)
             else:
-                # If app_id is not available, use a default download folder inside steamcmd_dir
-                download_path = os.path.join(self.steamcmd_dir, 'downloads')
+                # If app_id is not available, use a default download folder inside SteamCMD downloads
+                download_path = os.path.join(self.steamcmd_download_path, 'unknown_app')
+        else:
+            # Default path for unexpected provider types
+            download_path = self.downloads_root_path
+    
+        # Ensure the path exists before returning
+        os.makedirs(download_path, exist_ok=True)
         return download_path
+        
+    def move_mod_to_downloads_steamcmd(self, mod):
+        app_id = mod.get('app_id')
+        mod_id = mod.get('mod_id')
+        if not app_id or not mod_id:
+            return
+    
+        # Original SteamCMD path where mods are downloaded
+        original_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content', app_id, mod_id)
+    
+        # Target path in Downloads/SteamCMD/app_id
+        target_path = os.path.join(self.steamcmd_download_path, app_id, mod_id)
+    
+        if os.path.exists(original_path):
+            try:
+                if not os.path.exists(os.path.dirname(target_path)):
+                    os.makedirs(os.path.dirname(target_path))
+                # Move the entire folder
+                shutil.move(original_path, target_path)
+                self.log_signal.emit(f"Mod {mod_id} moved to {target_path}.")
+            except Exception as e:
+                self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
 
     def parse_log_line(self, log_line, mod):
         success_pattern = re.compile(r'Success\. Downloaded item (\d+) to .* \((\d+) bytes\)', re.IGNORECASE)
@@ -1626,13 +1657,54 @@ class SteamWorkshopDownloader(QWidget):
     
         # Disable the export button if the queue is empty
         self.export_queue_btn.setEnabled(bool(self.download_queue))
+        
+    def setup_download_folders(self):
+        script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        downloads_path = os.path.join(script_dir, 'Downloads')
+        self.steamcmd_download_path = os.path.join(downloads_path, 'SteamCMD')
+        self.webapi_download_path = os.path.join(downloads_path, 'SteamWebAPI')
+        
+        # Create folders if they don't exist
+        os.makedirs(self.steamcmd_download_path, exist_ok=True)
+        os.makedirs(self.webapi_download_path, exist_ok=True)
 
     def open_downloads_folder(self):
         selected_items = self.queue_tree.selectedItems()
+        script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        downloads_root_path = os.path.join(script_dir, 'Downloads')
+    
+        # No mod is highlighted, open the "Downloads" folder.
         if not selected_items:
-            QMessageBox.warning(self, 'Error', 'Please select a mod from the queue to open its download folder.')
+            if not self.download_queue:
+                # No mod highlighted and queue is empty, just open the "Downloads" folder
+                if not os.path.isdir(downloads_root_path):
+                    os.makedirs(downloads_root_path)
+                webbrowser.open(downloads_root_path)
+                return
+    
+            # No mods are highlighted, but all mods in queue have the same provider
+            providers_in_queue = {mod['provider'] for mod in self.download_queue}
+            if len(providers_in_queue) == 1:
+                provider = providers_in_queue.pop()
+                if provider == "SteamCMD":
+                    provider_path = os.path.join(downloads_root_path, 'SteamCMD')
+                elif provider == "SteamWebAPI":
+                    provider_path = os.path.join(downloads_root_path, 'SteamWebAPI')
+                else:
+                    provider_path = downloads_root_path
+    
+                if not os.path.isdir(provider_path):
+                    os.makedirs(provider_path)
+                webbrowser.open(provider_path)
+                return
+    
+            # Default case if no specific behavior is triggered
+            if not os.path.isdir(downloads_root_path):
+                os.makedirs(downloads_root_path)
+            webbrowser.open(downloads_root_path)
             return
     
+        # If a mod is highlighted, open the specific folder where the mod is located.
         mod_id = selected_items[0].text(0)
         mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
         if not mod:
@@ -1640,27 +1712,25 @@ class SteamWorkshopDownloader(QWidget):
             return
     
         provider = mod.get('provider')
+        
         if provider == 'SteamWebAPI':
-            # Open Downloads folder next to the script
-            script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            download_path = os.path.join(script_dir, 'Downloads')
-        else:
+            # Open Downloads/SteamWebAPI folder
+            download_path = os.path.join(downloads_root_path, 'SteamWebAPI')
+            if not os.path.isdir(download_path):
+                os.makedirs(download_path)
+            webbrowser.open(download_path)
+    
+        elif provider == 'SteamCMD':
+            # Open Downloads/SteamCMD/app_id folder
             app_id = mod.get('app_id')
             if not app_id:
                 QMessageBox.warning(self, 'Error', 'App ID not found for the selected mod.')
                 return
-            download_path = os.path.join(
-                self.steamcmd_dir,
-                'steamapps',
-                'workshop',
-                'content',
-                app_id
-            )
     
-        if os.path.isdir(download_path):
-            webbrowser.open(download_path)
-        else:
-            QMessageBox.warning(self, 'Error', f"Download folder does not exist: {download_path}")
+            download_path = os.path.join(downloads_root_path, 'SteamCMD', app_id)
+            if not os.path.isdir(download_path):
+                os.makedirs(download_path)
+            webbrowser.open(download_path)    
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
