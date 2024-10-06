@@ -358,6 +358,9 @@ class SteamWorkshopDownloader(QWidget):
 
         # Now initialize the UI after loading the config
         self.initUI()
+        
+        # Load button and dropdown height
+        self.adjust_widget_heights()
 
         # Load the application settings
         self.app_ids = self.load_app_ids()
@@ -388,6 +391,7 @@ class SteamWorkshopDownloader(QWidget):
         main_layout = QVBoxLayout()
 
         top_layout = QHBoxLayout()
+        
         
         self.settings_btn = QPushButton('Settings')
         self.settings_btn.setFixedWidth(90)
@@ -524,6 +528,20 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addLayout(provider_layout)
 
         self.setLayout(main_layout)
+        
+    def adjust_widget_heights(self):
+        button_height = 28
+        dropdown_height = 27
+
+        for attr_name in dir(self):
+            # Get the attribute by name
+            attr = getattr(self, attr_name)
+
+            # Check if the attribute is a button or a dropdown
+            if isinstance(attr, QPushButton) and "_btn" in attr_name:
+                attr.setFixedHeight(button_height)
+            elif isinstance(attr, QComboBox) and "_dropdown" in attr_name:
+                attr.setFixedHeight(dropdown_height)
 
     def open_header_context_menu(self, position: QPoint):
         menu = QMenu()
