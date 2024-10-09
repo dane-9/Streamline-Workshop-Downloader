@@ -973,13 +973,23 @@ class SteamWorkshopDownloader(QWidget):
             try:
                 with open(file_path, 'r', encoding='utf-8') as file:
                     for line in file:
-                        mod_id, mod_name = line.strip().split('|', 1)
+                        parts = line.strip().split('|')
+                        if len(parts) < 3:
+                            continue  # Skip invalid lines
+                        mod_id, mod_name, provider = parts[0], parts[1], parts[2]
+                        
                         if not self.is_mod_in_queue(mod_id):
-                            self.download_queue.append({'mod_id': mod_id, 'mod_name': mod_name, 'status': 'Queued', 'retry_count': 0})
-                            tree_item = QTreeWidgetItem([mod_id, mod_name, 'Queued'])
+                            self.download_queue.append({
+                                'mod_id': mod_id,
+                                'mod_name': mod_name,
+                                'status': 'Queued',
+                                'retry_count': 0,
+                                'provider': provider
+                            })
+                            tree_item = QTreeWidgetItem([mod_id, mod_name, 'Queued', provider])
                             self.queue_tree.addTopLevelItem(tree_item)
-                self.log_signal.emit(f"Queue imported from {file_path}.")
-                self.export_queue_btn.setEnabled(bool(self.download_queue))
+                    self.log_signal.emit(f"Queue imported from {file_path}.")
+                    self.export_queue_btn.setEnabled(bool(self.download_queue))
             except Exception as e:
                 QMessageBox.critical(self, "Import Error", f"Failed to import queue: {e}")
 
@@ -987,13 +997,13 @@ class SteamWorkshopDownloader(QWidget):
         if not self.download_queue:
             QMessageBox.information(self, "No Items to Export", "There are no items in the queue to export.")
             return
-
+    
         file_path, _ = QFileDialog.getSaveFileName(self, "Export Queue", "", "Text Files (*.txt)")
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as file:
                     for mod in self.download_queue:
-                        file.write(f"{mod['mod_id']}|{mod['mod_name']}\n")
+                        file.write(f"{mod['mod_id']}|{mod['mod_name']}|{mod['provider']}\n")
                 self.log_signal.emit(f"Queue exported to {file_path}.")
             except Exception as e:
                 QMessageBox.critical(self, "Export Error", f"Failed to export queue: {e}")
