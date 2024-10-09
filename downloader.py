@@ -738,6 +738,8 @@ class SteamWorkshopDownloader(QWidget):
         self.clipboard = QApplication.clipboard()
         self.last_clipboard_text = ""
         
+        self.clipboard_signal_connected = False
+        
         # Define download paths for SteamCMD and SteamWebAPI
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
         self.downloads_root_path = os.path.join(script_dir, 'Downloads')
@@ -2021,10 +2023,14 @@ class SteamWorkshopDownloader(QWidget):
             webbrowser.open(download_path)
             
     def start_clipboard_monitoring(self):
-        self.clipboard.dataChanged.connect(self.check_clipboard_for_url)
+        if not self.clipboard_signal_connected:
+            self.clipboard.dataChanged.connect(self.check_clipboard_for_url)
+            self.clipboard_signal_connected = True
 
     def stop_clipboard_monitoring(self):
-        self.clipboard.dataChanged.disconnect(self.check_clipboard_for_url)
+        if self.clipboard_signal_connected:
+            self.clipboard.dataChanged.disconnect(self.check_clipboard_for_url)
+            self.clipboard_signal_connected = False
 
     def check_clipboard_for_url(self):
         current_text = self.clipboard.text().strip()
