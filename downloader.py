@@ -990,6 +990,7 @@ class SteamWorkshopDownloader(QWidget):
                             self.queue_tree.addTopLevelItem(tree_item)
                     self.log_signal.emit(f"Queue imported from {file_path}.")
                     self.export_queue_btn.setEnabled(bool(self.download_queue))
+                    self.update_queue_count()
             except Exception as e:
                 QMessageBox.critical(self, "Import Error", f"Failed to import queue: {e}")
 
