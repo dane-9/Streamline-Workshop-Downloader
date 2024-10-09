@@ -18,10 +18,16 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
-    QMenu, QCheckBox, QFileDialog
+    QMenu, QCheckBox, QFileDialog, 
 )
-from PySide6.QtCore import Qt, Signal, QPoint, QThread, QSize
-from PySide6.QtGui import QTextCursor, QAction, QClipboard, QIcon
+from PySide6.QtCore import (
+    Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
+    QCoreApplication, 
+)
+from PySide6.QtGui import (
+    QTextCursor, QAction, QClipboard, QIcon, QCursor, QPainter,
+    QColor, QPixmap, QPolygon,
+)
 
 class SettingsDialog(QDialog):
     def __init__(self, current_batch_size, show_logs, show_provider, auto_detect_urls, auto_add_to_queue, parent=None):
@@ -490,6 +496,229 @@ class ConfigureSteamAccountsDialog(QDialog):
 
     def get_updated_config(self):
         return self.config
+        
+def create_custom_cursor(direction):
+    # Get the scaling factor based on DPI
+    screen = QApplication.primaryScreen()
+    scaling_factor = screen.devicePixelRatio()
+
+    # Define base sizes
+    base_pixmap_size = 24
+    base_circle_radius = 2
+    base_arrow_offset = 8
+
+    # Scale the sizes according to the screen scaling factor
+    pixmap_size = int(base_pixmap_size * scaling_factor)
+    circle_radius = int(base_circle_radius * scaling_factor)
+    arrow_offset = int(base_arrow_offset * scaling_factor)
+
+    pixmap = QPixmap(pixmap_size, pixmap_size)
+    pixmap.fill(Qt.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+
+    outline_color = QColor(255, 255, 255)
+    fill_color = QColor(0, 0, 0)
+
+    center = QPoint(pixmap_size // 2, pixmap_size // 2)
+
+    # Draw circle in the center for all cursors
+    painter.setPen(fill_color)
+    painter.setBrush(fill_color)
+    painter.drawEllipse(center, circle_radius, circle_radius)
+
+    # Helper function to draw outlined arrows
+    def draw_outlined_arrow(arrow):
+        painter.setPen(outline_color)
+        painter.setBrush(outline_color)
+        painter.drawPolygon(arrow)
+
+        painter.setPen(fill_color)
+        painter.setBrush(fill_color)
+        painter.drawPolygon(arrow)
+
+    if direction == 'stationary':
+
+        up_arrow_tip_y = center.y() - circle_radius - arrow_offset
+        up_arrow_base_y = center.y() - circle_radius - int(arrow_offset / 2)
+        up_arrow = QPolygon([
+            QPoint(center.x(), up_arrow_tip_y),                 # Tip of the arrow
+            QPoint(center.x() - 4 * scaling_factor, up_arrow_base_y),  # Bottom left
+            QPoint(center.x() + 4 * scaling_factor, up_arrow_base_y)   # Bottom right
+        ])
+        draw_outlined_arrow(up_arrow)
+
+        down_arrow_tip_y = center.y() + circle_radius + arrow_offset
+        down_arrow_base_y = center.y() + circle_radius + int(arrow_offset / 2)
+        down_arrow = QPolygon([
+            QPoint(center.x(), down_arrow_tip_y),               # Tip of the arrow
+            QPoint(center.x() - 4 * scaling_factor, down_arrow_base_y),  # Top left
+            QPoint(center.x() + 4 * scaling_factor, down_arrow_base_y)   # Top right
+        ])
+        draw_outlined_arrow(down_arrow)
+
+    elif direction == 'up':
+        up_arrow_tip_y = center.y() - circle_radius - arrow_offset
+        up_arrow_base_y = center.y() - circle_radius - int(arrow_offset / 2)
+        up_arrow = QPolygon([
+            QPoint(center.x(), up_arrow_tip_y),                 # Tip of the arrow
+            QPoint(center.x() - 4 * scaling_factor, up_arrow_base_y),  # Bottom left
+            QPoint(center.x() + 4 * scaling_factor, up_arrow_base_y)   # Bottom right
+        ])
+        draw_outlined_arrow(up_arrow)
+
+    elif direction == 'down':
+        down_arrow_tip_y = center.y() + circle_radius + arrow_offset
+        down_arrow_base_y = center.y() + circle_radius + int(arrow_offset / 2)
+        down_arrow = QPolygon([
+            QPoint(center.x(), down_arrow_tip_y),               # Tip of the arrow
+            QPoint(center.x() - 4 * scaling_factor, down_arrow_base_y),  # Top left
+            QPoint(center.x() + 4 * scaling_factor, down_arrow_base_y)   # Top right
+        ])
+        draw_outlined_arrow(down_arrow)
+
+    painter.end()
+
+    cursor = QCursor(pixmap, pixmap_size // 2, pixmap_size // 2)
+    return cursor
+
+class OutsideClickFilter(QObject):
+    def __init__(self, tree_widget):
+        super().__init__()
+        self.tree_widget = tree_widget
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress:
+            if self.tree_widget.auto_scroll_active:
+
+                global_pos = event.globalPosition().toPoint()
+                widget_pos = self.tree_widget.mapFromGlobal(global_pos)
+                if not self.tree_widget.rect().contains(widget_pos):
+                    self.tree_widget.exit_auto_scroll()
+        return False
+
+class CustomizableTreeWidgets(QTreeWidget):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.auto_scroll_active = False
+        self.auto_scroll_start_pos = QPoint()
+        self.scroll_timer = QTimer()
+        self.scroll_timer.timeout.connect(self.auto_scroll)
+        self.setMouseTracking(True)
+
+        # Initialize accumulated scroll position
+        self.accumulated_scroll_y = 0.0
+
+        # Create an instance of the outside click filter
+        self.outside_click_filter = OutsideClickFilter(self)
+
+        # Create custom cursors
+        self.stationary_cursor = create_custom_cursor('stationary')
+        self.up_cursor = create_custom_cursor('up')
+        self.down_cursor = create_custom_cursor('down')
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MiddleButton:
+            if not self.auto_scroll_active:
+                # Start auto-scroll mode
+                self.auto_scroll_active = True
+                self.auto_scroll_start_pos = QCursor.pos()
+
+                # Set the override cursor to show custom cursor globally
+                QApplication.setOverrideCursor(self.stationary_cursor)
+                self.current_cursor_shape = 'stationary'
+
+                self.scroll_timer.start(10)
+
+                # Install the event filter to detect clicks outside
+                QApplication.instance().installEventFilter(self.outside_click_filter)
+
+                event.accept()
+            else:
+                # Exit auto-scroll mode
+                self.exit_auto_scroll()
+                event.accept()
+        else:
+            if self.auto_scroll_active:
+                # Exit auto-scroll mode on any mouse button press
+                self.exit_auto_scroll()
+                event.accept()
+            else:
+                super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.auto_scroll_active:
+            # No need to handle mouse movements here
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def exit_auto_scroll(self):
+        if self.auto_scroll_active:
+            self.auto_scroll_active = False
+
+            # Restore the original cursor
+            QApplication.restoreOverrideCursor()
+
+            self.scroll_timer.stop()
+
+            # Reset accumulated scroll position
+            self.accumulated_scroll_y = 0.0
+
+            # Remove the event filter
+            QApplication.instance().removeEventFilter(self.outside_click_filter)
+
+    def auto_scroll(self):
+        if self.auto_scroll_active:
+            current_pos = QCursor.pos()
+            delta = current_pos - self.auto_scroll_start_pos
+
+            # Compute scroll speed based on custom acceleration
+            scroll_speed_y = self.compute_scroll_speed(delta.y())
+
+            # Update cursor based on scroll direction
+            if scroll_speed_y == 0 and self.current_cursor_shape != 'stationary':
+                QApplication.changeOverrideCursor(self.stationary_cursor)
+                self.current_cursor_shape = 'stationary'
+            elif scroll_speed_y < 0 and self.current_cursor_shape != 'up':
+                QApplication.changeOverrideCursor(self.up_cursor)
+                self.current_cursor_shape = 'up'
+            elif scroll_speed_y > 0 and self.current_cursor_shape != 'down':
+                QApplication.changeOverrideCursor(self.down_cursor)
+                self.current_cursor_shape = 'down'
+
+            # Add the speed to accumulated scroll position
+            self.accumulated_scroll_y += scroll_speed_y
+
+            # Determine integer scroll amount
+            scroll_amount_y = int(self.accumulated_scroll_y)
+
+            # Update the vertical scrollbar with integer
+            if scroll_amount_y != 0:
+                self.verticalScrollBar().setValue(self.verticalScrollBar().value() + scroll_amount_y)
+                self.accumulated_scroll_y -= scroll_amount_y
+
+    def compute_scroll_speed(self, delta):
+        deadzone = 15  # pixels
+
+        if abs(delta) < deadzone:
+            return 0.0
+
+        max_speed = 12.0
+        max_distance = 200
+
+        # Calculate distance from deadzone
+        distance = abs(delta) - deadzone
+
+        # Clamp distance to max_distance
+        distance = min(distance, max_distance)
+
+        # Linear acceleration
+        speed = (distance / max_distance) * max_speed
+
+        return speed if delta > 0 else -speed
 
 class SteamWorkshopDownloader(QWidget):
     log_signal = Signal(str)
@@ -639,7 +868,7 @@ class SteamWorkshopDownloader(QWidget):
 
         main_layout.addLayout(queue_layout)
 
-        self.queue_tree = QTreeWidget()
+        self.queue_tree = CustomizableTreeWidgets()
         self.queue_tree.setColumnCount(4)
         self.queue_tree.setHeaderLabels(['Mod ID', 'Mod Name', 'Status', 'Provider'])
         self.queue_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
