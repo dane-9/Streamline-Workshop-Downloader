@@ -785,9 +785,12 @@ class SteamWorkshopDownloader(QWidget):
 
         top_layout = QHBoxLayout()
         
+        settings_icon = QIcon('settings.png')
         
-        self.settings_btn = QPushButton('Settings')
-        self.settings_btn.setFixedWidth(90)
+        self.settings_btn = QPushButton()
+        self.settings_btn.setIcon(settings_icon)
+        self.settings_btn.setIconSize(QSize(20, 20))
+        self.settings_btn.setFixedSize(32, 32)
         self.settings_btn.clicked.connect(self.open_settings)
         top_layout.addWidget(self.settings_btn)
 
