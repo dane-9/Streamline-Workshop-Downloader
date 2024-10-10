@@ -1576,15 +1576,15 @@ class SteamWorkshopDownloader(QWidget):
                 self.log_signal.emit(f"No app_id for mod {mod['mod_id']}. Skipping.")
                 mod['status'] = 'Failed'
                 self.update_queue_signal.emit(mod['mod_id'], 'Failed')
-    
+
         for app_id, mods in mods_by_app_id.items():
             for mod in mods:
                 mod['status'] = 'Downloading'
                 self.update_queue_signal.emit(mod['mod_id'], 'Downloading')
-    
+
             steamcmd_commands = [self.steamcmd_executable]
             active_account = self.config.get('active_account', "Anonymous")
-    
+
             # Set up login credentials
             if active_account != "Anonymous":
                 account = next((acc for acc in self.config['steam_accounts'] if acc['username'] == active_account), None)
@@ -1595,14 +1595,14 @@ class SteamWorkshopDownloader(QWidget):
                     steamcmd_commands.extend(['+login', 'anonymous'])
             else:
                 steamcmd_commands.extend(['+login', 'anonymous'])
-    
+
             # Add workshop download commands for each mod in the batch
             for mod in mods:
                 mod_id = mod['mod_id']
                 steamcmd_commands.extend(['+workshop_download_item', app_id, mod_id])
-    
+
             steamcmd_commands.append('+quit')
-    
+
             # Now, run SteamCMD with these commands
             try:
                 # Start the SteamCMD process for the batch
@@ -1614,29 +1614,34 @@ class SteamWorkshopDownloader(QWidget):
                     bufsize=1,
                     cwd=self.steamcmd_dir
                 )
-    
+
                 # Process SteamCMD output line-by-line to track progress
                 for line in self.current_process.stdout:
                     clean_line = line.strip()
                     if clean_line:
                         self.log_signal.emit(clean_line)
-    
+
                     # Check the log line to determine success or failure
                     for mod in mods:
                         self.parse_log_line(clean_line, mod)
-    
+
                 self.current_process.stdout.close()
                 self.current_process.wait()
-    
-                if self.current_process.returncode == 0:
+
+                # Check the statuses of mods after the process completes
+                mods_failed = [mod for mod in mods if mod['status'] != 'Downloaded']
+                if not mods_failed:
                     self.log_signal.emit(f"Batch downloads for App ID {app_id} completed successfully.")
-                    # Move downloaded mods to their corresponding folder in Downloads/SteamCMD
-                    for mod in mods:
-                        if mod['status'] == 'Downloaded':
-                            self.move_mod_to_downloads_steamcmd(mod)
                 else:
-                    self.log_signal.emit(f"SteamCMD exited with code {self.current_process.returncode}. Some downloads might have failed.")
-    
+                    self.log_signal.emit(f"Batch downloads for App ID {app_id} completed with errors.")
+                    for mod in mods_failed:
+                        self.log_signal.emit(f"Mod {mod['mod_id']} failed to download. Status: {mod['status']}")
+
+                # Move downloaded mods to their corresponding folder in Downloads/SteamCMD
+                for mod in mods:
+                    if mod['status'] == 'Downloaded':
+                        self.move_mod_to_downloads_steamcmd(mod)
+
             except Exception as e:
                 self.log_signal.emit(f"Error during batch download for App ID {app_id}: {e}")
                 # Mark all mods in the current batch as failed
@@ -1644,7 +1649,7 @@ class SteamWorkshopDownloader(QWidget):
                     mod['status'] = f'Failed: {e}'
                     self.update_queue_signal.emit(mod['mod_id'], mod['status'])
                     mod['retry_count'] += 1
-    
+
             # Remove all mods that have the status "Downloaded" from the queue
             downloaded_mods = [mod for mod in mods if mod['status'] == 'Downloaded']
             for mod in downloaded_mods:
@@ -1753,8 +1758,8 @@ class SteamWorkshopDownloader(QWidget):
 
     def parse_log_line(self, log_line, mod):
         success_pattern = re.compile(r'Success\. Downloaded item (\d+) to .* \((\d+) bytes\)', re.IGNORECASE)
-        failure_pattern = re.compile(r'ERROR! Download item (\d+) failed \((.+)\)', re.IGNORECASE)
-    
+        failure_pattern = re.compile(r'ERROR! Download item (\d+) failed \(([^)]+)\)', re.IGNORECASE)
+
         # Check for successful download
         success_match = success_pattern.search(log_line)
         if success_match:
@@ -1765,7 +1770,7 @@ class SteamWorkshopDownloader(QWidget):
                 self.update_queue_signal.emit(mod['mod_id'], 'Downloaded')
                 self.log_signal.emit(f"Mod {mod['mod_id']} downloaded successfully.")
                 return
-    
+
         # Check for failed download
         failure_match = failure_pattern.search(log_line)
         if failure_match:
