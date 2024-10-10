@@ -879,6 +879,9 @@ class SteamWorkshopDownloader(QWidget):
         self.queue_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.queue_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue_tree.customContextMenuRequested.connect(self.open_context_menu)
+        
+        # Prevent the last column from stretching
+        self.queue_tree.header().setStretchLastSection(False)
 
         # Add context menu to the header for hiding columns
         header = self.queue_tree.header()
@@ -886,15 +889,16 @@ class SteamWorkshopDownloader(QWidget):
         header.customContextMenuRequested.connect(self.open_header_context_menu)
 
         # Restore column widths and hidden state from the configuration
-        column_widths = self.config.get('queue_tree_column_widths', [150, 300, 100, 100])  # Default widths
-        column_hidden = self.config.get('queue_tree_column_hidden', [False, False, False, False])  # Default: all columns visible
-        for i, width in enumerate(column_widths):
+        default_widths = [150, 295, 100, 100]  # Default widths
+        column_widths = self.config.get('queue_tree_column_widths', default_widths)
+        column_hidden = self.config.get('queue_tree_column_hidden', [False] * self.queue_tree.columnCount())
+        
+        for i in range(self.queue_tree.columnCount()):
+            # Set the width from config or default
+            width = column_widths[i] if i < len(column_widths) else default_widths[i]
             self.queue_tree.setColumnWidth(i, width)
-        for i, hidden in enumerate(column_hidden):
-            if hidden:
-                # Backup the column width before hiding it
-                self.column_width_backup[i] = self.queue_tree.columnWidth(i)
-            self.queue_tree.setColumnHidden(i, hidden)
+            # Set hidden state
+            self.queue_tree.setColumnHidden(i, column_hidden[i])
 
         main_layout.addWidget(self.queue_tree, stretch=3)
 
@@ -962,14 +966,26 @@ class SteamWorkshopDownloader(QWidget):
     def toggle_column_visibility(self, column: int, hide: bool):
         if hide:
             # Backup the current width before hiding
-            self.column_width_backup[column] = self.queue_tree.columnWidth(column)
+            current_width = self.queue_tree.columnWidth(column)
+            self.column_width_backup[column] = current_width
+    
+            # Save the current width in the config if not already saved
+            if 'queue_tree_column_widths' not in self.config:
+                self.config['queue_tree_column_widths'] = [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())]
+            self.config['queue_tree_column_widths'][column] = current_width
+    
             self.queue_tree.setColumnHidden(column, True)
         else:
             # Restore the column's width if it was previously hidden
             self.queue_tree.setColumnHidden(column, False)
             if column in self.column_width_backup:
                 self.queue_tree.setColumnWidth(column, self.column_width_backup[column])
-                
+            else:
+                # Use the width from config
+                column_widths = self.config.get('queue_tree_column_widths', [])
+                if len(column_widths) > column:
+                    self.queue_tree.setColumnWidth(column, column_widths[column])
+                    
     def import_queue(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Import Queue", "", "Text Files (*.txt)")
         if file_path:
@@ -1072,9 +1088,14 @@ class SteamWorkshopDownloader(QWidget):
         # Save window size before closing
         self.config['window_size'] = {'width': self.width(), 'height': self.height()}
 
-        column_widths = [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())]
+        # Only save widths for visible columns
+        column_widths = self.config.get('queue_tree_column_widths', [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())])
+        for i in range(self.queue_tree.columnCount()):
+            if not self.queue_tree.isColumnHidden(i):
+                column_widths[i] = self.queue_tree.columnWidth(i)
         self.config['queue_tree_column_widths'] = column_widths
-        
+    
+        # Save column hidden states
         column_hidden = [self.queue_tree.isColumnHidden(i) for i in range(self.queue_tree.columnCount())]
         self.config['queue_tree_column_hidden'] = column_hidden
 
