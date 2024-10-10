@@ -1907,6 +1907,16 @@ class SteamWorkshopDownloader(QWidget):
                     previous_provider = 'SteamCMD' if mods_with_steamcmd else 'SteamWebAPI'
                     self.provider_dropdown.setCurrentText(previous_provider)
                     self.provider_dropdown.blockSignals(False)
+                    
+    def reset_status_of_mods(self, selected_items):
+            for item in selected_items:
+                mod_id = item.text(0)
+                mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
+                if mod:
+                    mod['status'] = 'Queued'
+                    mod['retry_count'] = 0
+                    item.setText(2, 'Queued')
+                    self.log_signal.emit(f"Mod {mod_id} status reset to 'Queued'.")
 
     def open_context_menu(self, position: QPoint):
         if self.is_downloading:
@@ -1923,16 +1933,25 @@ class SteamWorkshopDownloader(QWidget):
         steamcmd_action = QAction("SteamCMD", self)
         steamcmd_action.triggered.connect(lambda: self.change_provider_for_mods(selected_items, "SteamCMD"))
         change_provider_menu.addAction(steamcmd_action)
-        
+
         steamwebapi_action = QAction("SteamWebAPI", self)
         steamwebapi_action.triggered.connect(lambda: self.change_provider_for_mods(selected_items, "SteamWebAPI"))
         change_provider_menu.addAction(steamwebapi_action)
-        
+
+        # Check if any selected item has a status other than "Queued"
+        show_reset_status = any(item.text(2) != 'Queued' for item in selected_items)
+
+        # Add Reset Status action only if needed
+        if show_reset_status:
+            reset_status_action = QAction("Reset Status", self)
+            reset_status_action.triggered.connect(lambda: self.reset_status_of_mods(selected_items))
+            menu.addAction(reset_status_action)
+
         # Remove action
         remove_action = QAction("Remove", self)
         remove_action.triggered.connect(lambda: self.remove_mods_from_queue(selected_items))
         menu.addAction(remove_action)
-        
+
         menu.exec(self.queue_tree.viewport().mapToGlobal(position))
 
         def change_provider_for_mods(self, selected_items, new_provider):
