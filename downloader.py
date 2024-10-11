@@ -12,7 +12,7 @@ import asyncio
 import aiohttp
 import shutil
 from io import BytesIO
-from bs4 import BeautifulSoup
+from lxml import html
 from collections import defaultdict
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
@@ -152,20 +152,20 @@ class CollectionFetcher(QThread):
                         return
                     page_content = await response.text()
 
-                # Parse the page content with BeautifulSoup
-                soup = BeautifulSoup(page_content, 'html.parser')
+                # Parse the page content with lxml
+                tree = html.fromstring(page_content)
 
                 # Get game info from the collection page
-                game_name, app_id = self.get_game_info_from_soup(soup)
+                game_name, app_id = self.get_game_info_from_tree(tree)
 
                 # Find all mod IDs in the collection
-                collection_items = soup.find_all('div', class_='collectionItem')
+                collection_items = tree.xpath('//div[contains(@class, "collectionItem")]')
 
                 mod_ids = []
                 for item in collection_items:
                     # Extract mod ID
-                    a_tag = item.find('a', href=True)
-                    mod_id = self.extract_id(a_tag['href']) if a_tag else None
+                    a_tags = item.xpath('.//a[@href]')
+                    mod_id = self.extract_id(a_tags[0].get('href')) if a_tags else None
                     if mod_id and mod_id not in self.existing_mod_ids:
                         mod_ids.append(mod_id)
 
@@ -185,20 +185,20 @@ class CollectionFetcher(QThread):
                 if response.status != 200:
                     return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None}
                 page_content = await response.text()
-                soup = BeautifulSoup(page_content, 'html.parser')
+                tree = html.fromstring(page_content)
 
                 # Fetch game info
-                game_tag = soup.find('a', attrs={'data-panel': '{"noFocusRing":true}'})
+                game_tag = tree.xpath('//a[@data-panel=\'{"noFocusRing":true}\']')
                 game_name, app_id = None, None
-                if game_tag and 'href' in game_tag.attrs:
-                    href = game_tag['href']
+                if game_tag and 'href' in game_tag[0].attrib:
+                    href = game_tag[0].get('href')
                     app_id_match = re.search(r'/app/(\d+)', href)
                     if app_id_match:
                         app_id = app_id_match.group(1)
                         game_name = self.app_id_to_game.get(app_id, None)
                 # Fetch mod title
-                title_tag = soup.find('div', class_='workshopItemTitle')
-                mod_title = title_tag.text.strip() if title_tag else 'Unknown Title'
+                title_tag = tree.xpath('//div[@class="workshopItemTitle"]')
+                mod_title = title_tag[0].text.strip() if title_tag else 'Unknown Title'
                 return {'mod_id': mod_id, 'mod_name': mod_title, 'app_id': app_id}
         except Exception as e:
             return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None}
@@ -217,10 +217,10 @@ class CollectionFetcher(QThread):
                 return id_match.group(1)
         return None
 
-    def get_game_info_from_soup(self, soup):
-        game_tag = soup.find('a', attrs={'data-panel': '{"noFocusRing":true}'})
-        if game_tag and 'href' in game_tag.attrs:
-            href = game_tag['href']
+    def get_game_info_from_tree(self, tree):
+        game_tag = tree.xpath('//a[@data-panel=\'{"noFocusRing":true}\']')
+        if game_tag and 'href' in game_tag[0].attrib:
+            href = game_tag[0].get('href')
             app_id_match = re.search(r'/app/(\d+)', href)
             if app_id_match:
                 game_app_id = app_id_match.group(1)
@@ -1406,9 +1406,9 @@ class SteamWorkshopDownloader(QWidget):
             headers = {'User-Agent': 'Mozilla/5.0'}
             response = requests.get(url, headers=headers)
             response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
+            tree = html.fromstring(response.text)
             # Check for collection-specific elements
-            collection_items = soup.find_all('div', class_='collectionItem')
+            collection_items = tree.xpath('//div[contains(@class, "collectionItem")]')
             return len(collection_items) > 0
         except Exception as e:
             self.log_signal.emit(f"Error determining if item {item_id} is a collection: {e}")
@@ -1437,28 +1437,28 @@ class SteamWorkshopDownloader(QWidget):
             headers = {'User-Agent': 'Mozilla/5.0'}
             response = requests.get(url, headers=headers)
             response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
+            tree = html.fromstring(response.text)
             # Fetch game info
-            game_tag = soup.find('a', attrs={'data-panel': '{"noFocusRing":true}'})
+            game_tag = tree.xpath('//a[@data-panel=\'{"noFocusRing":true}\']')
             game_name, app_id = None, None
-            if game_tag and 'href' in game_tag.attrs:
-                href = game_tag['href']
+            if game_tag and 'href' in game_tag[0].attrib:
+                href = game_tag[0].get('href')
                 app_id_match = re.search(r'/app/(\d+)', href)
                 if app_id_match:
                     app_id = app_id_match.group(1)
                     game_name = self.app_id_to_game.get(app_id, None)
             # Fetch mod title
-            title_tag = soup.find('div', class_='workshopItemTitle')
-            mod_title = title_tag.text.strip() if title_tag else 'Unknown Title'
+            title_tag = tree.xpath('//div[@class="workshopItemTitle"]')
+            mod_title = title_tag[0].text.strip() if title_tag else 'Unknown Title'
             return game_name, app_id, mod_title
         except Exception as e:
             self.log_signal.emit(f"Error fetching mod info for mod {mod_id}: {e}")
         return None, None, None
 
-    def get_game_info_from_soup(self, soup):
-        game_tag = soup.find('a', attrs={'data-panel': '{"noFocusRing":true}'})
-        if game_tag and 'href' in game_tag.attrs:
-            href = game_tag['href']
+    def get_game_info_from_tree(self, tree):
+        game_tag = tree.xpath('//a[@data-panel=\'{"noFocusRing":true}\']')
+        if game_tag and 'href' in game_tag[0].attrib:
+            href = game_tag[0].get('href')
             app_id_match = re.search(r'/app/(\d+)', href)
             if app_id_match:
                 game_app_id = app_id_match.group(1)
