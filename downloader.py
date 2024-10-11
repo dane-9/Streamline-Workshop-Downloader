@@ -1879,17 +1879,23 @@ class SteamWorkshopDownloader(QWidget):
         # Detect if the input ID corresponds to a collection
         is_collection = self.is_collection(mod_id)
         if is_collection:
-            QMessageBox.information(self, 'THIS IS NOT A MOD', 'The ID corresponds to a Collection. Please add the collection to the queue instead.')
-            return
+            # Ask user if they want to add as a collection if it's not a mod
+            reply = QMessageBox.question(
+                self,
+                'Detected Collection',
+                'The input corresponds to a collection. Do you want to add it as a collection?',
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.collection_input.setText(mod_id)
+                self.mod_input.clear()
+                self.add_collection_to_queue()
+            else:
+                QMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
+            return  # Exit the method after handling the collection
     
         if self.is_mod_in_queue(mod_id):
             self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
-            return
-    
-        # Fetch mod info using mod_id
-        game_name, app_id, mod_title = self.get_mod_info(mod_id)
-        if not app_id:
-            self.log_signal.emit(f"Failed to retrieve App ID for mod {mod_id}.")
             return
     
         # Update game selection in the UI
