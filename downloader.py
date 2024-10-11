@@ -126,80 +126,103 @@ class AddSteamAccountDialog(QDialog):
 
     def get_username(self):
         return self.username_input.text().strip()
-        
-class CollectionFetcher(QThread):
-    collection_processed = Signal(list)  # Emits the list of mods with their info
-    error_occurred = Signal(str)  # Emits error messages
 
-    def __init__(self, collection_id, app_id_to_game, existing_mod_ids, parent=None):
+class ItemFetcher(QThread):
+    item_processed = Signal(dict)  # Emits a dictionary with item information
+    error_occurred = Signal(str)  # Emits error messages
+    mod_or_collection_detected = Signal(bool, str)  # Emits whether it's a mod or collection
+
+    def __init__(self, item_id, app_id_to_game, existing_mod_ids, parent=None):
         super().__init__(parent)
-        self.collection_id = collection_id
+        self.item_id = item_id
         self.app_id_to_game = app_id_to_game
-        self.existing_mod_ids = existing_mod_ids  # List of mod IDs already in the queue
+        self.existing_mod_ids = existing_mod_ids
 
     def run(self):
-        asyncio.run(self.process_collection())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.process_item())
 
-    async def process_collection(self):
+    async def process_item(self):
         try:
-            # Create an aiohttp ClientSession
             async with aiohttp.ClientSession() as session:
-                # Fetch the collection page
-                collection_url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={self.collection_id}"
-                async with session.get(collection_url) as response:
+                item_url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={self.item_id}"
+                async with session.get(item_url) as response:
                     if response.status != 200:
-                        self.error_occurred.emit(f"Failed to fetch collection page. HTTP status: {response.status}")
+                        self.error_occurred.emit(f"Failed to fetch item page. HTTP status: {response.status}")
                         return
                     page_content = await response.text()
 
-                # Parse the page content with lxml
                 tree = html.fromstring(page_content)
-
-                # Get game info from the collection page
-                game_name, app_id = self.get_game_info_from_tree(tree)
-
-                # Find all mod IDs in the collection
+                # Check for collection-specific elements
                 collection_items = tree.xpath('//div[contains(@class, "collectionItem")]')
 
-                mod_ids = []
-                for item in collection_items:
-                    # Extract mod ID
-                    a_tags = item.xpath('.//a[@href]')
-                    mod_id = self.extract_id(a_tags[0].get('href')) if a_tags else None
-                    if mod_id and mod_id not in self.existing_mod_ids:
-                        mod_ids.append(mod_id)
+                if collection_items:
+                    # It's a collection
+                    self.mod_or_collection_detected.emit(True, self.item_id)
+                    await self.process_collection(tree, session)
+                else:
+                    # It's a mod
+                    self.mod_or_collection_detected.emit(False, self.item_id)
+                    await self.process_mod(tree)
+        except Exception as e:
+            self.error_occurred.emit(f"Error processing item: {e}")
 
-                # Fetch mod info for all mods concurrently
-                tasks = [self.fetch_mod_info(session, mod_id) for mod_id in mod_ids]
-                mods_info = await asyncio.gather(*tasks)
+    async def process_collection(self, tree, session):
+        try:
+            game_name, app_id = self.get_game_info_from_tree(tree)
 
-                # Include game_name and app_id for updating game selection
-                self.collection_processed.emit([mods_info, game_name])
+            collection_items = tree.xpath('//div[contains(@class, "collectionItem")]')
+            mod_ids = []
+            for item in collection_items:
+                a_tags = item.xpath('.//a[@href]')
+                mod_id = self.extract_id(a_tags[0].get('href')) if a_tags else None
+                if mod_id and mod_id not in self.existing_mod_ids:
+                    mod_ids.append(mod_id)
+
+            tasks = [self.fetch_mod_info(session, mod_id) for mod_id in mod_ids]
+            mods_info = await asyncio.gather(*tasks)
+
+            self.item_processed.emit({
+                'type': 'collection',
+                'mods_info': mods_info,
+                'game_name': game_name
+            })
         except Exception as e:
             self.error_occurred.emit(f"Error processing collection: {e}")
 
-    async def fetch_mod_info(self, session, mod_id):
+    async def process_mod(self, tree):
         try:
-            url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={mod_id}"
-            async with session.get(url) as response:
-                if response.status != 200:
-                    return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None}
-                page_content = await response.text()
-                tree = html.fromstring(page_content)
+            mod_info = await self.fetch_mod_info(None, self.item_id, tree=tree)
+            self.item_processed.emit({
+                'type': 'mod',
+                'mod_info': mod_info
+            })
+        except Exception as e:
+            self.error_occurred.emit(f"Error processing mod: {e}")
 
-                # Fetch game info
-                game_tag = tree.xpath('//a[@data-panel=\'{"noFocusRing":true}\']')
-                game_name, app_id = None, None
-                if game_tag and 'href' in game_tag[0].attrib:
-                    href = game_tag[0].get('href')
-                    app_id_match = re.search(r'/app/(\d+)', href)
-                    if app_id_match:
-                        app_id = app_id_match.group(1)
-                        game_name = self.app_id_to_game.get(app_id, None)
-                # Fetch mod title
-                title_tag = tree.xpath('//div[@class="workshopItemTitle"]')
-                mod_title = title_tag[0].text.strip() if title_tag else 'Unknown Title'
-                return {'mod_id': mod_id, 'mod_name': mod_title, 'app_id': app_id}
+    async def fetch_mod_info(self, session, mod_id, tree=None):
+        try:
+            if tree is None:
+                url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={mod_id}"
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None}
+                    page_content = await response.text()
+                    tree = html.fromstring(page_content)
+
+            game_tag = tree.xpath('//a[@data-panel=\'{"noFocusRing":true}\']')
+            game_name, app_id = None, None
+            if game_tag and 'href' in game_tag[0].attrib:
+                href = game_tag[0].get('href')
+                app_id_match = re.search(r'/app/(\d+)', href)
+                if app_id_match:
+                    app_id = app_id_match.group(1)
+                    game_name = self.app_id_to_game.get(app_id, None)
+
+            title_tag = tree.xpath('//div[@class="workshopItemTitle"]')
+            mod_title = title_tag[0].text.strip() if title_tag else 'Unknown Title'
+            return {'mod_id': mod_id, 'mod_name': mod_title, 'app_id': app_id}
         except Exception as e:
             return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None}
 
@@ -209,9 +232,8 @@ class CollectionFetcher(QThread):
         if match:
             return match.group(1)
         elif input_str.isdigit():
-            return input_str  # Directly return if it's an ID
+            return input_str
         else:
-            # Attempt to extract numbers from the input
             id_match = re.search(r'(\d+)', input_str)
             if id_match:
                 return id_match.group(1)
@@ -740,6 +762,8 @@ class SteamWorkshopDownloader(QWidget):
         
         self.clipboard_signal_connected = False
         
+        self.item_fetchers = []
+        
         # Define download paths for SteamCMD and SteamWebAPI
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
         self.downloads_root_path = os.path.join(script_dir, 'Downloads')
@@ -1240,9 +1264,29 @@ class SteamWorkshopDownloader(QWidget):
             QMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
     
-        # Detect if the input ID corresponds to a collection
-        is_collection = self.is_collection(mod_id)
+        # Disable the button while fetching
+        self.add_mod_btn.setEnabled(False)
+    
+        existing_mod_ids = [mod['mod_id'] for mod in self.download_queue]
+    
+        # Use ItemFetcher to detect and process the mod or collection
+        item_fetcher = ItemFetcher(
+            item_id=mod_id,
+            app_id_to_game=self.app_id_to_game,
+            existing_mod_ids=existing_mod_ids
+        )
+        self.item_fetchers.append(item_fetcher)  # Keep a reference to prevent garbage collection
+        item_fetcher.mod_or_collection_detected.connect(self.on_mod_or_collection_detected_for_mod)
+        item_fetcher.item_processed.connect(self.on_item_processed_for_mod)
+        item_fetcher.error_occurred.connect(self.on_item_error)
+        item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
+        item_fetcher.start()
+    
+        self.log_signal.emit(f"Processing input {mod_id}...")
+
+    def on_mod_or_collection_detected_for_mod(self, is_collection, item_id):
         if is_collection:
+            # Ask user if they want to add as a collection if it's not a mod
             reply = QMessageBox.question(
                 self,
                 'Detected Collection',
@@ -1250,110 +1294,29 @@ class SteamWorkshopDownloader(QWidget):
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
-                self.collection_input.setText(mod_input)
+                self.collection_input.setText(item_id)
                 self.add_collection_to_queue()
             else:
                 QMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
-            return
-    
-        if self.is_mod_in_queue(mod_id):
-            self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
-            return
-    
-        # Fetch mod info using mod_id
-        game_name, app_id, mod_title = self.get_mod_info(mod_id)
-        if not mod_title:
-            mod_title = "Unknown Title"  # Default to 'Unknown Title' if fetching fails
-    
-        # Update game selection in the UI if game_name was successfully fetched
-        if game_name:
-            self.update_game_selection(game_name)
-    
-        # Determine the provider
-        provider = self.get_provider_for_mod({'app_id': app_id})
-        if provider == 'SteamWebAPI':
-            provider_display = 'SteamWebAPI'
-            if not app_id:
-                self.log_signal.emit(f"App ID not found for mod {mod_id}. Mod will be downloaded using SteamWebAPI.")
-            else:
-                self.log_signal.emit(f"App ID {app_id} not found in AppIDs.txt. Mod {mod_id} will be downloaded using SteamWebAPI.")
-        else:
-            provider_display = 'SteamCMD'
-    
-        # Add mod to download queue, include app_id and provider
-        self.download_queue.append({
-            'mod_id': mod_id,
-            'mod_name': mod_title,
-            'status': 'Queued',
-            'retry_count': 0,
-            'app_id': app_id,
-            'provider': provider
-        })
-        tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued', provider_display])
-        self.queue_tree.addTopLevelItem(tree_item)
-        self.update_queue_count()
-    
-        # Enable the export button if the queue is not empty
-        self.export_queue_btn.setEnabled(bool(self.download_queue))
-    
-        self.mod_input.clear()
-        self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
-
-    def add_collection_to_queue(self):
-        collection_input = self.collection_input.text().strip()
-        if not collection_input:
-            QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Collection URL or ID.')
+            self.add_mod_btn.setEnabled(True)
             return
 
-        collection_id = self.extract_id(collection_input)
-        if not collection_id:
-            QMessageBox.warning(self, 'Input Error', 'Invalid Workshop Collection URL or ID.')
-            return
-
-        # Detect if the input ID corresponds to a mod
-        is_collection = self.is_collection(collection_id)
-        if not is_collection:
-            reply = QMessageBox.question(
-                self,
-                'Detected Mod',
-                'The input corresponds to a mod. Do you want to add it as a mod?',
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply == QMessageBox.Yes:
-                self.mod_input.setText(collection_input)
-                self.add_mod_to_queue()
-            else:
-                QMessageBox.information(self, 'Action Cancelled', 'The mod was not added.')
-            return
-
-        # Get the list of existing mod IDs to avoid duplicates
-        existing_mod_ids = [mod['mod_id'] for mod in self.download_queue]
-
-        # Create an instance of CollectionFetcher
-        self.collection_fetcher = CollectionFetcher(
-            collection_id=collection_id,
-            app_id_to_game=self.app_id_to_game,
-            existing_mod_ids=existing_mod_ids
-        )
-        self.collection_fetcher.collection_processed.connect(self.on_collection_processed)
-        self.collection_fetcher.error_occurred.connect(self.on_collection_error)
-        self.collection_fetcher.start()
-        self.log_signal.emit(f"Processing collection {collection_id}...")
-
-    def on_collection_processed(self, result):
-        mods_info, game_name = result
-        added_count = 0
-        for mod_info in mods_info:
+    def on_item_processed_for_mod(self, result):
+        if result['type'] == 'mod':
+            mod_info = result['mod_info']
             mod_id = mod_info['mod_id']
             mod_title = mod_info['mod_name']
             app_id = mod_info['app_id']
+            self.add_mod_btn.setEnabled(True)
+
             if self.is_mod_in_queue(mod_id):
-                continue
-            # Determine the provider
+                self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
+                self.add_mod_btn.setEnabled(True)
+                return
+
             provider = self.get_provider_for_mod({'app_id': app_id})
             provider_display = provider
 
-            # Add mod to download queue
             self.download_queue.append({
                 'mod_id': mod_id,
                 'mod_name': mod_title,
@@ -1364,23 +1327,124 @@ class SteamWorkshopDownloader(QWidget):
             })
             tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued', provider_display])
             self.queue_tree.addTopLevelItem(tree_item)
-            added_count += 1
             self.update_queue_count()
 
-        # Update game selection in the UI if game_name was successfully fetched
-        if game_name:
-            self.update_game_selection(game_name)
+            self.export_queue_btn.setEnabled(bool(self.download_queue))
 
-        self.log_signal.emit(f"Collection processed. {added_count} mods added to the queue.")
-        self.collection_input.clear()
+            self.mod_input.clear()
+            self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
 
-        # Ensure export button is enabled if there's anything in the queue
-        if self.download_queue:
-            self.export_queue_btn.setEnabled(True)
+            # Update game selection in the UI if game_name was successfully fetched
+            game_name = self.app_id_to_game.get(app_id)
+            if game_name:
+                self.update_game_selection(game_name)
+        else:
+            # Should not reach here
+            pass
 
-    def on_collection_error(self, error_message):
+    def on_item_fetching_complete_for_mod(self):
+        self.add_mod_btn.setEnabled(True)
+
+    def on_item_error(self, error_message):
         QMessageBox.critical(self, 'Error', error_message)
         self.log_signal.emit(error_message)
+        self.add_mod_btn.setEnabled(True)
+
+    def add_collection_to_queue(self):
+        collection_input = self.collection_input.text().strip()
+        if not collection_input:
+            QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Collection URL or ID.')
+            return
+    
+        collection_id = self.extract_id(collection_input)
+        if not collection_id:
+            QMessageBox.warning(self, 'Input Error', 'Invalid Workshop Collection URL or ID.')
+            return
+    
+        # Disable the button while fetching
+        self.add_collection_btn.setEnabled(False)
+    
+        existing_mod_ids = [mod['mod_id'] for mod in self.download_queue]
+    
+        # Use ItemFetcher to detect and process the mod or collection
+        item_fetcher = ItemFetcher(
+            item_id=collection_id,
+            app_id_to_game=self.app_id_to_game,
+            existing_mod_ids=existing_mod_ids
+        )
+        self.item_fetchers.append(item_fetcher)  # Keep a reference to prevent garbage collection
+        item_fetcher.mod_or_collection_detected.connect(self.on_mod_or_collection_detected_for_collection)
+        item_fetcher.item_processed.connect(self.on_item_processed_for_collection)
+        item_fetcher.error_occurred.connect(self.on_item_error)
+        item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
+        item_fetcher.start()
+    
+        self.log_signal.emit(f"Processing input {collection_id}...")
+
+    def on_mod_or_collection_detected_for_collection(self, is_collection, item_id):
+        if not is_collection:
+            # Ask user if they want to add as a mod if it's not a collection
+            reply = QMessageBox.question(
+                self,
+                'Detected Mod',
+                'The input corresponds to a mod. Do you want to add it as a mod?',
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.mod_input.setText(item_id)
+                self.add_mod_to_queue()
+            else:
+                QMessageBox.information(self, 'Action Cancelled', 'The mod was not added.')
+            self.add_collection_btn.setEnabled(True)
+            return
+
+    def on_item_processed_for_collection(self, result):
+        if result['type'] == 'collection':
+            mods_info = result['mods_info']
+            game_name = result['game_name']
+            added_count = 0
+            for mod_info in mods_info:
+                mod_id = mod_info['mod_id']
+                mod_title = mod_info['mod_name']
+                app_id = mod_info['app_id']
+                if self.is_mod_in_queue(mod_id):
+                    continue
+
+                provider = self.get_provider_for_mod({'app_id': app_id})
+                provider_display = provider
+
+                self.download_queue.append({
+                    'mod_id': mod_id,
+                    'mod_name': mod_title,
+                    'status': 'Queued',
+                    'retry_count': 0,
+                    'app_id': app_id,
+                    'provider': provider
+                })
+                tree_item = QTreeWidgetItem([mod_id, mod_title, 'Queued', provider_display])
+                self.queue_tree.addTopLevelItem(tree_item)
+                added_count += 1
+                self.update_queue_count()
+
+            if game_name:
+                self.update_game_selection(game_name)
+
+            self.log_signal.emit(f"Collection processed. {added_count} mods added to the queue.")
+            self.collection_input.clear()
+
+            if self.download_queue:
+                self.export_queue_btn.setEnabled(True)
+                self.add_collection_btn.setEnabled(True)
+        else:
+            pass
+
+    def on_item_fetching_complete_for_collection(self):
+        self.add_collection_btn.setEnabled(True)
+        
+    def on_item_fetcher_finished(self, item_fetcher):
+        if item_fetcher in self.item_fetchers:
+            self.item_fetchers.remove(item_fetcher)
+        self.add_mod_btn.setEnabled(True)
 
     def get_provider_for_mod(self, mod):
         selected_provider = self.provider_dropdown.currentText()
