@@ -1897,6 +1897,12 @@ class SteamWorkshopDownloader(QWidget):
         if self.is_mod_in_queue(mod_id):
             self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
             return
+            
+        # Fetch mod info using mod_id
+        game_name, app_id, mod_title = self.get_mod_info(mod_id)
+        if not app_id:
+            self.log_signal.emit(f"Failed to retrieve App ID for mod {mod_id}.")
+            return
     
         # Update game selection in the UI
         self.update_game_selection(game_name)
