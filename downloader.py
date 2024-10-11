@@ -1286,7 +1286,6 @@ class SteamWorkshopDownloader(QWidget):
 
     def on_mod_or_collection_detected_for_mod(self, is_collection, item_id):
         if is_collection:
-            # Ask user if they want to add as a collection if it's not a mod
             reply = QMessageBox.question(
                 self,
                 'Detected Collection',
@@ -1295,6 +1294,7 @@ class SteamWorkshopDownloader(QWidget):
             )
             if reply == QMessageBox.Yes:
                 self.collection_input.setText(item_id)
+                self.mod_input.clear()
                 self.add_collection_to_queue()
             else:
                 QMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
@@ -1383,7 +1383,6 @@ class SteamWorkshopDownloader(QWidget):
 
     def on_mod_or_collection_detected_for_collection(self, is_collection, item_id):
         if not is_collection:
-            # Ask user if they want to add as a mod if it's not a collection
             reply = QMessageBox.question(
                 self,
                 'Detected Mod',
@@ -1392,6 +1391,7 @@ class SteamWorkshopDownloader(QWidget):
             )
             if reply == QMessageBox.Yes:
                 self.mod_input.setText(item_id)
+                self.collection_input.clear()
                 self.add_mod_to_queue()
             else:
                 QMessageBox.information(self, 'Action Cancelled', 'The mod was not added.')
