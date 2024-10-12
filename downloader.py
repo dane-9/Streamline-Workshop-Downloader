@@ -1010,20 +1010,22 @@ class SteamWorkshopDownloader(QWidget):
                 with open(file_path, 'r', encoding='utf-8') as file:
                     for line in file:
                         parts = line.strip().split('|')
-                        if len(parts) < 3:
+                        if len(parts) < 4:
                             continue  # Skip invalid lines
-                        mod_id, mod_name, provider = parts[0], parts[1], parts[2]
+                        game_name, mod_id, mod_name, provider = parts[0], parts[1], parts[2], parts[3]
                         
                         if not self.is_mod_in_queue(mod_id):
                             self.download_queue.append({
+                                'game_name': game_name,
                                 'mod_id': mod_id,
                                 'mod_name': mod_name,
                                 'status': 'Queued',
                                 'retry_count': 0,
                                 'provider': provider
                             })
-                            tree_item = QTreeWidgetItem([mod_id, mod_name, 'Queued', provider])
+                            tree_item = QTreeWidgetItem([game_name, mod_id, mod_name, 'Queued', provider])
                             self.queue_tree.addTopLevelItem(tree_item)
+                    
                     self.log_signal.emit(f"Queue imported from {file_path}.")
                     self.export_queue_btn.setEnabled(bool(self.download_queue))
                     self.update_queue_count()
@@ -1040,7 +1042,7 @@ class SteamWorkshopDownloader(QWidget):
             try:
                 with open(file_path, 'w', encoding='utf-8') as file:
                     for mod in self.download_queue:
-                        file.write(f"{mod['mod_id']}|{mod['mod_name']}|{mod['provider']}\n")
+                        file.write(f"{mod['game_name']}|{mod['mod_id']}|{mod['mod_name']}|{mod['provider']}\n")
                 self.log_signal.emit(f"Queue exported to {file_path}.")
             except Exception as e:
                 QMessageBox.critical(self, "Export Error", f"Failed to export queue: {e}")
