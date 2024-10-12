@@ -210,7 +210,7 @@ class ItemFetcher(QThread):
                     tree = html.fromstring(page_content)
     
             # Fetch game info from breadcrumbs
-            breadcrumb_tag = tree.xpath('//div[@class="breadcrumbs"]/a[1]')  # Get the first <a> in the breadcrumbs
+            breadcrumb_tag = tree.xpath('//div[@class="breadcrumbs"]/a[contains(@href, "/app/")]')
             game_name, app_id = 'Unknown Game', None
             
             if breadcrumb_tag:
@@ -218,7 +218,7 @@ class ItemFetcher(QThread):
                 app_id_match = re.search(r'/app/(\d+)', href)  # Extract the app ID from the href
                 if app_id_match:
                     app_id = app_id_match.group(1)
-                    game_name = breadcrumb_tag[0].text_content().strip()  # Get the game name (text inside the <a>)
+                    game_name = breadcrumb_tag[0].text_content().strip()
     
             # Fetch mod title
             title_tag = tree.xpath('//div[@class="workshopItemTitle"]')
@@ -1275,10 +1275,7 @@ class SteamWorkshopDownloader(QWidget):
             mod_id = mod_info['mod_id']
             mod_title = mod_info['mod_name']
             app_id = mod_info['app_id']
-            if app_id and app_id in self.app_ids:
-                game_name = self.app_ids[app_id]
-            else:
-                game_name = 'Unknown Game'
+            game_name = mod_info['game_name']
             self.add_mod_btn.setEnabled(True)
 
             if self.is_mod_in_queue(mod_id):
@@ -1372,12 +1369,7 @@ class SteamWorkshopDownloader(QWidget):
                 mod_id = mod_info['mod_id']
                 mod_title = mod_info['mod_name']
                 app_id = mod_info['app_id']
-                if app_id and app_id in self.app_ids:
-                    game_name = self.app_ids[app_id]
-                else:
-                    game_name = 'Unknown Game'
-                if self.is_mod_in_queue(mod_id):
-                    continue
+                game_name = mod_info['game_name']
 
                 provider = self.get_provider_for_mod({'app_id': app_id})
                 provider_display = provider
@@ -1489,18 +1481,21 @@ class SteamWorkshopDownloader(QWidget):
             response = requests.get(url, headers=headers)
             response.raise_for_status()
             tree = html.fromstring(response.text)
+    
             # Fetch game info
             game_tag = tree.xpath('//div[@class="breadcrumbs"]/a[contains(@href, "/app/")]')
             game_name, app_id = 'Unknown Game', None
-            if game_tag and 'href' in game_tag[-1].attrib:
-                href = game_tag[-1].get('href')
+            if game_tag and 'href' in game_tag[0].attrib:
+                href = game_tag[0].get('href')
                 app_id_match = re.search(r'/app/(\d+)', href)
                 if app_id_match:
                     app_id = app_id_match.group(1)
-                    game_name = game_tag[-1].text_content().strip()
+                    game_name = game_tag[0].text_content().strip()
+    
             # Fetch mod title
             title_tag = tree.xpath('//div[@class="workshopItemTitle"]')
             mod_title = title_tag[0].text.strip() if title_tag else 'Unknown Title'
+    
             return game_name, app_id, mod_title
         except Exception as e:
             self.log_signal.emit(f"Error fetching mod info for mod {mod_id}: {e}")
@@ -1887,9 +1882,6 @@ class SteamWorkshopDownloader(QWidget):
     
         # Fetch mod info using mod_id
         game_name, app_id, mod_title = self.get_mod_info(mod_id)
-        if not app_id:
-            self.log_signal.emit(f"Failed to retrieve App ID for mod {mod_id}.")
-            return
     
         # Determine the provider
         provider = self.get_provider_for_mod({'app_id': app_id})
