@@ -172,16 +172,16 @@ class ItemFetcher(QThread):
     async def process_collection(self, tree, session):
         try:
             collection_items = tree.xpath('//div[contains(@class, "collectionItem")]')
-            mod_ids = []
+            mod_ids = set()
             for item in collection_items:
                 a_tags = item.xpath('.//a[@href]')
                 mod_id = self.extract_id(a_tags[0].get('href')) if a_tags else None
                 if mod_id and mod_id not in self.existing_mod_ids:
-                    mod_ids.append(mod_id)
-
+                    mod_ids.add(mod_id)
+    
             tasks = [self.fetch_mod_info(session, mod_id) for mod_id in mod_ids]
             mods_info = await asyncio.gather(*tasks)
-
+    
             self.item_processed.emit({
                 'type': 'collection',
                 'mods_info': mods_info,
@@ -1882,6 +1882,9 @@ class SteamWorkshopDownloader(QWidget):
     
         # Fetch mod info using mod_id
         game_name, app_id, mod_title = self.get_mod_info(mod_id)
+        if not app_id:
+            self.log_signal.emit(f"Failed to retrieve App ID for mod {mod_id}.")
+            return
     
         # Determine the provider
         provider = self.get_provider_for_mod({'app_id': app_id})
