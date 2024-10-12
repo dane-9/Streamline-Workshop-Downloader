@@ -1370,6 +1370,10 @@ class SteamWorkshopDownloader(QWidget):
                 mod_title = mod_info['mod_name']
                 app_id = mod_info['app_id']
                 game_name = mod_info['game_name']
+                
+                if self.is_mod_in_queue(mod_id):
+                    self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') is already in the queue. Skipping duplicate.")
+                    continue
 
                 provider = self.get_provider_for_mod({'app_id': app_id})
                 provider_display = provider
