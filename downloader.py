@@ -1987,6 +1987,16 @@ class SteamWorkshopDownloader(QWidget):
 
         menu = QMenu()
         
+        # Move Up action
+        move_up_action = QAction("Move Up", self)
+        move_up_action.triggered.connect(lambda: self.move_mod_up(selected_items))
+        menu.addAction(move_up_action)
+    
+        # Move Down action
+        move_down_action = QAction("Move Down", self)
+        move_down_action.triggered.connect(lambda: self.move_mod_down(selected_items))
+        menu.addAction(move_down_action)
+        
         # Change Provider submenu
         change_provider_menu = menu.addMenu("Change Provider")
         steamcmd_action = QAction("SteamCMD", self)
@@ -2021,6 +2031,36 @@ class SteamWorkshopDownloader(QWidget):
                     mod['provider'] = new_provider
                     item.setText(3, new_provider)  # Update the provider column in the UI
                     self.log_signal.emit(f"Mod {mod_id} provider changed to {new_provider}.")
+                    
+    def move_mod_up(self, selected_items):
+        for item in selected_items:
+            index = self.queue_tree.indexOfTopLevelItem(item)
+            if index > 0:
+                self.queue_tree.takeTopLevelItem(index)
+                self.queue_tree.insertTopLevelItem(index - 1, item)
+    
+                # Also reorder in the download_queue
+                mod_id = item.text(1)
+                mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
+                if mod:
+                    self.download_queue.remove(mod)
+                    self.download_queue.insert(index - 1, mod)
+                self.update_queue_count()
+    
+    def move_mod_down(self, selected_items):
+        for item in reversed(selected_items):
+            index = self.queue_tree.indexOfTopLevelItem(item)
+            if index < self.queue_tree.topLevelItemCount() - 1:
+                self.queue_tree.takeTopLevelItem(index)
+                self.queue_tree.insertTopLevelItem(index + 1, item)
+    
+                # Also reorder in the download_queue
+                mod_id = item.text(1)
+                mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
+                if mod:
+                    self.download_queue.remove(mod)
+                    self.download_queue.insert(index + 1, mod)
+                self.update_queue_count()
 
     def remove_mod_from_queue(self, mod_id):
         self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] != mod_id]
