@@ -105,6 +105,8 @@ class SettingsDialog(QDialog):
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
         }
+        
+        
 
 class AddSteamAccountDialog(QDialog):
     def __init__(self, parent=None):
@@ -760,11 +762,9 @@ class SteamWorkshopDownloader(QWidget):
 
         self.clipboard = QApplication.clipboard()
         self.last_clipboard_text = ""
-        
         self.clipboard_signal_connected = False
-        
         self.item_fetchers = []
-        
+
         # Define download paths for SteamCMD and SteamWebAPI
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
         self.downloads_root_path = os.path.join(script_dir, 'Downloads')
@@ -775,7 +775,11 @@ class SteamWorkshopDownloader(QWidget):
         os.makedirs(self.steamcmd_download_path, exist_ok=True)
         os.makedirs(self.steamwebapi_download_path, exist_ok=True)
 
-        # initialize the UI after loading the config
+        # Load App IDs from AppIDs.txt
+        self.app_ids = {}
+        self.load_app_ids()
+
+        # Initialize the UI after loading the config
         self.column_width_backup = {}
         self.initUI()
         self.adjust_widget_heights()
@@ -1121,36 +1125,6 @@ class SteamWorkshopDownloader(QWidget):
         # Save configuration
         self.save_config()
 
-    def load_app_ids(self):
-        app_ids = {}
-        appids_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'AppIDs.txt')
-
-        if not os.path.isfile(appids_path):
-            QMessageBox.critical(self, 'Error', f"'AppIDs.txt' not found in {os.path.dirname(os.path.abspath(sys.argv[0]))}.")
-            sys.exit(1)
-
-        try:
-            with open(appids_path, 'r', encoding='utf-8') as file:
-                for line in file:
-                    if ',' not in line.strip():
-                        continue
-                    game_name, app_id = line.strip().split(',', 1)
-                    game_name = game_name.strip()
-                    app_id = app_id.strip()
-                    if app_id.isdigit():
-                        app_ids[game_name] = app_id
-                    else:
-                        self.log_signal.emit(f"Invalid App ID for game '{game_name}': '{app_id}'")
-        except Exception as e:
-            QMessageBox.critical(self, 'Error', f"Failed to read 'AppIDs.txt': {e}")
-            sys.exit(1)
-
-        if not app_ids:
-            QMessageBox.critical(self, 'Error', "'AppIDs.txt' does not contain valid entries.")
-            sys.exit(1)
-
-        return app_ids
-
     def populate_game_dropdown(self):
         self.game_dropdown.clear()
         for game in sorted(self.app_ids.keys()):
@@ -1301,17 +1275,20 @@ class SteamWorkshopDownloader(QWidget):
             mod_id = mod_info['mod_id']
             mod_title = mod_info['mod_name']
             app_id = mod_info['app_id']
-            game_name = mod_info.get('game_name', 'Unknown Game')
+            if app_id and app_id in self.app_ids:
+                game_name = self.app_ids[app_id]
+            else:
+                game_name = 'Unknown Game'
             self.add_mod_btn.setEnabled(True)
-    
+
             if self.is_mod_in_queue(mod_id):
                 self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
                 self.add_mod_btn.setEnabled(True)
                 return
-    
+
             provider = self.get_provider_for_mod({'app_id': app_id})
             provider_display = provider
-    
+
             self.download_queue.append({
                 'game_name': game_name,
                 'mod_id': mod_id,
@@ -1324,9 +1301,9 @@ class SteamWorkshopDownloader(QWidget):
             tree_item = QTreeWidgetItem([game_name, mod_id, mod_title, 'Queued', provider_display])
             self.queue_tree.addTopLevelItem(tree_item)
             self.update_queue_count()
-    
+
             self.export_queue_btn.setEnabled(bool(self.download_queue))
-    
+
             self.mod_input.clear()
             self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
         else:
@@ -1395,13 +1372,16 @@ class SteamWorkshopDownloader(QWidget):
                 mod_id = mod_info['mod_id']
                 mod_title = mod_info['mod_name']
                 app_id = mod_info['app_id']
-                game_name = mod_info.get('game_name', 'Unknown Game')
+                if app_id and app_id in self.app_ids:
+                    game_name = self.app_ids[app_id]
+                else:
+                    game_name = 'Unknown Game'
                 if self.is_mod_in_queue(mod_id):
                     continue
-    
+
                 provider = self.get_provider_for_mod({'app_id': app_id})
                 provider_display = provider
-    
+
                 self.download_queue.append({
                     'game_name': game_name,
                     'mod_id': mod_id,
@@ -1415,10 +1395,10 @@ class SteamWorkshopDownloader(QWidget):
                 self.queue_tree.addTopLevelItem(tree_item)
                 added_count += 1
                 self.update_queue_count()
-    
+
             self.log_signal.emit(f"Collection processed. {added_count} mods added to the queue.")
             self.collection_input.clear()
-    
+
             if self.download_queue:
                 self.export_queue_btn.setEnabled(True)
                 self.add_collection_btn.setEnabled(True)
@@ -1438,12 +1418,31 @@ class SteamWorkshopDownloader(QWidget):
         selected_provider = self.provider_dropdown.currentText()
         if selected_provider == 'Default':
             app_id = mod.get('app_id')
-            if app_id:
+            if app_id and app_id in self.app_ids:
                 return 'SteamCMD'
             else:
                 return 'SteamWebAPI'
         else:
             return selected_provider
+            
+    def load_app_ids(self):
+        app_ids_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'AppIDs.txt')
+        if not os.path.isfile(app_ids_path):
+            QMessageBox.critical(self, 'Error', f"AppIDs.txt not found at {app_ids_path}. Please create the file with game names and App IDs.")
+            sys.exit(1)
+        try:
+            with open(app_ids_path, 'r', encoding='utf-8') as file:
+                for line in file:
+                    line = line.strip()
+                    if line:
+                        parts = line.split(',')
+                        if len(parts) >= 2:
+                            game_name = parts[0].strip()
+                            app_id = parts[1].strip()
+                            self.app_ids[app_id] = game_name
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f"Failed to load AppIDs.txt: {e}")
+            sys.exit(1)
                 
     def find_queue_item(self, mod_id):
         for index in range(self.queue_tree.topLevelItemCount()):
