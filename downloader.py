@@ -10,6 +10,7 @@ import webbrowser
 import time
 import asyncio
 import aiohttp
+import ctypes
 import shutil
 from io import BytesIO
 from lxml import html
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
-    QMenu, QCheckBox, QFileDialog, 
+    QMenu, QCheckBox, QFileDialog
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
@@ -28,6 +29,9 @@ from PySide6.QtGui import (
     QTextCursor, QAction, QClipboard, QIcon, QCursor, QPainter,
     QColor, QPixmap, QPolygon,
 )
+
+# Allows logo to be applied over pythonw.exe's own
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('streamline.app.logo')
 
 class SettingsDialog(QDialog):
     def __init__(self, current_batch_size, show_logs, show_provider, auto_detect_urls, auto_add_to_queue, parent=None):
@@ -764,6 +768,8 @@ class SteamWorkshopDownloader(QWidget):
         self.last_clipboard_text = ""
         self.clipboard_signal_connected = False
         self.item_fetchers = []
+        
+        self.setWindowIcon(QIcon("logo.ico"))
 
         # Define download paths for SteamCMD and SteamWebAPI
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -2250,8 +2256,7 @@ class SteamWorkshopDownloader(QWidget):
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
-    app_icon = QIcon("logo.ico")
-    app.setWindowIcon(app_icon)
+    app.setWindowIcon(QIcon("logo.ico"))
     downloader = SteamWorkshopDownloader()
     downloader.resize(670, 750)
     downloader.show()
