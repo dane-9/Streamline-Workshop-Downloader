@@ -1,20 +1,27 @@
 import sys
 import os
-import subprocess
-import threading
 import requests
-import json
-import re
 import zipfile
-import webbrowser
+import threading
+import subprocess
 import time
-import asyncio
-import aiohttp
 import ctypes
 import shutil
+import re
+import json
+import webbrowser
+import aiohttp
+import asyncio
 from io import BytesIO
 from lxml import html
 from collections import defaultdict
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import win32gui
+
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
@@ -110,8 +117,6 @@ class SettingsDialog(QDialog):
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
         }
         
-        
-
 class AddSteamAccountDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -132,6 +137,137 @@ class AddSteamAccountDialog(QDialog):
 
     def get_username(self):
         return self.username_input.text().strip()
+        
+class AppIDScraper:
+    def __init__(self, files_dir):
+        self.files_dir = files_dir
+        self.chromium_dir = os.path.join(self.files_dir, 'chromium')
+        os.makedirs(self.chromium_dir, exist_ok=True)
+
+    def hide_browser(self):
+        time.sleep(0.1)
+        def window_enum_callback(hwnd, window_list):
+            window_list.append(hwnd)
+        hwnd_list = []
+        win32gui.EnumWindows(window_enum_callback, hwnd_list)
+        for hwnd in hwnd_list:
+            window_text = win32gui.GetWindowText(hwnd)
+            if 'Chrome for Testing' in window_text:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)
+                return
+
+    def get_download_links(self):
+        url = "https://googlechromelabs.github.io/chrome-for-testing/#stable"
+        response = requests.get(url)
+        tree = html.fromstring(response.content)
+
+        chrome_url = tree.xpath("//section[@id='stable']//tr[@class='status-ok' and th[1]/code/text()='chrome' and th[2]/code/text()='win64']//td[1]/code/text()")
+        chromedriver_url = tree.xpath("//section[@id='stable']//tr[@class='status-ok' and th[1]/code/text()='chromedriver' and th[2]/code/text()='win64']//td[1]/code/text()")
+
+        if not chrome_url or not chromedriver_url:
+            raise Exception("Failed to find the download links for Chromium and Chromedriver.")
+        
+        return chrome_url[0].strip(), chromedriver_url[0].strip()
+
+    def download_and_extract_zip(self, url, extract_to, component_name, log_signal=None):
+        if log_signal:
+            log_signal.emit(f"{component_name} is downloading...")
+        response = requests.get(url)
+        zip_filename = os.path.join(extract_to, "download.zip")
+        
+        with open(zip_filename, 'wb') as f:
+            f.write(response.content)
+    
+        with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
+            zip_ref.extractall(extract_to)
+    
+        os.remove(zip_filename)
+        if log_signal:
+            log_signal.emit(f"{component_name} downloaded and extracted.")
+
+    def install_chromium_and_driver(self, log_signal=None):
+        chrome_win64_dir = os.path.join(self.chromium_dir, 'chrome-win64')
+        chromedriver_win64_dir = os.path.join(self.chromium_dir, 'chromedriver-win64')
+    
+        if not os.path.exists(chrome_win64_dir) or not os.path.exists(chromedriver_win64_dir):
+            if log_signal:
+                log_signal.emit("Chromium or Chromedriver not found.")
+            else:
+                print("Chromium or Chromedriver not found.")
+    
+            chrome_url, chromedriver_url = self.get_download_links()
+    
+            # Download in parallel to speed up installation
+            threads = []
+            if not os.path.exists(chrome_win64_dir):
+                threads.append(threading.Thread(target=self.download_and_extract_zip, args=(chrome_url, self.chromium_dir, "Chromium", log_signal)))
+            
+            if not os.path.exists(chromedriver_win64_dir):
+                threads.append(threading.Thread(target=self.download_and_extract_zip, args=(chromedriver_url, self.chromium_dir, "Chromedriver", log_signal)))
+    
+            for thread in threads:
+                thread.start()
+    
+            for thread in threads:
+                thread.join()
+    
+            if log_signal:
+                log_signal.emit("Chromium and Chromedriver installed")
+            else:
+                print("Chromium and Chromedriver installed")
+        else:
+            return
+
+    def scrape_steamdb(self, selected_types, log_signal=None):
+        if log_signal:
+            log_signal.emit("Scraping SteamDB for AppIDs...")
+
+        # Install Chromium and Chromedriver if needed
+        self.install_chromium_and_driver()
+
+        chrome_options = webdriver.ChromeOptions()
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("window-position=-2000,0")
+
+        chromedriver_path = os.path.abspath(os.path.join(self.chromium_dir, "chromedriver-win64", "chromedriver.exe"))
+        chrome_path = os.path.abspath(os.path.join(self.chromium_dir, "chrome-win64", "chrome.exe"))
+        chrome_options.binary_location = chrome_path
+        
+        # Launch the browser
+        driver = webdriver.Chrome(service=Service(chromedriver_path), options=chrome_options)
+
+        hide_thread = threading.Thread(target=self.hide_browser)
+        hide_thread.start()
+
+        entries = []
+        try:
+            # Go to the SteamDB URL
+            steamdb_url = "https://steamdb.info/sub/17906/apps/"
+            driver.get(steamdb_url)
+
+            # Timeout after 60 seconds
+            WebDriverWait(driver, 60).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'tr.app'))
+            )
+
+            rows = driver.find_elements(By.CSS_SELECTOR, 'tr.app')
+
+            # List to store the results
+            for row in rows:
+                app_type = row.find_element(By.CSS_SELECTOR, 'td:nth-child(2)').text.strip()
+                if app_type in selected_types:
+                    app_name = row.find_element(By.CSS_SELECTOR, 'td:nth-child(3)').text.strip()
+                    app_id = row.get_attribute('data-appid')
+                    entries.append(f"{app_name},{app_id}")
+
+            if log_signal:
+                log_signal.emit("SteamDB scraping Completed.")
+            return entries
+
+        finally:
+            driver.quit()
 
 class ItemFetcher(QThread):
     # Outputs messages
@@ -621,6 +757,48 @@ class OutsideClickFilter(QObject):
                 if not self.tree_widget.rect().contains(widget_pos):
                     self.tree_widget.exit_auto_scroll()
         return False
+        
+class UpdateAppIDsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Update AppIDs")
+        self.setModal(True)
+        self.resize(300, 200)
+
+        layout = QVBoxLayout(self)
+
+        label = QLabel("Check which Types to Include:")
+        layout.addWidget(label)
+
+        self.games_checkbox = QCheckBox("Games")
+        self.games_checkbox.setChecked(True)
+
+        self.applications_checkbox = QCheckBox("Applications")
+        self.applications_checkbox.setChecked(False)
+
+        self.tools_checkbox = QCheckBox("Tools")
+        self.tools_checkbox.setChecked(False)
+
+        checkboxes_layout = QHBoxLayout()
+        checkboxes_layout.addWidget(self.games_checkbox)
+        checkboxes_layout.addWidget(self.applications_checkbox)
+        checkboxes_layout.addWidget(self.tools_checkbox)
+        layout.addLayout(checkboxes_layout)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_selected_types(self):
+        types = []
+        if self.games_checkbox.isChecked():
+            types.append("Game")
+        if self.applications_checkbox.isChecked():
+            types.append("Application")
+        if self.tools_checkbox.isChecked():
+            types.append("Tool")
+        return types
 
 class CustomizableTreeWidgets(QTreeWidget):
     def __init__(self, *args, **kwargs):
@@ -752,9 +930,11 @@ class SteamWorkshopDownloader(QWidget):
         super().__init__()
         self.download_queue = []
         self.is_downloading = False
+        self.files_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'Files')
+        os.makedirs(self.files_dir, exist_ok=True)
         self.config = {}
         self.config_path = self.get_config_path()
-        self.steamcmd_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'steamcmd')
+        self.steamcmd_dir = os.path.join(self.files_dir, 'steamcmd')
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         self.current_process = None
         self.load_config()
@@ -764,7 +944,7 @@ class SteamWorkshopDownloader(QWidget):
         self.clipboard_signal_connected = False
         self.item_fetchers = []
         
-        self.setWindowIcon(QIcon("logo.ico"))
+        self.setWindowIcon(QIcon(os.path.join(self.files_dir, 'logo.ico')))
 
         # Define download paths for SteamCMD and SteamWebAPI
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -797,7 +977,7 @@ class SteamWorkshopDownloader(QWidget):
         self.update_queue_signal.connect(self.update_queue_status)
 
         # Setup SteamCMD asynchronously
-        threading.Thread(target=self.setup_steamcmd, daemon=True).start()
+        threading.Thread(target=self.setup_applications, daemon=True).start()
 
         # Restore the saved window size if it exists
         window_size = self.config.get('window_size')
@@ -812,7 +992,7 @@ class SteamWorkshopDownloader(QWidget):
 
         top_layout = QHBoxLayout()
         
-        settings_icon = QIcon('settings.png')
+        settings_icon = QIcon(os.path.join(self.files_dir, 'settings.png'))
         
         self.settings_btn = QPushButton()
         self.settings_btn.setIcon(settings_icon)
@@ -825,6 +1005,11 @@ class SteamWorkshopDownloader(QWidget):
         self.configure_steam_accounts_btn.setFixedWidth(160)
         self.configure_steam_accounts_btn.clicked.connect(self.open_configure_steam_accounts)
         top_layout.addWidget(self.configure_steam_accounts_btn)
+        
+        self.update_appids_btn = QPushButton('Update AppIDs')
+        self.update_appids_btn.setFixedWidth(100)
+        self.update_appids_btn.clicked.connect(self.open_update_appids)
+        top_layout.addWidget(self.update_appids_btn)
 
         account_layout = QHBoxLayout()
 
@@ -841,8 +1026,6 @@ class SteamWorkshopDownloader(QWidget):
         top_layout.addLayout(account_layout)
 
         main_layout.addLayout(top_layout)
-
-        # Removed game selection layout here
 
         mod_layout = QHBoxLayout()
         self.mod_label = QLabel('Workshop Mod:')
@@ -1053,8 +1236,7 @@ class SteamWorkshopDownloader(QWidget):
                 QMessageBox.critical(self, "Export Error", f"Failed to export queue: {e}")
 
     def get_config_path(self):
-        script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        return os.path.join(script_dir, 'config.json')
+        return os.path.join(self.files_dir, 'config.json')
 
     def load_config(self):
         if os.path.isfile(self.config_path):
@@ -1199,7 +1381,8 @@ class SteamWorkshopDownloader(QWidget):
             self.save_config()
             self.log_signal.emit(f"Active account set to '{selected_account}'.")
 
-    def setup_steamcmd(self):
+    def setup_applications(self):
+        # Setup SteamCMD
         if not os.path.isdir(self.steamcmd_dir):
             self.log_signal.emit("SteamCMD not found. Downloading SteamCMD...")
             try:
@@ -1213,12 +1396,40 @@ class SteamWorkshopDownloader(QWidget):
                 self.log_signal.emit(f"Error downloading SteamCMD: {e}")
                 QMessageBox.critical(self, 'Error', f"Failed to download SteamCMD: {e}")
                 return
-
+    
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         if not os.path.isfile(self.steamcmd_executable):
             self.log_signal.emit(f"SteamCMD executable not found at {self.steamcmd_executable}.")
             QMessageBox.critical(self, 'Error', f"SteamCMD executable not found at {self.steamcmd_executable}.")
             return
+    
+        # Install Chromium and Chromedriver
+        try:
+            scraper = AppIDScraper(self.files_dir)
+            scraper.install_chromium_and_driver(self.log_signal)
+        except Exception as e:
+            self.log_signal.emit(f"Error installing Chromium and Chromedriver: {e}")
+            QMessageBox.critical(self, 'Error', f"Failed to install Chromium and Chromedriver: {e}")
+            return
+    
+        # Check if AppIDs.txt exists before updating
+        appids_path = os.path.join(self.files_dir, 'AppIDs.txt')
+        if not os.path.isfile(appids_path):
+            self.log_signal.emit("AppIDs.txt not found. Updating AppIDs...")
+            try:
+                entries = scraper.scrape_steamdb(["Game"], self.log_signal)
+                with open(appids_path, 'w', encoding='utf-8') as f:
+                    f.write("\n".join(entries))
+                self.log_signal.emit("AppIDs updated successfully.")
+            except Exception as e:
+                self.log_signal.emit(f"Error updating AppIDs: {e}")
+                QMessageBox.critical(self, 'Error', f"Failed to update AppIDs: {e}")
+                return
+        else:
+            return
+    
+        # Now load the AppIDs into memory
+        self.load_app_ids()
 
     def get_steamcmd_executable_path(self):
         return os.path.join(self.steamcmd_dir, 'steamcmd.exe')
@@ -1423,10 +1634,10 @@ class SteamWorkshopDownloader(QWidget):
             return selected_provider
             
     def load_app_ids(self):
-        app_ids_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'AppIDs.txt')
+        app_ids_path = os.path.join(self.files_dir, 'AppIDs.txt')
         if not os.path.isfile(app_ids_path):
-            QMessageBox.critical(self, 'Error', f"AppIDs.txt not found at {app_ids_path}. Please create the file with game names and App IDs.")
-            sys.exit(1)
+            self.log_signal.emit("AppIDs.txt not found. Please update AppIDs from the 'Update AppIDs' option.")
+            return
         try:
             with open(app_ids_path, 'r', encoding='utf-8') as file:
                 for line in file:
@@ -1437,9 +1648,10 @@ class SteamWorkshopDownloader(QWidget):
                             game_name = parts[0].strip()
                             app_id = parts[1].strip()
                             self.app_ids[app_id] = game_name
+            self.log_signal.emit("AppIDs loaded successfully.")
         except Exception as e:
+            self.log_signal.emit(f"Failed to load AppIDs.txt: {e}")
             QMessageBox.critical(self, 'Error', f"Failed to load AppIDs.txt: {e}")
-            sys.exit(1)
                 
     def find_queue_item(self, mod_id):
         for index in range(self.queue_tree.topLevelItemCount()):
@@ -2069,7 +2281,7 @@ class SteamWorkshopDownloader(QWidget):
         item_to_remove = None
         for index in range(self.queue_tree.topLevelItemCount()):
             item = self.queue_tree.topLevelItem(index)
-            if item.text(0) == mod_id:
+            if item.text(1) == mod_id:
                 item_to_remove = item
                 break
     
@@ -2247,12 +2459,39 @@ class SteamWorkshopDownloader(QWidget):
             self.mod_input.setText(mod_id)
             self.log_signal.emit(f"Auto-detected and adding Workshop Mod with mod ID: {mod_id} to queue")
             self.add_mod_to_queue()
+            
+    def open_update_appids(self):
+        dialog = UpdateAppIDsDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            selected_types = dialog.get_selected_types()
+            if not selected_types:
+                QMessageBox.warning(self, 'Input Error', 'Please select at least one type.')
+                return
+            self.log_signal.emit(f"Updating AppIDs for types: {', '.join(selected_types)}")
+            threading.Thread(target=self.update_appids_worker, args=(selected_types,), daemon=True).start()
+            
+    def update_appids_worker(self, selected_types):
+        self.log_signal.emit("Starting AppIDs update...")
+        try:
+            scraper = AppIDScraper(self.files_dir)
+            scraper.install_chromium_and_driver()
+            entries = scraper.scrape_steamdb(selected_types)
+
+            appids_path = os.path.join(self.files_dir, 'AppIDs.txt')
+            with open(appids_path, 'w', encoding='utf-8') as f:
+                f.write("\n".join(entries))
+            self.log_signal.emit("AppIDs updated successfully.")
+
+            self.load_app_ids()
+        except Exception as e:
+            self.log_signal.emit(f"Error updating AppIDs: {e}")
+            QMessageBox.critical(self, 'Error', f"Failed to update AppIDs: {e}")
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
-    app.setWindowIcon(QIcon("logo.ico"))
     downloader = SteamWorkshopDownloader()
+    app.setWindowIcon(QIcon(os.path.join(downloader.files_dir, 'logo.ico')))
     downloader.resize(670, 750)
     downloader.show()
     sys.exit(app.exec())
