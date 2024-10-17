@@ -763,7 +763,7 @@ class UpdateAppIDsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Update AppIDs")
         self.setModal(True)
-        self.resize(300, 200)
+        self.setFixedSize(250, 120)
 
         layout = QVBoxLayout(self)
 
