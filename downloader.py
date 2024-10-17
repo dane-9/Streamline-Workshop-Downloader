@@ -785,7 +785,8 @@ class UpdateAppIDsDialog(QDialog):
         checkboxes_layout.addWidget(self.tools_checkbox)
         layout.addLayout(checkboxes_layout)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=self)
+        start_button = buttons.addButton("Start", QDialogButtonBox.AcceptRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
