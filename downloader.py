@@ -134,9 +134,10 @@ class AddSteamAccountDialog(QDialog):
         return self.username_input.text().strip()
 
 class ItemFetcher(QThread):
-    item_processed = Signal(dict)  # Emits a dictionary with item information
-    error_occurred = Signal(str)  # Emits error messages
-    mod_or_collection_detected = Signal(bool, str)  # Emits whether it's a mod or collection
+    # Outputs messages
+    item_processed = Signal(dict)
+    error_occurred = Signal(str)
+    mod_or_collection_detected = Signal(bool, str)
 
     def __init__(self, item_id, existing_mod_ids, parent=None):
         super().__init__(parent)
@@ -158,16 +159,18 @@ class ItemFetcher(QThread):
                         return
                     page_content = await response.text()
 
+                # Parse the HTML using lxml
                 tree = html.fromstring(page_content)
-                # Check for collection-specific elements
+
+                # Detects if it's a collection
                 collection_items = tree.xpath('//div[contains(@class, "collectionItem")]')
 
                 if collection_items:
-                    # It's a collection
+                    # collection
                     self.mod_or_collection_detected.emit(True, self.item_id)
                     await self.process_collection(tree, session)
                 else:
-                    # It's a mod
+                    # mod
                     self.mod_or_collection_detected.emit(False, self.item_id)
                     await self.process_mod(tree)
         except Exception as e:
@@ -175,17 +178,20 @@ class ItemFetcher(QThread):
 
     async def process_collection(self, tree, session):
         try:
+            # Fetch all the collection items in one go
             collection_items = tree.xpath('//div[contains(@class, "collectionItem")]')
             mod_ids = set()
             for item in collection_items:
-                a_tags = item.xpath('.//a[@href]')
-                mod_id = self.extract_id(a_tags[0].get('href')) if a_tags else None
-                if mod_id and mod_id not in self.existing_mod_ids:
-                    mod_ids.add(mod_id)
-    
+                a_tag = item.xpath('.//a[@href]')
+                if a_tag:
+                    mod_id = self.extract_id(a_tag[0].get('href'))
+                    if mod_id and mod_id not in self.existing_mod_ids:
+                        mod_ids.add(mod_id)
+
+            # Gather all mod info concurrently
             tasks = [self.fetch_mod_info(session, mod_id) for mod_id in mod_ids]
             mods_info = await asyncio.gather(*tasks)
-    
+
             self.item_processed.emit({
                 'type': 'collection',
                 'mods_info': mods_info,
@@ -212,24 +218,24 @@ class ItemFetcher(QThread):
                         return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None, 'game_name': 'Unknown Game'}
                     page_content = await response.text()
                     tree = html.fromstring(page_content)
-    
-            # Fetch game info from breadcrumbs
+
+            # Gets both the game info and mod title
             breadcrumb_tag = tree.xpath('//div[@class="breadcrumbs"]/a[contains(@href, "/app/")]')
+            title_tag = tree.xpath('//div[@class="workshopItemTitle"]')
+
+            # Fetch game info from breadcrumbs
             game_name, app_id = 'Unknown Game', None
-            
             if breadcrumb_tag:
                 href = breadcrumb_tag[0].get('href')
                 app_id_match = re.search(r'/app/(\d+)', href)  # Extract the app ID from the href
                 if app_id_match:
                     app_id = app_id_match.group(1)
                     game_name = breadcrumb_tag[0].text_content().strip()
-    
-            # Fetch mod title
-            title_tag = tree.xpath('//div[@class="workshopItemTitle"]')
+
             mod_title = title_tag[0].text.strip() if title_tag else 'Unknown Title'
-    
+
             return {'mod_id': mod_id, 'mod_name': mod_title, 'app_id': app_id, 'game_name': game_name}
-    
+
         except Exception as e:
             return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None, 'game_name': 'Unknown Game'}
 
@@ -245,17 +251,6 @@ class ItemFetcher(QThread):
             if id_match:
                 return id_match.group(1)
         return None
-
-    def get_game_info_from_tree(self, tree):
-        game_tag = tree.xpath('//a[@data-panel=\'{"noFocusRing":true}\']')
-        if game_tag and 'href' in game_tag[0].attrib:
-            href = game_tag[0].get('href')
-            app_id_match = re.search(r'/app/(\d+)', href)
-            if app_id_match:
-                game_app_id = app_id_match.group(1)
-                game_name = self.app_id_to_game.get(game_app_id, None)
-                return game_name, game_app_id
-        return None, None
 
 class TokenMonitorWorker(QThread):
     token_found = Signal(str)
