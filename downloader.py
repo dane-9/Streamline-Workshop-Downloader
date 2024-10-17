@@ -45,7 +45,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.resize(320, 200)
+        self.setFixedSize(320, 180)
 
         layout = QFormLayout(self)
 
