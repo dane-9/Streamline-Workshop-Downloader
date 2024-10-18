@@ -41,11 +41,11 @@ from PySide6.QtGui import (
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('streamline.app.logo')
 
 class SettingsDialog(QDialog):
-    def __init__(self, current_batch_size, show_logs, show_provider, auto_detect_urls, auto_add_to_queue, parent=None):
+    def __init__(self, current_batch_size, show_logs, show_provider, auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.setFixedSize(320, 180)
+        self.setFixedSize(320, 210)
 
         layout = QFormLayout(self)
 
@@ -64,6 +64,11 @@ class SettingsDialog(QDialog):
         self.show_provider_checkbox = QCheckBox("Show Download Provider")
         self.show_provider_checkbox.setChecked(show_provider)
         layout.addRow(self.show_provider_checkbox)
+        
+        # Keep Downloaded Mods in Queue Setting
+        self.keep_downloaded_in_queue_checkbox = QCheckBox("Keep Downloaded Mods in Queue")
+        self.keep_downloaded_in_queue_checkbox.setChecked(keep_downloaded_in_queue)
+        layout.addRow(self.keep_downloaded_in_queue_checkbox)
 
         # Auto-Detect URLs Setting
         self.auto_detect_urls_checkbox = QCheckBox("Auto-detect URLs from Clipboard")
@@ -117,6 +122,7 @@ class SettingsDialog(QDialog):
             'show_provider': self.show_provider_checkbox.isChecked(),
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
+            'keep_downloaded_in_queue': self.keep_downloaded_in_queue_checkbox.isChecked(),
         }
         
 class AddSteamAccountDialog(QDialog):
@@ -1262,6 +1268,8 @@ class SteamWorkshopDownloader(QWidget):
             self.config['auto_detect_urls'] = False
         if 'auto_add_to_queue' not in self.config:
             self.config['auto_add_to_queue'] = False
+        if 'keep_downloaded_in_queue' not in self.config:
+            self.config['keep_downloaded_in_queue'] = False
 
     def save_config(self):
         try:
@@ -1270,7 +1278,7 @@ class SteamWorkshopDownloader(QWidget):
             self.log_signal.emit("Configuration saved successfully.")
         except Exception as e:
             self.log_signal.emit(f"Error saving config.json: {e}")
-            
+             
     def closeEvent(self, event):
         if self.is_downloading:
             # Ask user if they want to cancel the ongoing download before quitting
@@ -1303,7 +1311,7 @@ class SteamWorkshopDownloader(QWidget):
             if not self.queue_tree.isColumnHidden(i):
                 column_widths[i] = self.queue_tree.columnWidth(i)
         self.config['queue_tree_column_widths'] = column_widths
-    
+ 
         # Save column hidden states
         column_hidden = [self.queue_tree.isColumnHidden(i) for i in range(self.queue_tree.columnCount())]
         self.config['queue_tree_column_hidden'] = column_hidden
@@ -1322,7 +1330,7 @@ class SteamWorkshopDownloader(QWidget):
         self.steam_accounts_dropdown.addItem("Anonymous")
         for account in self.config.get('steam_accounts', []):
             self.steam_accounts_dropdown.addItem(account['username'])
-    
+ 
         # Set active account from the config
         active = self.config.get('active_account', "Anonymous")
         index = self.steam_accounts_dropdown.findText(active, Qt.MatchExactly)
@@ -1335,15 +1343,15 @@ class SteamWorkshopDownloader(QWidget):
     def apply_settings(self):
         self.log_area.setVisible(self.config.get('show_logs', True))
         self.log_label.setVisible(self.config.get('show_logs', True))
-    
+
         self.provider_label.setVisible(self.config.get('show_provider', True))
         self.provider_dropdown.setVisible(self.config.get('show_provider', True))
-    
+
         if self.config.get('auto_detect_urls', False):
             self.start_clipboard_monitoring()
         else:
             self.stop_clipboard_monitoring()
-    
+
         if not self.config.get('auto_detect_urls', False):
             self.config['auto_add_to_queue'] = False
 
@@ -1353,8 +1361,12 @@ class SteamWorkshopDownloader(QWidget):
         show_provider = self.config.get('show_provider', True)
         auto_detect_urls = self.config.get('auto_detect_urls', False)
         auto_add_to_queue = self.config.get('auto_add_to_queue', False)
+        keep_downloaded_in_queue = self.config.get('keep_downloaded_in_queue', False)
 
-        dialog = SettingsDialog(current_batch_size, show_logs, show_provider, auto_detect_urls, auto_add_to_queue, self)
+        dialog = SettingsDialog(
+            current_batch_size, show_logs, show_provider, 
+            auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, self
+        )
         if dialog.exec() == QDialog.Accepted:
             settings = dialog.get_settings()
             self.config.update(settings)
@@ -1399,13 +1411,13 @@ class SteamWorkshopDownloader(QWidget):
                 self.log_signal.emit(f"Error downloading SteamCMD: {e}")
                 QMessageBox.critical(self, 'Error', f"Failed to download SteamCMD: {e}")
                 return
-    
+
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         if not os.path.isfile(self.steamcmd_executable):
             self.log_signal.emit(f"SteamCMD executable not found at {self.steamcmd_executable}.")
             QMessageBox.critical(self, 'Error', f"SteamCMD executable not found at {self.steamcmd_executable}.")
             return
-    
+
         # Install Chromium and Chromedriver
         try:
             scraper = AppIDScraper(self.files_dir)
@@ -1414,7 +1426,7 @@ class SteamWorkshopDownloader(QWidget):
             self.log_signal.emit(f"Error installing Chromium and Chromedriver: {e}")
             QMessageBox.critical(self, 'Error', f"Failed to install Chromium and Chromedriver: {e}")
             return
-    
+
         # Check if AppIDs.txt exists before updating
         appids_path = os.path.join(self.files_dir, 'AppIDs.txt')
         if not os.path.isfile(appids_path):
@@ -1430,7 +1442,7 @@ class SteamWorkshopDownloader(QWidget):
                 return
         else:
             return
-    
+
         # Now load the AppIDs into memory
         self.load_app_ids()
 
@@ -1442,17 +1454,17 @@ class SteamWorkshopDownloader(QWidget):
         if not mod_input:
             QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
             return
-    
+
         mod_id = self.extract_id(mod_input)
         if not mod_id:
             QMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
-    
+
         # Disable the button while fetching
         self.add_mod_btn.setEnabled(False)
-    
+
         existing_mod_ids = [mod['mod_id'] for mod in self.download_queue]
-    
+
         # Use ItemFetcher to detect and process the mod or collection
         item_fetcher = ItemFetcher(
             item_id=mod_id,
@@ -1464,7 +1476,7 @@ class SteamWorkshopDownloader(QWidget):
         item_fetcher.error_occurred.connect(self.on_item_error)
         item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
         item_fetcher.start()
-    
+
         self.log_signal.emit(f"Processing input {mod_id}...")
 
     def on_mod_or_collection_detected_for_mod(self, is_collection, item_id):
@@ -1777,6 +1789,7 @@ class SteamWorkshopDownloader(QWidget):
 
     def download_worker(self):
         batch_size = self.config.get('batch_size', 20)
+        keep_downloaded = self.config.get('keep_downloaded_in_queue', False)
     
         while self.is_downloading:
             queued_mods = [mod for mod in self.download_queue if mod['status'] == 'Queued']
@@ -1802,7 +1815,8 @@ class SteamWorkshopDownloader(QWidget):
                     if success:
                         mod['status'] = 'Downloaded'
                         self.update_queue_signal.emit(mod_id, 'Downloaded')
-                        self.remove_mod_from_queue(mod['mod_id'])
+                        if not keep_downloaded:
+                            self.remove_mod_from_queue(mod['mod_id'])
                     else:
                         mod['retry_count'] += 1
                         if mod['retry_count'] < 3:
@@ -1812,10 +1826,11 @@ class SteamWorkshopDownloader(QWidget):
                             mod['status'] = 'Failed'
                             self.update_queue_signal.emit(mod_id, 'Failed')
     
-            # Remove all mods that have the status "Downloaded"
-            mods_to_remove = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
-            for mod in mods_to_remove:
-                self.remove_mod_from_queue(mod['mod_id'])
+            # Remove all mods that have the status "Downloaded" if the setting is not enabled
+            if not keep_downloaded:
+                mods_to_remove = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
+                for mod in mods_to_remove:
+                    self.remove_mod_from_queue(mod['mod_id'])
     
         # End the download process
         self.log_signal.emit("All downloads have been processed.")
@@ -2279,16 +2294,18 @@ class SteamWorkshopDownloader(QWidget):
 
     def remove_mod_from_queue(self, mod_id):
         self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] != mod_id]
-    
+        keep_downloaded = self.config.get('keep_downloaded_in_queue', False)
+        
         # Remove from the GUI tree
         item_to_remove = None
         for index in range(self.queue_tree.topLevelItemCount()):
             item = self.queue_tree.topLevelItem(index)
-            if item.text(1) == mod_id:
+            if item.text(1) == mod_id and not keep_downloaded:
                 item_to_remove = item
                 break
     
         if item_to_remove:
+        
             index = self.queue_tree.indexOfTopLevelItem(item_to_remove)
             self.queue_tree.takeTopLevelItem(index)
             self.log_signal.emit(f"Mod {mod_id} removed from the queue.")
