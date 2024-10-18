@@ -82,7 +82,9 @@ class SettingsDialog(QDialog):
         layout.addRow(offset_layout)
 
         # Dialog Buttons
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=self)
+        save_button = QPushButton("Save")
+        buttons.addButton(save_button, QDialogButtonBox.AcceptRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
