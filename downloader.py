@@ -569,7 +569,9 @@ class ConfigureSteamAccountsDialog(QDialog):
         token_id = account.get('token_id', '')
         reply = QMessageBox.question(self, 'Remove Account', f"Are you sure you want to remove account '{username}'?", QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
+            # First remove the token entry and the associated account block from the config.vdf
             if self.remove_token_from_config_vdf(token_id):
+                # Remove the account from the internal config
                 self.config['steam_accounts'] = [acc for acc in self.config['steam_accounts'] if acc['username'] != username]
                 self.load_accounts()
                 QMessageBox.information(self, 'Success', f"Account '{username}' removed.")
@@ -612,40 +614,97 @@ class ConfigureSteamAccountsDialog(QDialog):
     def remove_token_from_config_vdf(self, token_id):
         if not token_id:
             return True
+    
         config_vdf_path = os.path.join(self.steamcmd_dir, 'config', 'config.vdf')
         if not os.path.isfile(config_vdf_path):
             return False
+    
         try:
-            with open(config_vdf_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
             new_lines = []
             in_connect_cache = False
-            skip_next_line = False
+            in_accounts_section = False
+            current_account = None
+            account_to_remove = None
+            token_to_remove = f'"{token_id}"'
+            skip_account_block = False
+            brace_depth = 0
+    
+            with open(config_vdf_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+    
+            # Traverse the file and identify which sections to modify
             for line in lines:
-                if '"ConnectCache"' in line:
+                stripped_line = line.strip()
+    
+                # Determine when we are inside the "ConnectCache" section
+                if '"ConnectCache"' in stripped_line:
                     in_connect_cache = True
                     new_lines.append(line)
-                elif in_connect_cache:
-                    if skip_next_line:
-                        skip_next_line = False
-                        continue
-                    if f'"{token_id}"' in line:
-                        skip_next_line = True
-                        continue
-                    elif "}" in line:
+                    continue
+    
+                if in_connect_cache:
+                    # Detect the end of the "ConnectCache" section
+                    if "}" in stripped_line:
                         in_connect_cache = False
-                        new_lines.append(line)
-                    else:
-                        new_lines.append(line)
-                else:
+    
+                    # Skip the line if it's the token we want to remove
+                    if token_to_remove in stripped_line:
+                        continue
+    
+                # Determine when we are inside the "Accounts" section
+                if '"Accounts"' in stripped_line:
+                    in_accounts_section = True
                     new_lines.append(line)
-
+                    continue
+    
+                if in_accounts_section:
+                    # Detect the end of the "Accounts" section
+                    if "}" in stripped_line and brace_depth == 0:
+                        in_accounts_section = False
+    
+                    # Check if we're at the start of a new account block
+                    if stripped_line.startswith('"') and not stripped_line.endswith("{"):
+                        current_account = stripped_line.split('"')[1]
+                        brace_depth = 0
+    
+                    # Detect the start of the account block and track depth
+                    if "{" in stripped_line:
+                        brace_depth += 1
+    
+                    # Detect the end of the account block and adjust depth
+                    if "}" in stripped_line:
+                        brace_depth -= 1
+                        # If we've closed the account block, reset the tracking
+                        if brace_depth == 0 and skip_account_block:
+                            skip_account_block = False
+                            continue
+    
+                    # Identify which account to remove based on the token ID
+                    if token_id and current_account and self.is_account_in_config_json(current_account, token_id):
+                        account_to_remove = current_account
+                        skip_account_block = True
+    
+                    # Skip lines belonging to the account block that is marked for removal
+                    if skip_account_block:
+                        continue
+    
+                # Add the line to the new lines if not skipped
+                new_lines.append(line)
+    
+            # Write the updated lines back to the file
             with open(config_vdf_path, 'w', encoding='utf-8') as f:
                 f.writelines(new_lines)
+    
             return True
+    
         except Exception as e:
             print(f"Error modifying config.vdf: {e}")
             return False
+    
+    def is_account_in_config_json(self, account_name, token_id):
+        # This function checks if the given account name in the config JSON matches the token ID we are trying to remove.
+        account = next((acc for acc in self.config['steam_accounts'] if acc['username'] == account_name), None)
+        return account is not None and account.get('token_id', '') == token_id
 
     def launch_steamcmd(self, username):
         cmd = os.path.join(self.steamcmd_dir, 'steamcmd.exe')
