@@ -652,7 +652,7 @@ class ConfigureSteamAccountsDialog(QDialog):
         if not os.path.isfile(cmd):
             QMessageBox.critical(self, 'Error', f"SteamCMD executable not found at {cmd}.")
             return
-        cmd_command = [cmd, '+login', username]
+        cmd_command = [cmd, '+login', username, '+quit']
         try:
             self.steamcmd_process = subprocess.Popen(
                 cmd_command,
