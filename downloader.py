@@ -1454,6 +1454,34 @@ class SteamWorkshopDownloader(QWidget):
             self.config['active_account'] = selected_account
             self.save_config()
             self.log_signal.emit(f"Active account set to '{selected_account}'.")
+            
+    def initialize_steamcmd(self):
+        self.log_signal.emit("Initializing SteamCMD...")
+        try:
+            steamcmd_process = subprocess.Popen(
+                [self.steamcmd_executable, '+quit'],
+                cwd=self.steamcmd_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                shell=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+    
+            # Read the output to ensure it completes
+            for line in steamcmd_process.stdout:
+                clean_line = line.strip()
+                if clean_line:
+                    self.log_signal.emit(clean_line)
+    
+            steamcmd_process.stdout.close()
+            steamcmd_process.wait()
+            self.log_signal.emit("SteamCMD initialized successfully.")
+        except Exception as e:
+            self.log_signal.emit(f"Error initializing SteamCMD: {e}")
+            QMessageBox.critical(self, 'Error', f"Failed to initialize SteamCMD: {e}")
 
     def setup_applications(self):
         # Setup SteamCMD
@@ -1472,10 +1500,16 @@ class SteamWorkshopDownloader(QWidget):
                 return
 
         self.steamcmd_executable = self.get_steamcmd_executable_path()
-        if not os.path.isfile(self.steamcmd_executable):
-            self.log_signal.emit(f"SteamCMD executable not found at {self.steamcmd_executable}.")
-            QMessageBox.critical(self, 'Error', f"SteamCMD executable not found at {self.steamcmd_executable}.")
-            return
+        essential_files = [
+            os.path.join(self.steamcmd_dir, 'steam.dll'),
+            os.path.join(self.steamcmd_dir, 'steamclient64.dll')
+        ]
+    
+        if all(os.path.isfile(file) for file in essential_files):
+            self.log_signal.emit("SteamCMD is already set up. Skipping initialization.")
+        else:
+            self.log_signal.emit("SteamCMD setup not detected. Initializing SteamCMD...")
+            self.initialize_steamcmd()
 
         # Install Chromium and Chromedriver
         try:
@@ -1923,7 +1957,7 @@ class SteamWorkshopDownloader(QWidget):
                 mod['status'] = 'Downloading'
                 self.update_queue_signal.emit(mod['mod_id'], 'Downloading')
 
-            steamcmd_command = f'"{self.steamcmd_executable}"'
+            steamcmd_commands = [self.steamcmd_executable]
             active_account = self.config.get('active_account', "Anonymous")
 
             # Set up login credentials
@@ -1931,18 +1965,18 @@ class SteamWorkshopDownloader(QWidget):
                 account = next((acc for acc in self.config['steam_accounts'] if acc['username'] == active_account), None)
                 if account:
                     username = account.get('username', '')
-                    steamcmd_command += f' +login {username}'
+                    steamcmd_commands.extend(['+login', username])
                 else:
-                    steamcmd_command += ' +login anonymous'
+                    steamcmd_commands.extend(['+login', 'anonymous'])
             else:
-                steamcmd_command += ' +login anonymous'
+                steamcmd_commands.extend(['+login', 'anonymous'])
 
             # Add workshop download commands for each mod in the batch
             for mod in mods:
-                mod_id = str(mod['mod_id'])
-                steamcmd_command += f' +workshop_download_item {str(app_id)} {mod_id}'
+                mod_id = mod['mod_id']
+                steamcmd_commands.extend(['+workshop_download_item', app_id, mod_id])
 
-            steamcmd_command += ' +quit'
+            steamcmd_commands.append('+quit')
 
             # Debugging output
             # self.log_signal.emit(f"Executing SteamCMD command: {steamcmd_command}")
@@ -1951,7 +1985,7 @@ class SteamWorkshopDownloader(QWidget):
             try:
                 # Start the SteamCMD process for the batch
                 self.current_process = subprocess.Popen(
-                    steamcmd_command,
+                    steamcmd_commands,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.PIPE,
