@@ -2226,7 +2226,7 @@ class SteamWorkshopDownloader(QWidget):
                     # Update the provider column in the queue_tree
                     for index in range(self.queue_tree.topLevelItemCount()):
                         item = self.queue_tree.topLevelItem(index)
-                        item.setText(3, selected_provider)
+                        item.setText(4, selected_provider)
                     self.log_signal.emit(f"All mod providers have been set to '{selected_provider}'.")
                 else:
                     # Revert to previous selection
@@ -2253,7 +2253,7 @@ class SteamWorkshopDownloader(QWidget):
                         provider_display = mod['provider']
                         item = self.find_queue_item(mod['mod_id'])
                         if item:
-                            item.setText(3, provider_display)
+                            item.setText(4, provider_display)
                     self.log_signal.emit("Mod providers have been reset to default behavior.")
                 else:
                     # Revert to previous selection
