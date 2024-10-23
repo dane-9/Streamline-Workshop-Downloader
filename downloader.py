@@ -1864,7 +1864,7 @@ class SteamWorkshopDownloader(QWidget):
                 mod['status'] = 'Downloading'
                 self.update_queue_signal.emit(mod['mod_id'], 'Downloading')
 
-            steamcmd_commands = [self.steamcmd_executable]
+            steamcmd_command = f'"{self.steamcmd_executable}"'
             active_account = self.config.get('active_account', "Anonymous")
 
             # Set up login credentials
@@ -1872,29 +1872,35 @@ class SteamWorkshopDownloader(QWidget):
                 account = next((acc for acc in self.config['steam_accounts'] if acc['username'] == active_account), None)
                 if account:
                     username = account.get('username', '')
-                    steamcmd_commands.extend(['+login', username])
+                    steamcmd_command += f' +login {username}'
                 else:
-                    steamcmd_commands.extend(['+login', 'anonymous'])
+                    steamcmd_command += ' +login anonymous'
             else:
-                steamcmd_commands.extend(['+login', 'anonymous'])
+                steamcmd_command += ' +login anonymous'
 
             # Add workshop download commands for each mod in the batch
             for mod in mods:
-                mod_id = mod['mod_id']
-                steamcmd_commands.extend(['+workshop_download_item', app_id, mod_id])
+                mod_id = str(mod['mod_id'])
+                steamcmd_command += f' +workshop_download_item {str(app_id)} {mod_id}'
 
-            steamcmd_commands.append('+quit')
+            steamcmd_command += ' +quit'
+
+            # Debugging output
+            # self.log_signal.emit(f"Executing SteamCMD command: {steamcmd_command}")
 
             # Now, run SteamCMD with these commands
             try:
                 # Start the SteamCMD process for the batch
                 self.current_process = subprocess.Popen(
-                    steamcmd_commands,
+                    steamcmd_command,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
+                    stdin=subprocess.PIPE,
                     text=True,
                     bufsize=1,
-                    cwd=self.steamcmd_dir
+                    cwd=self.steamcmd_dir,
+                    shell=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
                 )
 
                 # Process SteamCMD output line-by-line to track progress
@@ -1945,26 +1951,26 @@ class SteamWorkshopDownloader(QWidget):
             file_details = mod_details['response']['publishedfiledetails'][0]
             if 'file_url' not in file_details or not file_details['file_url']:
                 raise ValueError(f"Error: File URL not available for mod {mod_id}. The file might not be downloadable or doesn't exist.")
-    
+
             file_url = file_details['file_url']
             filename = file_details.get('filename', None)
             title = file_details.get('title', 'Unnamed Mod')  # Default to 'Unnamed Mod'
-    
+
             # Use 'filename' from JSON response if available, otherwise fall back to title
             if filename and filename.strip():
                 filename = filename.strip()  # Use the filename from the response directly
             else:
                 # If filename is not available, use title with appropriate extension based on URL
                 filename = f"{title}.zip" if file_url.endswith('.zip') else f"{title}"
-    
+
             # Remove illegal characters from filename
             filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
-    
+
             # Get the download path and ensure the directory exists
             download_path = self.get_download_path(mod)
             file_path = os.path.join(download_path, filename)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    
+
             # Downloading the file
             self.log_signal.emit(f"Downloading mod {mod_id} ('{title}') to '{file_path}'")
             response = requests.get(file_url, stream=True)
