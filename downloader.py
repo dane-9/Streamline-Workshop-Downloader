@@ -1502,7 +1502,7 @@ class SteamWorkshopDownloader(QWidget):
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         essential_files = [
             os.path.join(self.steamcmd_dir, 'steam.dll'),
-            os.path.join(self.steamcmd_dir, 'steamclient64.dll')
+            os.path.join(self.steamcmd_dir, 'steamclient.dll')
         ]
     
         if all(os.path.isfile(file) for file in essential_files):
