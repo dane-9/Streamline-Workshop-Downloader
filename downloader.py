@@ -1162,7 +1162,7 @@ class SteamWorkshopDownloader(QWidget):
         header.customContextMenuRequested.connect(self.open_header_context_menu)
 
         # Restore column widths and hidden state from the configuration
-        default_widths = [115, 90, 240, 100, 95]  # Default widths adjusted for new column
+        default_widths = [115, 90, 230, 100, 95]  # Default widths adjusted for new column
         column_widths = self.config.get('queue_tree_column_widths', default_widths)
         column_hidden = self.config.get('queue_tree_column_hidden', [False] * self.queue_tree.columnCount())
         
@@ -1334,7 +1334,7 @@ class SteamWorkshopDownloader(QWidget):
         try:
             with open(self.config_path, 'w', encoding='utf-8') as file:
                 json.dump(self.config, file, indent=4)
-            self.log_signal.emit("Configuration saved successfully.")
+            self.log_signal.emit("Account configuration saved successfully.")
         except Exception as e:
             self.log_signal.emit(f"Error saving config.json: {e}")
              
@@ -1431,7 +1431,7 @@ class SteamWorkshopDownloader(QWidget):
             self.config.update(settings)
             self.save_config()
             self.apply_settings()
-            self.log_signal.emit(f"Settings updated: {settings}")
+            self.log_signal.emit(f"Settings updated sucessfully.")
 
     def open_configure_steam_accounts(self):
         dialog = ConfigureSteamAccountsDialog(self.config, self.steamcmd_dir, self)
