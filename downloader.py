@@ -1870,11 +1870,12 @@ class SteamWorkshopDownloader(QWidget):
             self.current_process.terminate()
             self.log_signal.emit("Download process terminated by user.")
     
-        # Reset the status of all "Downloading" mods to "Queued"
         for mod in self.download_queue:
             if mod['status'] == 'Downloading':
                 mod['status'] = 'Queued'
                 self.update_queue_signal.emit(mod['mod_id'], 'Queued')
+    
+        self.move_all_downloaded_mods()
     
         self.is_downloading = False
         self.download_btn.setText('Start Download')
@@ -1924,6 +1925,9 @@ class SteamWorkshopDownloader(QWidget):
                 mods_to_remove = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
                 for mod in mods_to_remove:
                     self.remove_mod_from_queue(mod['mod_id'])
+    
+        # Ensure all remaining mods are moved
+        self.move_all_downloaded_mods()
     
         # End the download process
         self.log_signal.emit("All downloads have been processed.")
@@ -2017,11 +2021,6 @@ class SteamWorkshopDownloader(QWidget):
                     self.log_signal.emit(f"Batch downloads for App ID {app_id} completed with errors.")
                     for mod in mods_failed:
                         self.log_signal.emit(f"Mod {mod['mod_id']} failed to download. Status: {mod['status']}")
-
-                # Move downloaded mods to their corresponding folder in Downloads/SteamCMD
-                for mod in mods:
-                    if mod['status'] == 'Downloaded':
-                        self.move_mod_to_downloads_steamcmd(mod)
 
             except Exception as e:
                 self.log_signal.emit(f"Error during batch download for App ID {app_id}: {e}")
@@ -2133,7 +2132,7 @@ class SteamWorkshopDownloader(QWidget):
                     os.makedirs(os.path.dirname(target_path))
                 # Move the entire folder
                 shutil.move(original_path, target_path)
-                self.log_signal.emit(f"Mod {mod_id} moved to {target_path}.")
+                self.log_signal.emit(f"Mod {mod_id} moved successfully.")
             except Exception as e:
                 self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
 
@@ -2305,6 +2304,31 @@ class SteamWorkshopDownloader(QWidget):
                 mod['retry_count'] = 0
                 item.setText(3, 'Queued')
                 self.log_signal.emit(f"Mod {mod_id} status reset to 'Queued'.")
+                
+    def move_all_downloaded_mods(self):
+        # Get the path to the SteamCMD workshop content folder
+        workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
+        if not os.path.exists(workshop_content_path):
+            return
+    
+        # For each app_id folder in workshop_content_path
+        for app_id in os.listdir(workshop_content_path):
+            app_path = os.path.join(workshop_content_path, app_id)
+            if os.path.isdir(app_path):
+                # For each mod_id folder in app_path
+                for mod_id in os.listdir(app_path):
+                    mod_path = os.path.join(app_path, mod_id)
+                    if os.path.isdir(mod_path):
+                        # Move mod_path to the corresponding Downloads/SteamCMD/app_id/mod_id
+                        target_path = os.path.join(self.steamcmd_download_path, app_id, mod_id)
+                        # Make sure the target directory exists
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        # Move the folder
+                        try:
+                            shutil.move(mod_path, target_path)
+                            self.log_signal.emit(f"Mod {mod_id} moved sucessfully.")
+                        except Exception as e:
+                            self.log_signal.emit(f"Failed to move mod {mod_id}: {e}")
 
     def open_context_menu(self, position: QPoint):
         if self.is_downloading:
