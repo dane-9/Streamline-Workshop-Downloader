@@ -26,11 +26,11 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
-    QMenu, QCheckBox, QFileDialog
+    QMenu, QCheckBox, QFileDialog,
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
-    QCoreApplication, 
+    QCoreApplication, Slot, 
 )
 from PySide6.QtGui import (
     QTextCursor, QAction, QClipboard, QIcon, QCursor, QPainter,
@@ -41,11 +41,11 @@ from PySide6.QtGui import (
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('streamline.app.logo')
 
 class SettingsDialog(QDialog):
-    def __init__(self, current_batch_size, show_logs, show_provider, auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, parent=None):
+    def __init__(self, current_batch_size, show_logs, show_provider, show_queue_entire_workshop, auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.setFixedSize(320, 210)
+        self.setFixedSize(320, 235)
 
         layout = QFormLayout(self)
 
@@ -64,7 +64,12 @@ class SettingsDialog(QDialog):
         self.show_provider_checkbox = QCheckBox("Show Download Provider")
         self.show_provider_checkbox.setChecked(show_provider)
         layout.addRow(self.show_provider_checkbox)
-        
+
+        # Show Queue Entire Workshop Setting
+        self.show_queue_entire_workshop_checkbox = QCheckBox("Show Queue Entire Workshop Button")
+        self.show_queue_entire_workshop_checkbox.setChecked(show_queue_entire_workshop)
+        layout.addRow(self.show_queue_entire_workshop_checkbox)
+
         # Keep Downloaded Mods in Queue Setting
         self.keep_downloaded_in_queue_checkbox = QCheckBox("Keep Downloaded Mods in Queue")
         self.keep_downloaded_in_queue_checkbox.setChecked(keep_downloaded_in_queue)
@@ -120,6 +125,7 @@ class SettingsDialog(QDialog):
             'batch_size': self.batch_size_spinbox.value(),
             'show_logs': self.show_logs_checkbox.isChecked(),
             'show_provider': self.show_provider_checkbox.isChecked(),
+            'show_queue_entire_workshop': self.show_queue_entire_workshop_checkbox.isChecked(),
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
             'keep_downloaded_in_queue': self.keep_downloaded_in_queue_checkbox.isChecked(),
@@ -989,6 +995,219 @@ class CustomizableTreeWidgets(QTreeWidget):
         speed = (distance / max_distance) * max_speed
 
         return speed if delta > 0 else -speed
+        
+class QueueInsertionWorker(QThread):
+    batch_ready = Signal(list)
+    finished = Signal()
+
+    def __init__(self, mods, game_name, appid, provider, parent=None):
+        super().__init__(parent)
+        self.mods = mods
+        self.game_name = game_name
+        self.appid = appid
+        self.provider = provider
+
+    def run(self):
+        batch_size = 200
+        batch = []
+
+        for mod_id, mod_title in self.mods:
+            mod_info = {
+                'game_name': self.game_name,
+                'mod_id': mod_id,
+                'mod_name': mod_title,
+                'status': 'Queued',
+                'retry_count': 0,
+                'app_id': self.appid,
+                'provider': self.provider
+            }
+            batch.append(mod_info)
+
+            if len(batch) >= batch_size:
+                self.batch_ready.emit(batch)
+                batch = []
+
+        if batch:
+            self.batch_ready.emit(batch)
+
+class QueueEntireWorkshopDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Queue Entire Workshop")
+        self.setModal(True)
+        self.setFixedSize(350, 100)
+
+        layout = QVBoxLayout(self)
+
+        self.label = QLabel("Enter AppID:")
+        layout.addWidget(self.label)
+
+        self.input_line = QLineEdit()
+        self.input_line.setPlaceholderText("e.g., 108600 or a Steam URL with an AppID")
+        layout.addWidget(self.input_line)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=self)
+        self.start_button = QPushButton("Start")
+        buttons.addButton(self.start_button, QDialogButtonBox.AcceptRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_input(self):
+        return self.input_line.text().strip()
+
+async def fetch_page(session, url, params, log_signal=None):
+    try:
+        async with session.get(url, params=params) as response:
+            if response.status != 200:
+                if log_signal:
+                    log_signal.emit(f"Failed to fetch page {params['p']}: HTTP {response.status}")
+                return None
+            return await response.text()
+    except Exception as e:
+        if log_signal:
+            log_signal.emit(f"Error fetching page {params['p']}: {e}")
+        return None
+
+async def parse_page(page_content, page_number, log_signal=None):
+    mods = []
+    try:
+        tree = html.fromstring(page_content)
+        workshop_items = tree.xpath("//div[@class='workshopItem']")
+        if log_signal:
+            log_signal(f"Page {page_number}: Found {len(workshop_items)} items")
+        for item in workshop_items:
+            link = item.xpath(".//a[contains(@href, 'sharedfiles/filedetails')]")
+            if not link:
+                if log_signal:
+                    log_signal(f"Page {page_number}: Skipped item, no link found.")
+                continue
+            
+            mod_id = link[0].get("data-publishedfileid")
+            if not mod_id:
+                mod_id = link[0].get("href").split("?id=")[-1]
+            
+            title_div = item.xpath(".//div[contains(@class,'workshopItemTitle')]")
+            if not title_div:
+                if log_signal:
+                    log_signal(f"Page {page_number}: Skipped item, no title found.")
+                continue
+            
+            mod_name = title_div[0].text_content().strip()
+            mods.append((mod_id, mod_name))
+    except Exception as e:
+        if log_signal:
+            log_signal(f"Error parsing page {page_number}: {e}")
+    return mods
+
+async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems", concurrency=100, log_signal=None, app_ids=None):
+    base_url = "https://steamcommunity.com/workshop/browse/"
+    params = {
+        "appid": str(appid),
+        "browsesort": sort,
+        "section": section,
+        "p": "1"
+    }
+
+    all_mods = []
+    game_name = "Unknown Game"
+    async with aiohttp.ClientSession() as session:
+        first_page_content = await fetch_page(session, base_url, params, log_signal=log_signal)
+        if not first_page_content:
+            if log_signal:
+                log_signal("Failed to fetch the first page.")
+            return game_name, []
+
+        tree = html.fromstring(first_page_content)
+        paging_info = tree.xpath("//div[@class='workshopBrowsePagingInfo']/text()")
+        if not paging_info:
+            if log_signal:
+                log_signal("Could not find paging info on the first page. Possibly no results.")
+            return game_name, []
+        
+        # Determine game_name
+        # If appid not in app_ids, try scraping game name from the first page
+        if app_ids and appid in app_ids:
+            game_name = app_ids[appid]
+        else:
+            # Attempt to extract game name from the first page
+            gn = tree.xpath('//div[@class="apphub_AppName ellipsis"]/text()')
+            if gn:
+                game_name = gn[0].strip()
+            else:
+                game_name = "Unknown Game"
+
+        # Extract total entries
+        total_entries = 0
+        for text_line in paging_info:
+            if "of" in text_line.lower():
+                parts = text_line.split()
+                try:
+                    total_entries = int(parts[parts.index("of") + 1].replace(",", ""))
+                except (ValueError, IndexError):
+                    if log_signal:
+                        log_signal("Failed to parse total entries.")
+                    return game_name, []
+        
+        if total_entries == 0:
+            if log_signal:
+                log_signal("No entries found for this workshop.")
+            return game_name, []
+        
+        mods_per_page = 30
+        total_pages = (total_entries + mods_per_page - 1) // mods_per_page
+        if log_signal:
+            log_signal(f"Total entries: {total_entries}, Total pages: {total_pages}")
+
+        # Fetch all pages
+        for start_page in range(1, total_pages + 1, concurrency):
+            end_page = min(start_page + concurrency - 1, total_pages)
+            if log_signal:
+                log_signal(f"Fetching pages {start_page}-{end_page}...")
+            tasks = []
+            for page in range(start_page, end_page + 1):
+                page_params = {
+                    "appid": str(appid),
+                    "browsesort": sort,
+                    "section": section,
+                    "p": str(page)
+                }
+                tasks.append(fetch_page(session, base_url, page_params, log_signal=log_signal))
+
+            pages_content = await asyncio.gather(*tasks)
+
+            parse_tasks = []
+            for content, page_number in zip(pages_content, range(start_page, end_page + 1)):
+                if content:
+                    parse_tasks.append(parse_page(content, page_number, log_signal=log_signal))
+
+            results = await asyncio.gather(*parse_tasks)
+            for result in results:
+                all_mods.extend(result)
+
+    if log_signal:
+        log_signal(f"Total mods found: {len(all_mods)}")
+    return game_name, all_mods
+
+class WorkshopScraperWorker(QThread):
+    finished_scraping = Signal(str, list)  # Emit game_name and mods
+    log_signal = Signal(str)
+
+    def __init__(self, appid, app_ids):
+        super().__init__()
+        self.appid = appid
+        self.app_ids = app_ids
+
+    def run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        def log_message(msg):
+            self.log_signal.emit(msg)
+        
+        # Pass app_ids to scrape_workshop_data
+        game_name, mods = loop.run_until_complete(scrape_workshop_data(self.appid, log_signal=log_message, app_ids=self.app_ids))
+        self.finished_scraping.emit(game_name, mods)
 
 class SteamWorkshopDownloader(QWidget):
     log_signal = Signal(str)
@@ -1195,12 +1414,17 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addLayout(log_layout, stretch=1)
 
         self.provider_layout = QHBoxLayout()
+        self.queue_entire_workshop_btn = QPushButton("Queue Entire Workshop")
+        self.queue_entire_workshop_btn.setFixedWidth(145)
+        self.queue_entire_workshop_btn.clicked.connect(self.open_queue_entire_workshop_dialog)
+        self.provider_layout.addWidget(self.queue_entire_workshop_btn)
+
+        self.provider_layout.addStretch()
         self.provider_label = QLabel('Download Provider:')
+        self.provider_layout.addWidget(self.provider_label)
         self.provider_dropdown = QComboBox()
         self.provider_dropdown.addItems(['Default', 'SteamCMD', 'SteamWebAPI'])
         self.provider_dropdown.currentIndexChanged.connect(self.on_provider_changed)
-        self.provider_layout.addStretch()  # Pushes the widgets to the right
-        self.provider_layout.addWidget(self.provider_label)
         self.provider_layout.addWidget(self.provider_dropdown)
         main_layout.addLayout(self.provider_layout)
 
@@ -1219,6 +1443,95 @@ class SteamWorkshopDownloader(QWidget):
                 attr.setFixedHeight(button_height)
             elif isinstance(attr, QComboBox) and "_dropdown" in attr_name:
                 attr.setFixedHeight(dropdown_height)
+                
+    def open_queue_entire_workshop_dialog(self):
+        dialog = QueueEntireWorkshopDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            user_input = dialog.get_input()
+            if not user_input:
+                QMessageBox.warning(self, 'Input Error', 'Please enter an AppID or a related URL.')
+                return
+            appid = self.extract_appid(user_input)
+            if not appid:
+                QMessageBox.warning(self, 'Input Error', 'Could not parse an AppID from the given input.')
+                return
+            self.log_signal.emit(f"Starting to queue entire workshop for AppID: {appid}")
+            # Run the asynchronous workshop scraper in a QThread, passing self.app_ids
+            self.workshop_scraper = WorkshopScraperWorker(appid, self.app_ids)
+            self.workshop_scraper.log_signal.connect(self.append_log)
+            self.workshop_scraper.finished_scraping.connect(self.on_entire_workshop_fetched)
+            self.workshop_scraper.start()
+
+    def on_entire_workshop_fetched(self, game_name, mods):
+        if not mods:
+            self.log_signal.emit("No mods found or failed to scrape.")
+            return
+    
+        appid = self.workshop_scraper.appid
+        
+        # Determine the provider once we know the app_id
+        provider = self.get_provider_for_mod({'app_id': appid})
+    
+        self.log_signal.emit(f"Adding {len(mods)} mods from AppID {appid} ({game_name}) to the queue...")
+    
+        # Create and start the worker thread
+        self.queue_insertion_worker = QueueInsertionWorker(
+            mods=mods,
+            game_name=game_name,
+            appid=appid,
+            provider=provider
+        )
+        self.queue_insertion_worker.batch_ready.connect(self.on_batch_ready)
+        self.queue_insertion_worker.finished.connect(self.on_queue_insertion_finished)
+        self.queue_insertion_worker.start()
+
+    @Slot(list)
+    def on_batch_ready(self, mod_batch):
+        # Append the batch to the download_queue
+        self.download_queue.extend(mod_batch)
+
+        # Create QTreeWidgetItems for the batch
+        tree_items = [QTreeWidgetItem([mod['game_name'], mod['mod_id'], mod['mod_name'], mod['status'], mod['provider']]) for mod in mod_batch]
+
+        # Add items to the tree in batches
+        self.queue_tree.setUpdatesEnabled(False)
+        try:
+            self.queue_tree.addTopLevelItems(tree_items)
+        finally:
+            self.queue_tree.setUpdatesEnabled(True)
+
+        # Update counts and buttons
+        self.update_queue_count()
+        self.export_queue_btn.setEnabled(bool(self.download_queue))
+
+    @Slot()
+    def on_queue_insertion_finished(self):
+        # Called when the worker has finished inserting all batches
+        self.log_signal.emit("Entire workshop queued successfully.")
+
+
+    def extract_appid(self, input_str):
+        # Try several patterns:
+        # 1. If it's purely digits, return directly
+        if input_str.isdigit():
+            return input_str
+        # 2. If 'appid=' in the URL
+        match = re.search(r'appid=(\d+)', input_str)
+        if match:
+            return match.group(1)
+        # 3. If URL contains /app/ID/
+        match = re.search(r'/app/(\d+)/', input_str)
+        if match:
+            return match.group(1)
+        # 4. If URL ends with /app/ID or similar
+        match = re.search(r'/app/(\d+)', input_str)
+        if match:
+            return match.group(1)
+        # If none matched, try to find any number
+        match = re.search(r'(\d+)', input_str)
+        if match:
+            return match.group(1)
+        return None
                 
     def update_queue_count(self):
         count = len(self.download_queue)
@@ -1405,6 +1718,8 @@ class SteamWorkshopDownloader(QWidget):
 
         self.provider_label.setVisible(self.config.get('show_provider', True))
         self.provider_dropdown.setVisible(self.config.get('show_provider', True))
+        
+        self.queue_entire_workshop_btn.setVisible(self.config.get('show_queue_entire_workshop', True))
 
         if self.config.get('auto_detect_urls', False):
             self.start_clipboard_monitoring()
@@ -1418,12 +1733,13 @@ class SteamWorkshopDownloader(QWidget):
         current_batch_size = self.config.get('batch_size', 20)
         show_logs = self.config.get('show_logs', True)
         show_provider = self.config.get('show_provider', True)
+        show_queue_entire_workshop = self.config.get('show_queue_entire_workshop', True)
         auto_detect_urls = self.config.get('auto_detect_urls', False)
         auto_add_to_queue = self.config.get('auto_add_to_queue', False)
         keep_downloaded_in_queue = self.config.get('keep_downloaded_in_queue', False)
 
         dialog = SettingsDialog(
-            current_batch_size, show_logs, show_provider, 
+            current_batch_size, show_logs, show_provider, show_queue_entire_workshop,
             auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, self
         )
         if dialog.exec() == QDialog.Accepted:
