@@ -2754,23 +2754,34 @@ class SteamWorkshopDownloader(QWidget):
         self.export_queue_btn.setEnabled(bool(self.download_queue))
             
     def remove_mods_from_queue(self, selected_items):
-        mod_ids_to_remove = [item.text(1) for item in selected_items]
+        if not selected_items:
+            return
     
-        # Remove mods from the internal download queue
-        self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] not in mod_ids_to_remove]
+        self.queue_tree.setUpdatesEnabled(False)
+        try:
+            # Extract mod_ids from selected items once
+            mod_ids_to_remove = [item.text(1) for item in selected_items]
     
-        # Remove items from the GUI tree
-        for item in selected_items:
-            index = self.queue_tree.indexOfTopLevelItem(item)
-            if index != -1:
-                self.queue_tree.takeTopLevelItem(index)
+            # Remove from internal download queue in one pass
+            self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] not in mod_ids_to_remove]
     
-        for mod_id in mod_ids_to_remove:
-            self.log_signal.emit(f"Mod {mod_id} removed from the queue.")
+            # Remove items from the GUI
+            items_with_indexes = [(self.queue_tree.indexOfTopLevelItem(item), item) for item in selected_items]
+            items_with_indexes.sort(key=lambda x: x[0], reverse=True)
+    
+            for idx, it in items_with_indexes:
+                if idx != -1:
+                    self.queue_tree.takeTopLevelItem(idx)
+    
+            for mod_id in mod_ids_to_remove:
+                self.log_signal.emit(f"Mod {mod_id} removed from the queue.")
+    
             self.update_queue_count()
+            # Disable the export button if the queue is empty
+            self.export_queue_btn.setEnabled(bool(self.download_queue))
     
-        # Disable the export button if the queue is empty
-        self.export_queue_btn.setEnabled(bool(self.download_queue))
+        finally:
+            self.queue_tree.setUpdatesEnabled(True)
         
     def setup_download_folders(self):
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
