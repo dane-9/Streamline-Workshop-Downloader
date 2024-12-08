@@ -2191,7 +2191,8 @@ class SteamWorkshopDownloader(QWidget):
                 mod['status'] = 'Queued'
                 self.update_queue_signal.emit(mod['mod_id'], 'Queued')
     
-        self.move_all_downloaded_mods()
+        # remove downloaded mods
+        self.remove_all_downloaded_mods()
     
         self.is_downloading = False
         self.download_btn.setText('Start Download')
@@ -2782,6 +2783,27 @@ class SteamWorkshopDownloader(QWidget):
     
         finally:
             self.queue_tree.setUpdatesEnabled(True)
+            
+    def remove_all_downloaded_mods(self):
+        # path to the SteamCMD workshop content folder
+        workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
+        if not os.path.exists(workshop_content_path):
+            return
+    
+        # For each app_id folder in workshop_content_path
+        for app_id in os.listdir(workshop_content_path):
+            app_path = os.path.join(workshop_content_path, app_id)
+            if os.path.isdir(app_path):
+                # For each mod_id folder in app_path
+                for mod_id in os.listdir(app_path):
+                    mod_path = os.path.join(app_path, mod_id)
+                    if os.path.isdir(mod_path):
+                        # Remove the entire mod directory
+                        try:
+                            shutil.rmtree(mod_path)
+                            self.log_signal.emit(f"Mod {mod_id} removed from SteamCMD folder due to cancellation.")
+                        except Exception as e:
+                            self.log_signal.emit(f"Failed to remove mod {mod_id}: {e}")
         
     def setup_download_folders(self):
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
