@@ -2176,12 +2176,14 @@ class SteamWorkshopDownloader(QWidget):
             return
 
         self.is_downloading = True
+        self.canceled = False
         self.download_btn.setText('Cancel Download')
         self.download_btn.setEnabled(True)
         self.log_signal.emit("Starting download process...")
         threading.Thread(target=self.download_worker, daemon=True).start()
 
     def cancel_download(self):
+        self.canceled = True
         if self.current_process and self.current_process.poll() is None:
             self.current_process.terminate()
             self.log_signal.emit("Download process terminated by user.")
@@ -2206,6 +2208,9 @@ class SteamWorkshopDownloader(QWidget):
             queued_mods = [mod for mod in self.download_queue if mod['status'] == 'Queued']
             if not queued_mods:
                 break  # No more mods to download
+                
+            if self.canceled:
+                return
     
             # Separate mods by provider
             steamcmd_mods = [mod for mod in queued_mods if mod['provider'] == 'SteamCMD'][:batch_size]
@@ -2329,6 +2334,11 @@ class SteamWorkshopDownloader(QWidget):
 
                 self.current_process.stdout.close()
                 self.current_process.wait()
+                
+                # After the process finishes, check if user canceled
+                if self.canceled:
+                    self.log_signal.emit("Download canceled...")
+                    return
 
                 # Check the statuses of mods after the process completes
                 mods_failed = [mod for mod in mods if mod['status'] != 'Downloaded']
