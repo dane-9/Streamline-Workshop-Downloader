@@ -51,7 +51,7 @@ class SettingsDialog(QDialog):
 
         # Batch Size Setting
         self.batch_size_spinbox = QSpinBox()
-        self.batch_size_spinbox.setRange(1, 1000)
+        self.batch_size_spinbox.setRange(1, 100)
         self.batch_size_spinbox.setValue(current_batch_size)
         layout.addRow("Batch Size:", self.batch_size_spinbox)
 
