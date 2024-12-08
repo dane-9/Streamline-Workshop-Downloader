@@ -2312,7 +2312,7 @@ class SteamWorkshopDownloader(QWidget):
                     text=True,
                     bufsize=1,
                     cwd=self.steamcmd_dir,
-                    shell=True,
+                    shell=False, # Keep false otherwise it can't terminate
                     creationflags=subprocess.CREATE_NO_WINDOW
                 )
 
