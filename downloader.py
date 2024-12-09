@@ -2189,7 +2189,7 @@ class SteamWorkshopDownloader(QWidget):
             self.log_signal.emit("Download process terminated by user.")
     
         for mod in self.download_queue:
-            if mod['status'] == 'Downloading':
+            if mod['status'] == 'Downloading' or mod['status'] == 'Downloaded':
                 mod['status'] = 'Queued'
                 self.update_queue_signal.emit(mod['mod_id'], 'Queued')
     
@@ -2252,7 +2252,8 @@ class SteamWorkshopDownloader(QWidget):
                     self.remove_mod_from_queue(mod['mod_id'])
     
         # Ensure all remaining mods are moved
-        self.move_all_downloaded_mods()
+        if not self.canceled:
+            self.move_all_downloaded_mods()
         
         # Cleanup .acf files
         self.remove_appworkshop_acf_files()
