@@ -2650,6 +2650,7 @@ class SteamWorkshopDownloader(QWidget):
                         target_path = os.path.join(self.steamcmd_download_path, app_id, mod_id)
                         # Make sure the target directory exists
                         os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        time.sleep(1)
                         # Move the folder
                         try:
                             shutil.move(mod_path, target_path)
