@@ -2195,6 +2195,9 @@ class SteamWorkshopDownloader(QWidget):
     
         # remove downloaded mods
         self.remove_all_downloaded_mods()
+        
+        # Remove .acf files
+        self.remove_appworkshop_acf_files()
     
         self.is_downloading = False
         self.download_btn.setText('Start Download')
@@ -2250,6 +2253,9 @@ class SteamWorkshopDownloader(QWidget):
     
         # Ensure all remaining mods are moved
         self.move_all_downloaded_mods()
+        
+        # Cleanup .acf files
+        self.remove_appworkshop_acf_files()
     
         # End the download process
         self.log_signal.emit("All downloads have been processed.")
@@ -2637,6 +2643,7 @@ class SteamWorkshopDownloader(QWidget):
         workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
         if not os.path.exists(workshop_content_path):
             return
+        time.sleep(1)
     
         # For each app_id folder in workshop_content_path
         for app_id in os.listdir(workshop_content_path):
@@ -2650,7 +2657,6 @@ class SteamWorkshopDownloader(QWidget):
                         target_path = os.path.join(self.steamcmd_download_path, app_id, mod_id)
                         # Make sure the target directory exists
                         os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                        time.sleep(1)
                         # Move the folder
                         try:
                             shutil.move(mod_path, target_path)
@@ -2815,6 +2821,23 @@ class SteamWorkshopDownloader(QWidget):
                             self.log_signal.emit(f"Mod {mod_id} removed from SteamCMD folder due to cancellation.")
                         except Exception as e:
                             self.log_signal.emit(f"Failed to remove mod {mod_id}: {e}")
+                            
+    def remove_appworkshop_acf_files(self):
+        workshop_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop')
+        
+        if not os.path.exists(workshop_path):
+            return
+            
+        try:
+            for file_name in os.listdir(workshop_path):
+                if file_name.startswith("appworkshop_") and file_name.endswith(".acf"):
+                    file_path = os.path.join(workshop_path, file_name)
+                    try:
+                        os.remove(file_path)
+                    except Exception as e:
+                        self.log_signal.emit(f"Failed to delete {file_path}: {e}")
+        except Exception as e:
+            self.log_signal.emit(f"Error during .acf file cleanup: {e}")
         
     def setup_download_folders(self):
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
