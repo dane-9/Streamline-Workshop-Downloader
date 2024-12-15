@@ -2352,9 +2352,9 @@ class SteamWorkshopDownloader(QWidget):
                 if not mods_failed:
                     self.log_signal.emit(f"Batch downloads for App ID {app_id} completed successfully.")
                 else:
-                    self.log_signal.emit(f"Batch downloads for App ID {app_id} completed with errors.")
+                    self.log_signal.emit(f'Batch downloads for App ID {app_id} <span style="color:red;">completed with errors.</span>')
                     for mod in mods_failed:
-                        self.log_signal.emit(f"Mod {mod['mod_id']} failed to download. Status: {mod['status']}")
+                        self.log_signal.emit('<span style="color:black;"></span>'f"Mod {mod['mod_id']} failed to download. Status: {mod['status']}")
 
             except Exception as e:
                 self.log_signal.emit(f"Error during batch download for App ID {app_id}: {e}")
@@ -2661,7 +2661,7 @@ class SteamWorkshopDownloader(QWidget):
                         # Move the folder
                         try:
                             shutil.move(mod_path, target_path)
-                            self.log_signal.emit(f"Mod {mod_id} moved sucessfully.")
+                            self.log_signal.emit(f"Mod {mod_id} moved successfully.")
                         except Exception as e:
                             self.log_signal.emit(f"Failed to move mod {mod_id}: {e}")
 
