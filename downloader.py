@@ -1124,7 +1124,7 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
             if log_signal:
                 log_signal("Could not find paging info on the first page. Possibly no results.")
             return game_name, []
-        
+
         # Determine game_name
         # If appid not in app_ids, try scraping game name from the first page
         if app_ids and appid in app_ids:
@@ -1148,16 +1148,18 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
                     if log_signal:
                         log_signal("Failed to parse total entries.")
                     return game_name, []
-        
+
         if total_entries == 0:
             if log_signal:
                 log_signal("No entries found for this workshop.")
             return game_name, []
-        
+
         mods_per_page = 30
         total_pages = (total_entries + mods_per_page - 1) // mods_per_page
+        max_page_count = 1667
+        total_pages = min(total_pages, max_page_count)
         if log_signal:
-            log_signal(f"Total entries: {total_entries}, Total pages: {total_pages}")
+            log_signal(f"Total entries: {total_entries}, Total pages: {total_pages} (capped at {max_page_count})")
 
         # Fetch all pages
         for start_page in range(1, total_pages + 1, concurrency):
@@ -1189,6 +1191,7 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
         log_signal(f"Total mods found: {len(all_mods)}")
     return game_name, all_mods
 
+
 class WorkshopScraperWorker(QThread):
     finished_scraping = Signal(str, list)  # Emit game_name and mods
     log_signal = Signal(str)
@@ -1201,10 +1204,10 @@ class WorkshopScraperWorker(QThread):
     def run(self):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
+
         def log_message(msg):
             self.log_signal.emit(msg)
-        
+
         # Pass app_ids to scrape_workshop_data
         game_name, mods = loop.run_until_complete(scrape_workshop_data(self.appid, log_signal=log_message, app_ids=self.app_ids))
         self.finished_scraping.emit(game_name, mods)
