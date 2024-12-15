@@ -40,6 +40,13 @@ from PySide6.QtGui import (
 # Allows logo to be applied over pythonw.exe's own
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('streamline.app.logo')
 
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
 class SettingsDialog(QDialog):
     def __init__(self, current_batch_size, show_logs, show_provider, show_queue_entire_workshop, auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, parent=None):
         super().__init__(parent)
@@ -1234,7 +1241,7 @@ class SteamWorkshopDownloader(QWidget):
         self.clipboard_signal_connected = False
         self.item_fetchers = []
         
-        self.setWindowIcon(QIcon(os.path.join(self.files_dir, 'logo.ico')))
+        self.setWindowIcon(QIcon(resource_path('Files/logo.ico')))
 
         # Define download paths for SteamCMD and SteamWebAPI
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -1282,7 +1289,7 @@ class SteamWorkshopDownloader(QWidget):
 
         top_layout = QHBoxLayout()
         
-        settings_icon = QIcon(os.path.join(self.files_dir, 'settings.png'))
+        settings_icon = QIcon(resource_path('Files/settings.png'))
         
         self.settings_btn = QPushButton()
         self.settings_btn.setIcon(settings_icon)
@@ -3021,7 +3028,7 @@ if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     downloader = SteamWorkshopDownloader()
-    app.setWindowIcon(QIcon(os.path.join(downloader.files_dir, 'logo.ico')))
+    app.setWindowIcon(QIcon(resource_path('Files/logo.ico')))
     downloader.resize(670, 750)
     downloader.show()
     sys.exit(app.exec())
