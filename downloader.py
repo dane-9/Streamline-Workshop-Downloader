@@ -21,6 +21,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import win32gui
+import glob
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
@@ -47,14 +48,42 @@ def resource_path(relative_path):
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
+def load_theme(app, theme_name, files_dir):
+    theme_path = os.path.join(files_dir, "Themes", theme_name + ".qss")
+    if os.path.isfile(theme_path):
+        with open(theme_path, "r", encoding="utf-8") as f:
+            qss = f.read()
+        app.setStyleSheet(qss)
+    else:
+        app.setStyleSheet("")  # Revert to default if file not found
+
 class SettingsDialog(QDialog):
-    def __init__(self, current_batch_size, show_logs, show_provider, show_queue_entire_workshop, auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, parent=None):
+    def __init__(self, current_theme, current_batch_size, show_logs, show_provider, show_queue_entire_workshop, auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.setFixedSize(320, 235)
+        self.setFixedSize(320, 300)
 
         layout = QFormLayout(self)
+
+        # Adjust spacing
+        layout.setVerticalSpacing(10)
+
+        # Theme Selection
+        self.theme_dropdown = QComboBox()
+        self.theme_dropdown.setMinimumHeight(25)
+        theme_files = glob.glob(os.path.join(parent.files_dir, "Themes", "*.qss"))
+        theme_names = [os.path.splitext(os.path.basename(t))[0] for t in theme_files]
+        if 'Dark' not in theme_names:
+            theme_names.insert(0, 'Dark')
+        self.theme_dropdown.addItems(theme_names)
+
+        # Set current selection to current theme
+        current_theme = parent.config.get('current_theme', 'Dark')
+        if current_theme in theme_names:
+            self.theme_dropdown.setCurrentText(current_theme)
+
+        layout.addRow("Theme:", self.theme_dropdown)
 
         # Batch Size Setting
         self.batch_size_spinbox = QSpinBox()
@@ -109,26 +138,19 @@ class SettingsDialog(QDialog):
     def toggle_auto_add_checkbox(self):
         # Determine the new state based on "Auto-detect URLs" checkbox
         new_state = self.auto_detect_urls_checkbox.isChecked()
-    
-        # Update the enabled state of the auto-add checkbox and reset style accordingly
         self.auto_add_to_queue_checkbox.setEnabled(new_state)
-        
-        # Repaint and refresh the UI explicitly to ensure the state is applied visually
-        self.auto_add_to_queue_checkbox.repaint()
         self.update_checkbox_style()
 
     def update_checkbox_style(self):
         # Set the visual style to match the enabled/disabled state
         if self.auto_add_to_queue_checkbox.isEnabled():
-            self.auto_add_to_queue_checkbox.setStyleSheet("color: black;")
+            self.auto_add_to_queue_checkbox.setStyleSheet("color: #28c64f;")
         else:
             self.auto_add_to_queue_checkbox.setStyleSheet("color: grey;")
-        
-        # Ensure the widget gets repainted
-        self.auto_add_to_queue_checkbox.repaint()
 
     def get_settings(self):
         return {
+            'current_theme': self.theme_dropdown.currentText(),
             'batch_size': self.batch_size_spinbox.value(),
             'show_logs': self.show_logs_checkbox.isChecked(),
             'show_provider': self.show_provider_checkbox.isChecked(),
@@ -1229,6 +1251,8 @@ class SteamWorkshopDownloader(QWidget):
         self.is_downloading = False
         self.files_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'Files')
         os.makedirs(self.files_dir, exist_ok=True)
+        self.themes_dir = os.path.join(self.files_dir, 'Themes')
+        os.makedirs(self.themes_dir, exist_ok=True)
         self.config = {}
         self.config_path = self.get_config_path()
         self.steamcmd_dir = os.path.join(self.files_dir, 'steamcmd')
@@ -1242,6 +1266,9 @@ class SteamWorkshopDownloader(QWidget):
         self.item_fetchers = []
         
         self.setWindowIcon(QIcon(resource_path('Files/logo.ico')))
+        
+        if 'current_theme' not in self.config:
+            self.config['current_theme'] = 'Dark'
 
         # Define download paths for SteamCMD and SteamWebAPI
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -1439,6 +1466,8 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addLayout(self.provider_layout)
 
         self.setLayout(main_layout)
+        
+        load_theme(QApplication.instance(), self.config['current_theme'], self.files_dir)
         
     def adjust_widget_heights(self):
         button_height = 28
@@ -1740,6 +1769,7 @@ class SteamWorkshopDownloader(QWidget):
             self.config['auto_add_to_queue'] = False
 
     def open_settings(self):
+        current_theme = self.config.get('current_theme')
         current_batch_size = self.config.get('batch_size', 20)
         show_logs = self.config.get('show_logs', True)
         show_provider = self.config.get('show_provider', True)
@@ -1749,15 +1779,17 @@ class SteamWorkshopDownloader(QWidget):
         keep_downloaded_in_queue = self.config.get('keep_downloaded_in_queue', False)
 
         dialog = SettingsDialog(
-            current_batch_size, show_logs, show_provider, show_queue_entire_workshop,
+            current_theme, current_batch_size, show_logs, show_provider, show_queue_entire_workshop,
             auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, self
         )
         if dialog.exec() == QDialog.Accepted:
             settings = dialog.get_settings()
+            new_theme = settings.get('current_theme', 'Dark')
+            load_theme(QApplication.instance(), new_theme, self.files_dir)
             self.config.update(settings)
             self.save_config()
             self.apply_settings()
-            self.log_signal.emit(f"Settings updated sucessfully.")
+            self.log_signal.emit("Settings updated successfully.")
 
     def open_configure_steam_accounts(self):
         dialog = ConfigureSteamAccountsDialog(self.config, self.steamcmd_dir, self)
