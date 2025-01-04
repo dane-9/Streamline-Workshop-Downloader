@@ -6,6 +6,8 @@ import threading
 import subprocess
 import time
 import ctypes
+from ctypes import wintypes
+import platform
 import shutil
 import re
 import json
@@ -56,6 +58,55 @@ def load_theme(app, theme_name, files_dir):
         app.setStyleSheet(qss)
     else:
         app.setStyleSheet("")  # Revert to default if file not found
+        
+def set_windows_dark_titlebar(window_handle, enable_dark, color=None):
+    try:
+        # Enable or disable dark mode
+        DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+        set_window_attribute = ctypes.windll.dwmapi.DwmSetWindowAttribute
+        dark_mode = ctypes.c_int(1 if enable_dark else 0)
+        set_window_attribute(
+            ctypes.wintypes.HWND(window_handle),
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            ctypes.byref(dark_mode),
+            ctypes.sizeof(dark_mode)
+        )
+        if color:
+            DWMWA_COLORIZATION_COLOR = 35
+            # Convert RGB tuple to DWORD (0x00BBGGRR)
+            r, g, b = color
+            color_value = (b << 16) | (g << 8) | r
+            colorization_color = ctypes.c_uint32(color_value)
+            set_window_attribute(
+                ctypes.wintypes.HWND(window_handle),
+                DWMWA_COLORIZATION_COLOR,
+                ctypes.byref(colorization_color),
+                ctypes.sizeof(colorization_color)
+            )
+
+            DWMWA_COLORIZATION_COLOR_BALANCE = 38
+            color_balance = ctypes.c_int(0)
+            set_window_attribute(
+                ctypes.wintypes.HWND(window_handle),
+                DWMWA_COLORIZATION_COLOR_BALANCE,
+                ctypes.byref(color_balance),
+                ctypes.sizeof(color_balance)
+            )
+
+    except Exception as e:
+        print(f"Failed to customize title bar: {e}")
+        
+def apply_theme_titlebar(window, config):
+    theme = config.get('current_theme', 'Dark')
+    is_dark = "dark" in theme.lower()
+
+    theme_color_mapping = {
+        "Dark": (45, 45, 45),          # Dark gray
+        "Light": (255, 255, 255),      # White
+    }
+
+    color = theme_color_mapping.get(theme, None)
+    set_windows_dark_titlebar(int(window.winId()), is_dark, color)
 
 class SettingsDialog(QDialog):
     def __init__(self, current_theme, current_batch_size, show_logs, show_provider, show_queue_entire_workshop, auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, parent=None):
@@ -1269,6 +1320,9 @@ class SteamWorkshopDownloader(QWidget):
         
         if 'current_theme' not in self.config:
             self.config['current_theme'] = 'Dark'
+            
+        is_dark = "dark" in self.config.get('current_theme', 'Dark').lower()
+        set_windows_dark_titlebar(int(self.winId()), is_dark)
 
         # Define download paths for SteamCMD and SteamWebAPI
         script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -1350,6 +1404,7 @@ class SteamWorkshopDownloader(QWidget):
         top_layout.addLayout(account_layout)
 
         main_layout.addLayout(top_layout)
+        apply_theme_titlebar(self, self.config)
 
         mod_layout = QHBoxLayout()
         self.mod_label = QLabel('Workshop Mod:')
@@ -1782,14 +1837,18 @@ class SteamWorkshopDownloader(QWidget):
             current_theme, current_batch_size, show_logs, show_provider, show_queue_entire_workshop,
             auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, self
         )
+
         if dialog.exec() == QDialog.Accepted:
             settings = dialog.get_settings()
             new_theme = settings.get('current_theme', 'Dark')
+            
             load_theme(QApplication.instance(), new_theme, self.files_dir)
             self.config.update(settings)
             self.save_config()
             self.apply_settings()
             self.log_signal.emit("Settings updated successfully.")
+
+            apply_theme_titlebar(self, self.config)
 
     def open_configure_steam_accounts(self):
         dialog = ConfigureSteamAccountsDialog(self.config, self.steamcmd_dir, self)
