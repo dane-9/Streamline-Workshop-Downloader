@@ -114,6 +114,8 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings")
         self.setModal(True)
         self.setFixedSize(320, 300)
+        
+        apply_theme_titlebar(self, self.parent().config)
 
         layout = QFormLayout(self)
 
@@ -217,6 +219,8 @@ class AddSteamAccountDialog(QDialog):
         self.setWindowTitle("Add Steam Account")
         self.setModal(True)
         self.resize(300, 100)
+        
+        apply_theme_titlebar(self, self.parent().config)
 
         layout = QFormLayout(self)
 
@@ -537,6 +541,8 @@ class ConfigureSteamAccountsDialog(QDialog):
         self.steamcmd_dir = steamcmd_dir
         self.token_monitor_worker = None
         self.steamcmd_process = None
+        
+        apply_theme_titlebar(self, self.parent().config)
 
         layout = QVBoxLayout(self)
 
@@ -917,6 +923,8 @@ class UpdateAppIDsDialog(QDialog):
         self.setWindowTitle("Update AppIDs")
         self.setModal(True)
         self.setFixedSize(250, 120)
+        
+        apply_theme_titlebar(self, self.parent().config)
 
         layout = QVBoxLayout(self)
 
@@ -1116,6 +1124,8 @@ class QueueEntireWorkshopDialog(QDialog):
         self.setWindowTitle("Queue Entire Workshop")
         self.setModal(True)
         self.setFixedSize(350, 100)
+        
+        apply_theme_titlebar(self, self.parent().config)
 
         layout = QVBoxLayout(self)
 
@@ -1365,7 +1375,7 @@ class SteamWorkshopDownloader(QWidget):
             self.resize(670, 750)
 
     def initUI(self):
-        self.setWindowTitle('Streamline: Steam Workshop Downloader')
+        self.setWindowTitle('Streamline')
         main_layout = QVBoxLayout()
 
         top_layout = QHBoxLayout()
@@ -1834,8 +1844,15 @@ class SteamWorkshopDownloader(QWidget):
         keep_downloaded_in_queue = self.config.get('keep_downloaded_in_queue', False)
 
         dialog = SettingsDialog(
-            current_theme, current_batch_size, show_logs, show_provider, show_queue_entire_workshop,
-            auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, self
+            current_theme, 
+            current_batch_size, 
+            show_logs, 
+            show_provider, 
+            show_queue_entire_workshop,
+            auto_detect_urls, 
+            auto_add_to_queue, 
+            keep_downloaded_in_queue, 
+            self
         )
 
         if dialog.exec() == QDialog.Accepted:
