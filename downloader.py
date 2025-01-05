@@ -213,6 +213,52 @@ class SettingsDialog(QDialog):
             'keep_downloaded_in_queue': self.keep_downloaded_in_queue_checkbox.isChecked(),
         }
         
+class ThemedMessageBox(QMessageBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        if parent and hasattr(parent, 'config'):
+            apply_theme_titlebar(self, parent.config)
+
+    @staticmethod
+    def question(parent, title, text, buttons=QMessageBox.Yes | QMessageBox.No, default_button=QMessageBox.No):
+        msg_box = ThemedMessageBox(parent)
+        msg_box.setIcon(QMessageBox.Question)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(text)
+        msg_box.setStandardButtons(buttons)
+        msg_box.setDefaultButton(default_button)
+        return msg_box.exec()
+
+    @staticmethod
+    def information(parent, title, text, buttons=QMessageBox.Ok, default_button=QMessageBox.Ok):
+        msg_box = ThemedMessageBox(parent)
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(text)
+        msg_box.setStandardButtons(buttons)
+        msg_box.setDefaultButton(default_button)
+        return msg_box.exec()
+
+    @staticmethod
+    def warning(parent, title, text, buttons=QMessageBox.Ok, default_button=QMessageBox.Ok):
+        msg_box = ThemedMessageBox(parent)
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(text)
+        msg_box.setStandardButtons(buttons)
+        msg_box.setDefaultButton(default_button)
+        return msg_box.exec()
+
+    @staticmethod
+    def critical(parent, title, text, buttons=QMessageBox.Ok, default_button=QMessageBox.Ok):
+        msg_box = ThemedMessageBox(parent)
+        msg_box.setIcon(QMessageBox.Critical)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(text)
+        msg_box.setStandardButtons(buttons)
+        msg_box.setDefaultButton(default_button)
+        return msg_box.exec()
+        
 class AddSteamAccountDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -588,10 +634,10 @@ class ConfigureSteamAccountsDialog(QDialog):
         if dialog.exec() == QDialog.Accepted:
             username = dialog.get_username()
             if not username:
-                QMessageBox.warning(self, 'Input Error', 'Username cannot be empty.')
+                ThemedMessageBox.warning(self, 'Input Error', 'Username cannot be empty.')
                 return
             if any(acc['username'] == username for acc in self.config['steam_accounts']):
-                QMessageBox.warning(self, 'Duplicate Account', 'This Steam account is already added.')
+                ThemedMessageBox.warning(self, 'Duplicate Account', 'This Steam account is already added.')
                 return
             existing_tokens = self.get_all_token_ids()
             self.launch_steamcmd(username)
@@ -607,13 +653,13 @@ class ConfigureSteamAccountsDialog(QDialog):
             'token_id': new_token_id
         })
         self.load_accounts()
-        QMessageBox.information(self, 'Success', f"Steam account '{username}' added.")
+        ThemedMessageBox.information(self, 'Success', f"Steam account '{username}' added.")
         if self.steamcmd_process and self.steamcmd_process.poll() is None:
             self.steamcmd_process.terminate()
         self.token_monitor_worker = None
 
     def on_token_timeout(self, username):
-        QMessageBox.warning(self, 'Error', f"Failed to retrieve token ID for account '{username}'. Please ensure you have logged in successfully.")
+        ThemedMessageBox.warning(self, 'Error', f"Failed to retrieve token ID for account '{username}'. Please ensure you have logged in successfully.")
         self.token_monitor_worker = None
 
     def open_context_menu(self, position):
@@ -645,7 +691,7 @@ class ConfigureSteamAccountsDialog(QDialog):
             self.token_monitor_worker.timeout.connect(lambda: self.on_token_timeout_reauth(username))
             self.token_monitor_worker.start()
         else:
-            QMessageBox.warning(self, 'Error', f"Failed to remove token for account '{username}'.")
+            ThemedMessageBox.warning(self, 'Error', f"Failed to remove token for account '{username}'.")
 
     def on_token_found_reauth(self, username, new_token_id):
         for account in self.config['steam_accounts']:
@@ -653,13 +699,13 @@ class ConfigureSteamAccountsDialog(QDialog):
                 account['token_id'] = new_token_id
                 break
         self.load_accounts()
-        QMessageBox.information(self, 'Success', f"Account '{username}' reauthenticated.")
+        ThemedMessageBox.information(self, 'Success', f"Account '{username}' reauthenticated.")
         if self.steamcmd_process and self.steamcmd_process.poll() is None:
             self.steamcmd_process.terminate()
         self.token_monitor_worker = None
 
     def on_token_timeout_reauth(self, username):
-        QMessageBox.warning(self, 'Error', f"Failed to retrieve new token ID for account '{username}'. Please ensure you have logged in successfully.")
+        ThemedMessageBox.warning(self, 'Error', f"Failed to retrieve new token ID for account '{username}'. Please ensure you have logged in successfully.")
         self.token_monitor_worker = None
 
     def remove_account(self):
@@ -672,19 +718,19 @@ class ConfigureSteamAccountsDialog(QDialog):
         if not account:
             return
         token_id = account.get('token_id', '')
-        reply = QMessageBox.question(self, 'Remove Account', f"Are you sure you want to remove account '{username}'?", QMessageBox.Yes | QMessageBox.No)
+        reply = ThemedMessageBox.question(self, 'Remove Account', f"Are you sure you want to remove account '{username}'?", QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             # First remove the token entry and the associated account block from the config.vdf
             if self.remove_token_from_config_vdf(token_id):
                 # Remove the account from the internal config
                 self.config['steam_accounts'] = [acc for acc in self.config['steam_accounts'] if acc['username'] != username]
                 self.load_accounts()
-                QMessageBox.information(self, 'Success', f"Account '{username}' removed.")
+                ThemedMessageBox.information(self, 'Success', f"Account '{username}' removed.")
             else:
-                QMessageBox.warning(self, 'Error', f"Failed to remove token for account '{username}'.")
+                ThemedMessageBox.warning(self, 'Error', f"Failed to remove token for account '{username}'.")
 
     def purge_accounts(self):
-        reply = QMessageBox.question(self, 'Purge Accounts', 'Are you sure you want to remove all accounts?', QMessageBox.Yes | QMessageBox.No)
+        reply = ThemedMessageBox.question(self, 'Purge Accounts', 'Are you sure you want to remove all accounts?', QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             for account in self.config['steam_accounts']:
                 token_id = account.get('token_id', '')
@@ -692,7 +738,7 @@ class ConfigureSteamAccountsDialog(QDialog):
                     self.remove_token_from_config_vdf(token_id)
             self.config['steam_accounts'] = []
             self.load_accounts()
-            QMessageBox.information(self, 'Success', 'All accounts have been purged.')
+            ThemedMessageBox.information(self, 'Success', 'All accounts have been purged.')
 
     def get_all_token_ids(self):
         token_ids = set()
@@ -814,7 +860,7 @@ class ConfigureSteamAccountsDialog(QDialog):
     def launch_steamcmd(self, username):
         cmd = os.path.join(self.steamcmd_dir, 'steamcmd.exe')
         if not os.path.isfile(cmd):
-            QMessageBox.critical(self, 'Error', f"SteamCMD executable not found at {cmd}.")
+            ThemedMessageBox.critical(self, 'Error', f"SteamCMD executable not found at {cmd}.")
             return
         cmd_command = [cmd, '+login', username, '+quit']
         try:
@@ -824,7 +870,7 @@ class ConfigureSteamAccountsDialog(QDialog):
                 creationflags=subprocess.CREATE_NEW_CONSOLE
             )
         except Exception as e:
-            QMessageBox.critical(self, 'Error', f"Failed to launch SteamCMD: {e}")
+            ThemedMessageBox.critical(self, 'Error', f"Failed to launch SteamCMD: {e}")
 
     def get_updated_config(self):
         return self.config
@@ -1566,11 +1612,11 @@ class SteamWorkshopDownloader(QWidget):
         if dialog.exec() == QDialog.Accepted:
             user_input = dialog.get_input()
             if not user_input:
-                QMessageBox.warning(self, 'Input Error', 'Please enter an AppID or a related URL.')
+                ThemedMessageBox.warning(self, 'Input Error', 'Please enter an AppID or a related URL.')
                 return
             appid = self.extract_appid(user_input)
             if not appid:
-                QMessageBox.warning(self, 'Input Error', 'Could not parse an AppID from the given input.')
+                ThemedMessageBox.warning(self, 'Input Error', 'Could not parse an AppID from the given input.')
                 return
             self.log_signal.emit(f"Starting to queue entire workshop for AppID: {appid}")
             # Run the asynchronous workshop scraper in a QThread, passing self.app_ids
@@ -1716,11 +1762,11 @@ class SteamWorkshopDownloader(QWidget):
                     self.export_queue_btn.setEnabled(bool(self.download_queue))
                     self.update_queue_count()
             except Exception as e:
-                QMessageBox.critical(self, "Import Error", f"Failed to import queue: {e}")
+                ThemedMessageBox.critical(self, "Import Error", f"Failed to import queue: {e}")
 
     def export_queue(self):
         if not self.download_queue:
-            QMessageBox.information(self, "No Items to Export", "There are no items in the queue to export.")
+            ThemedMessageBox.information(self, "No Items to Export", "There are no items in the queue to export.")
             return
     
         file_path, _ = QFileDialog.getSaveFileName(self, "Export Queue", "", "Text Files (*.txt)")
@@ -1731,7 +1777,7 @@ class SteamWorkshopDownloader(QWidget):
                         file.write(f"{mod['game_name']}|{mod['mod_id']}|{mod['mod_name']}|{mod['provider']}\n")
                 self.log_signal.emit(f"Queue exported to {file_path}.")
             except Exception as e:
-                QMessageBox.critical(self, "Export Error", f"Failed to export queue: {e}")
+                ThemedMessageBox.critical(self, "Export Error", f"Failed to export queue: {e}")
 
     def get_config_path(self):
         return os.path.join(self.files_dir, 'config.json')
@@ -1771,7 +1817,7 @@ class SteamWorkshopDownloader(QWidget):
     def closeEvent(self, event):
         if self.is_downloading:
             # Ask user if they want to cancel the ongoing download before quitting
-            reply = QMessageBox.question(
+            reply = ThemedMessageBox.question(
                 self,
                 'Quit Application',
                 "A download is currently ongoing. Do you want to cancel it and exit?",
@@ -1928,7 +1974,7 @@ class SteamWorkshopDownloader(QWidget):
             self.log_signal.emit("SteamCMD initialized successfully.")
         except Exception as e:
             self.log_signal.emit(f"Error initializing SteamCMD: {e}")
-            QMessageBox.critical(self, 'Error', f"Failed to initialize SteamCMD: {e}")
+            ThemedMessageBox.critical(self, 'Error', f"Failed to initialize SteamCMD: {e}")
 
     def setup_applications(self):
         # Setup SteamCMD
@@ -1943,7 +1989,7 @@ class SteamWorkshopDownloader(QWidget):
                 self.log_signal.emit("SteamCMD downloaded and extracted successfully.")
             except Exception as e:
                 self.log_signal.emit(f"Error downloading SteamCMD: {e}")
-                QMessageBox.critical(self, 'Error', f"Failed to download SteamCMD: {e}")
+                ThemedMessageBox.critical(self, 'Error', f"Failed to download SteamCMD: {e}")
                 return
 
         self.steamcmd_executable = self.get_steamcmd_executable_path()
@@ -1964,7 +2010,7 @@ class SteamWorkshopDownloader(QWidget):
             scraper.install_chromium_and_driver(self.log_signal)
         except Exception as e:
             self.log_signal.emit(f"Error installing Chromium and Chromedriver: {e}")
-            QMessageBox.critical(self, 'Error', f"Failed to install Chromium and Chromedriver: {e}")
+            ThemedMessageBox.critical(self, 'Error', f"Failed to install Chromium and Chromedriver: {e}")
             return
 
         # Check if AppIDs.txt exists before updating
@@ -1978,7 +2024,7 @@ class SteamWorkshopDownloader(QWidget):
                 self.log_signal.emit("AppIDs updated successfully.")
             except Exception as e:
                 self.log_signal.emit(f"Error updating AppIDs: {e}")
-                QMessageBox.critical(self, 'Error', f"Failed to update AppIDs: {e}")
+                ThemedMessageBox.critical(self, 'Error', f"Failed to update AppIDs: {e}")
                 return
         else:
             return
@@ -1992,12 +2038,12 @@ class SteamWorkshopDownloader(QWidget):
     def add_mod_to_queue(self):
         mod_input = self.mod_input.text().strip()
         if not mod_input:
-            QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
+            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
             return
 
         mod_id = self.extract_id(mod_input)
         if not mod_id:
-            QMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
+            ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
 
         # Disable the button while fetching
@@ -2021,7 +2067,7 @@ class SteamWorkshopDownloader(QWidget):
 
     def on_mod_or_collection_detected_for_mod(self, is_collection, item_id):
         if is_collection:
-            reply = QMessageBox.question(
+            reply = ThemedMessageBox.question(
                 self,
                 'Detected Collection',
                 'The input corresponds to a collection. Do you want to add it as a collection?',
@@ -2032,7 +2078,7 @@ class SteamWorkshopDownloader(QWidget):
                 self.mod_input.clear()
                 self.add_collection_to_queue()
             else:
-                QMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
+                ThemedMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
             self.add_mod_btn.setEnabled(True)
             return
 
@@ -2077,19 +2123,19 @@ class SteamWorkshopDownloader(QWidget):
         self.add_mod_btn.setEnabled(True)
 
     def on_item_error(self, error_message):
-        QMessageBox.critical(self, 'Error', error_message)
+        ThemedMessageBox.critical(self, 'Error', error_message)
         self.log_signal.emit(error_message)
         self.add_mod_btn.setEnabled(True)
 
     def add_collection_to_queue(self):
         collection_input = self.collection_input.text().strip()
         if not collection_input:
-            QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Collection URL or ID.')
+            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Collection URL or ID.')
             return
     
         collection_id = self.extract_id(collection_input)
         if not collection_id:
-            QMessageBox.warning(self, 'Input Error', 'Invalid Workshop Collection URL or ID.')
+            ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop Collection URL or ID.')
             return
     
         # Disable the button while fetching
@@ -2113,7 +2159,7 @@ class SteamWorkshopDownloader(QWidget):
 
     def on_mod_or_collection_detected_for_collection(self, is_collection, item_id):
         if not is_collection:
-            reply = QMessageBox.question(
+            reply = ThemedMessageBox.question(
                 self,
                 'Detected Mod',
                 'The input corresponds to a mod. Do you want to add it as a mod?',
@@ -2124,7 +2170,7 @@ class SteamWorkshopDownloader(QWidget):
                 self.collection_input.clear()
                 self.add_mod_to_queue()
             else:
-                QMessageBox.information(self, 'Action Cancelled', 'The mod was not added.')
+                ThemedMessageBox.information(self, 'Action Cancelled', 'The mod was not added.')
             self.add_collection_btn.setEnabled(True)
             return
 
@@ -2206,7 +2252,7 @@ class SteamWorkshopDownloader(QWidget):
             self.log_signal.emit("AppIDs loaded successfully.")
         except Exception as e:
             self.log_signal.emit(f"Failed to load AppIDs.txt: {e}")
-            QMessageBox.critical(self, 'Error', f"Failed to load AppIDs.txt: {e}")
+            ThemedMessageBox.critical(self, 'Error', f"Failed to load AppIDs.txt: {e}")
                 
     def find_queue_item(self, mod_id):
         for index in range(self.queue_tree.topLevelItemCount()):
@@ -2293,14 +2339,14 @@ class SteamWorkshopDownloader(QWidget):
 
     def validate_steamcmd(self):
         if not self.steamcmd_executable or not os.path.isfile(self.steamcmd_executable):
-            QMessageBox.warning(self, 'Error', 'SteamCMD is not set up correctly.')
+            ThemedMessageBox.warning(self, 'Error', 'SteamCMD is not set up correctly.')
             self.log_signal.emit("Error: SteamCMD executable not found.")
             return False
         return True
 
     def start_download(self):
         if not self.download_queue:
-            QMessageBox.information(self, 'Info', 'Download queue is empty.')
+            ThemedMessageBox.information(self, 'Info', 'Download queue is empty.')
             return
         if self.is_downloading:
             self.cancel_download()
@@ -2651,18 +2697,18 @@ class SteamWorkshopDownloader(QWidget):
         if not self.validate_steamcmd():
             return
         if not mod_input:
-            QMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
+            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
             return
     
         mod_id = self.extract_id(mod_input)
         if not mod_id:
-            QMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
+            ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
     
         # Detect if the input ID corresponds to a collection
         is_collection = self.is_collection(mod_id)
         if is_collection:
-            reply = QMessageBox.question(
+            reply = ThemedMessageBox.question(
                 self,
                 'Detected Collection',
                 'The input corresponds to a collection. Do you want to add it as a collection?',
@@ -2673,7 +2719,7 @@ class SteamWorkshopDownloader(QWidget):
                 self.mod_input.clear()
                 self.add_collection_to_queue()
             else:
-                QMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
+                ThemedMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
             return  # Exit the method after handling the collection
     
         if self.is_mod_in_queue(mod_id):
@@ -2713,7 +2759,7 @@ class SteamWorkshopDownloader(QWidget):
             # Check if there are mods with different providers in the queue
             mods_with_different_providers = any(mod['provider'] != selected_provider for mod in self.download_queue)
             if mods_with_different_providers:
-                reply = QMessageBox.question(
+                reply = ThemedMessageBox.question(
                     self,
                     'Override Providers',
                     'Doing this will override all providers for mods in the queue. Are you sure?',
@@ -2739,7 +2785,7 @@ class SteamWorkshopDownloader(QWidget):
             mods_with_steamcmd = all(mod['provider'] == 'SteamCMD' for mod in self.download_queue)
             mods_with_webapi = all(mod['provider'] == 'SteamWebAPI' for mod in self.download_queue)
             if mods_with_steamcmd or mods_with_webapi:
-                reply = QMessageBox.question(
+                reply = ThemedMessageBox.question(
                     self,
                     'Override Providers',
                     'Doing this will override all providers for mods in the queue. Are you sure?',
@@ -3023,7 +3069,7 @@ class SteamWorkshopDownloader(QWidget):
             mod_id = selected_items[0].text(1)
             mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
             if not mod:
-                QMessageBox.warning(self, 'Error', 'Selected mod not found in the download queue.')
+                ThemedMessageBox.warning(self, 'Error', 'Selected mod not found in the download queue.')
                 return
         
             provider = mod.get('provider')
@@ -3039,7 +3085,7 @@ class SteamWorkshopDownloader(QWidget):
                 # Open Downloads/SteamCMD/app_id folder
                 app_id = mod.get('app_id')
                 if not app_id:
-                    QMessageBox.warning(self, 'Error', 'App ID not found for the selected mod.')
+                    ThemedMessageBox.warning(self, 'Error', 'App ID not found for the selected mod.')
                     return
         
                 download_path = os.path.join(downloads_root_path, 'SteamCMD', app_id)
@@ -3125,7 +3171,7 @@ class SteamWorkshopDownloader(QWidget):
         if dialog.exec() == QDialog.Accepted:
             selected_types = dialog.get_selected_types()
             if not selected_types:
-                QMessageBox.warning(self, 'Input Error', 'Please select at least one type.')
+                ThemedMessageBox.warning(self, 'Input Error', 'Please select at least one type.')
                 return
             self.log_signal.emit(f"Updating AppIDs for types: {', '.join(selected_types)}")
             threading.Thread(target=self.update_appids_worker, args=(selected_types,), daemon=True).start()
@@ -3145,7 +3191,7 @@ class SteamWorkshopDownloader(QWidget):
             self.load_app_ids()
         except Exception as e:
             self.log_signal.emit(f"Error updating AppIDs: {e}")
-            QMessageBox.critical(self, 'Error', f"Failed to update AppIDs: {e}")
+            ThemedMessageBox.critical(self, 'Error', f"Failed to update AppIDs: {e}")
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
