@@ -1810,7 +1810,6 @@ class SteamWorkshopDownloader(QWidget):
         try:
             with open(self.config_path, 'w', encoding='utf-8') as file:
                 json.dump(self.config, file, indent=4)
-            self.log_signal.emit("Configuration saved successfully.")
         except Exception as e:
             self.log_signal.emit(f"Error saving config.json: {e}")
              
