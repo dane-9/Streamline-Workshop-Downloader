@@ -2954,11 +2954,12 @@ class SteamWorkshopDownloader(QWidget):
     def remove_mods_from_queue(self, selected_items):
         if not selected_items:
             return
-    
+        
         self.queue_tree.setUpdatesEnabled(False)
         try:
             # Extract mod_ids from selected items once
             mod_ids_to_remove = [item.text(1) for item in selected_items]
+            count_removed = len(mod_ids_to_remove)  # log once
     
             # Remove from internal download queue in one pass
             self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] not in mod_ids_to_remove]
@@ -2970,14 +2971,13 @@ class SteamWorkshopDownloader(QWidget):
             for idx, it in items_with_indexes:
                 if idx != -1:
                     self.queue_tree.takeTopLevelItem(idx)
-    
-            for mod_id in mod_ids_to_remove:
-                self.log_signal.emit(f"Mod {mod_id} removed from the queue.")
+
+            self.log_signal.emit(f"{count_removed} mods removed from the queue.")
     
             self.update_queue_count()
             # Disable the export button if the queue is empty
             self.export_queue_btn.setEnabled(bool(self.download_queue))
-    
+        
         finally:
             self.queue_tree.setUpdatesEnabled(True)
             
