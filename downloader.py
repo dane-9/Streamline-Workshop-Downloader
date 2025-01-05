@@ -218,20 +218,33 @@ class AddSteamAccountDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Add Steam Account")
         self.setModal(True)
-        self.resize(300, 100)
-        
+        self.setFixedSize(300, 100)
+
         apply_theme_titlebar(self, self.parent().config)
 
-        layout = QFormLayout(self)
+        layout = QVBoxLayout(self)
 
+        form_layout = QFormLayout()
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("Enter Steam Username")
-        layout.addRow("Username:", self.username_input)
+        form_layout.addRow("Username:", self.username_input)
+        layout.addLayout(form_layout)
+
+        button_layout = QHBoxLayout()
+
+        tooltip_label = QLabel(" After pressing \"OK\",\n SteamCMD won't visibly show\n the password being typed. ")
+        tooltip_label.setStyleSheet("font-size: 10px;")
+        tooltip_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        button_layout.addWidget(tooltip_label, alignment=Qt.AlignLeft)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        button_layout.addWidget(buttons, alignment=Qt.AlignRight)
+
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
 
     def get_username(self):
         return self.username_input.text().strip()
