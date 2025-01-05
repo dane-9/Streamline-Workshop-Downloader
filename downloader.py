@@ -1928,16 +1928,26 @@ class SteamWorkshopDownloader(QWidget):
     def open_configure_steam_accounts(self):
         dialog = ConfigureSteamAccountsDialog(self.config, self.steamcmd_dir, self)
         dialog.exec()
-        # Update the config with any changes made in the dialog
         self.config = dialog.get_updated_config()
-        self.save_config()
+        try:
+            with open(self.config_path, 'w', encoding='utf-8') as file:
+                json.dump(self.config, file, indent=4)
+        except Exception as e:
+            self.log_signal.emit(f"Error saving config.json: {e}")
+    
         # Repopulate steam accounts dropdown
         self.populate_steam_accounts()
-        # Ensure active account is valid
+        
+        # If the active account is no longer valid, revert to 'Anonymous'
         active_account = self.config.get('active_account', 'Anonymous')
         if active_account != 'Anonymous' and active_account not in [acc['username'] for acc in self.config.get('steam_accounts', [])]:
             self.config['active_account'] = 'Anonymous'
-            self.save_config()
+            # Save silently
+            try:
+                with open(self.config_path, 'w', encoding='utf-8') as file:
+                    json.dump(self.config, file, indent=4)
+            except Exception as e:
+                self.log_signal.emit(f"Error saving config.json: {e}")
             self.populate_steam_accounts()
 
     def change_active_account(self, index):
