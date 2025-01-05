@@ -2441,6 +2441,8 @@ class SteamWorkshopDownloader(QWidget):
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.PIPE,
                     text=True,
+                    encoding='utf-8',
+                    errors='replace',
                     bufsize=1,
                     cwd=self.steamcmd_dir,
                     shell=False, # Keep false otherwise it can't terminate
