@@ -1379,6 +1379,8 @@ class SteamWorkshopDownloader(QWidget):
         self.clipboard_signal_connected = False
         self.item_fetchers = []
         
+        self.default_widths = [115, 90, 230, 100, 95]
+        
         self.setWindowIcon(QIcon(resource_path('Files/logo.ico')))
         
         if 'current_theme' not in self.config:
@@ -1543,13 +1545,12 @@ class SteamWorkshopDownloader(QWidget):
         self.toggle_header_lock(self.header_locked)
 
         # Restore column widths and hidden state from the configuration
-        default_widths = [115, 90, 230, 100, 95]  # Default widths adjusted for new column
-        column_widths = self.config.get('queue_tree_column_widths', default_widths)
+        column_widths = self.config.get('queue_tree_column_widths', self.default_widths)
         column_hidden = self.config.get('queue_tree_column_hidden', [False] * self.queue_tree.columnCount())
         
         for i in range(self.queue_tree.columnCount()):
             # Set the width from config or default
-            width = column_widths[i] if i < len(column_widths) else default_widths[i]
+            width = column_widths[i] if i < len(column_widths) else self.default_widths[i]
             self.queue_tree.setColumnWidth(i, width)
             # Set hidden state
             self.queue_tree.setColumnHidden(i, column_hidden[i])
@@ -1743,25 +1744,23 @@ class SteamWorkshopDownloader(QWidget):
         menu.exec(self.queue_tree.header().viewport().mapToGlobal(position))
         
     def reset_header_layout(self):
-        default_widths = [115, 90, 230, 100, 95]
         for i in range(self.queue_tree.columnCount()):
             self.queue_tree.setColumnHidden(i, False)  # Show the column if hidden
-            if i < len(default_widths):
-                self.queue_tree.setColumnWidth(i, default_widths[i])
+            if i < len(self.default_widths):
+                self.queue_tree.setColumnWidth(i, self.default_widths[i])
 
         header = self.queue_tree.header()
         for col in range(self.queue_tree.columnCount()):
             header.moveSection(header.visualIndex(col), col)
     
         self.log_signal.emit("Header layout reset to default.")
-        self.config['queue_tree_column_widths'] = default_widths
+        self.config['queue_tree_column_widths'] = self.default_widths
         self.config['queue_tree_column_hidden'] = [False]*self.queue_tree.columnCount()
         self.save_config()
         
     def reset_columns(self):
-        default_widths = [115, 90, 230, 100, 95]
         self.queue_tree.header().restoreState(self.queue_tree.header().saveState())  # Reset column order
-        for i, width in enumerate(default_widths):
+        for i, width in enumerate(self.default_widths):
             self.queue_tree.setColumnWidth(i, width)
         self.log_signal.emit("Columns have been reset to their default widths and positions.")
 
