@@ -1369,6 +1369,7 @@ class SteamWorkshopDownloader(QWidget):
         os.makedirs(self.themes_dir, exist_ok=True)
         self.config = {}
         self.config_path = self.get_config_path()
+        self.load_config()
         self.steamcmd_dir = os.path.join(self.files_dir, 'steamcmd')
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         self.current_process = None
@@ -1403,7 +1404,6 @@ class SteamWorkshopDownloader(QWidget):
         # Initialize the UI then load config
         self.column_width_backup = {}
         self.initUI()
-        self.load_config()
         self.adjust_widget_heights()
 
         # Load the application settings
@@ -1536,6 +1536,7 @@ class SteamWorkshopDownloader(QWidget):
         header = self.queue_tree.header()
         header.setContextMenuPolicy(Qt.CustomContextMenu)
         header.customContextMenuRequested.connect(self.open_header_context_menu)
+        self.toggle_header_lock(self.header_locked)
 
         # Restore column widths and hidden state from the configuration
         default_widths = [115, 90, 230, 100, 95]  # Default widths adjusted for new column
@@ -1851,7 +1852,6 @@ class SteamWorkshopDownloader(QWidget):
             self.config['keep_downloaded_in_queue'] = False
             
         self.header_locked = self.config.get('header_locked', False)
-        self.toggle_header_lock(self.header_locked)
 
     def save_config(self):
         try:
