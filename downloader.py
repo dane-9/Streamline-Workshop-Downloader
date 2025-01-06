@@ -1498,12 +1498,14 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addLayout(collection_layout)
 
         queue_layout = QHBoxLayout()
-        self.queue_label = QLabel('In Download Queue:')
-        queue_layout.addWidget(self.queue_label)
         
-        self.queue_count_label = QLabel('0')
-        queue_layout.addWidget(self.queue_count_label)
-        queue_layout.addStretch()
+        self.search_label = QLabel('Search:')
+        queue_layout.addWidget(self.search_label)
+        
+        self.search_input = QLineEdit()
+        self.update_queue_count()
+        self.search_input.textChanged.connect(self.filter_queue_items)
+        queue_layout.addWidget(self.search_input)
         
         self.import_queue_btn = QPushButton('Import Queue')
         self.import_queue_btn.setFixedWidth(90)
@@ -1599,6 +1601,23 @@ class SteamWorkshopDownloader(QWidget):
             elif isinstance(attr, QComboBox) and "_dropdown" in attr_name:
                 attr.setFixedHeight(dropdown_height)
                 
+    def filter_queue_items(self, text: str):
+        search_term = text.lower().strip()
+    
+        for i in range(self.queue_tree.topLevelItemCount()):
+            item = self.queue_tree.topLevelItem(i)
+            mod_id = item.text(1).lower()
+            mod_name = item.text(2).lower()
+            
+            if search_term in mod_id or search_term in mod_name:
+                item.setHidden(False)
+            else:
+                item.setHidden(True)
+                
+    def update_queue_count(self):
+        total_count = len(self.download_queue)
+        self.search_input.setPlaceholderText(f"Mods in Queue: {total_count}     /     Search by Mod ID or Name")
+                
     def open_queue_entire_workshop_dialog(self):
         dialog = QueueEntireWorkshopDialog(self)
         if dialog.exec() == QDialog.Accepted:
@@ -1687,10 +1706,6 @@ class SteamWorkshopDownloader(QWidget):
         if match:
             return match.group(1)
         return None
-                
-    def update_queue_count(self):
-        count = len(self.download_queue)
-        self.queue_count_label.setText(f'{count}')
 
     def open_header_context_menu(self, position: QPoint):
         menu = QMenu()
