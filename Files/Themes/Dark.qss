@@ -177,7 +177,7 @@ QPlainTextEdit, QTextEdit {
 }
 
 QComboBox {
-    background-color: #3A3A3A;
+    background-color: #333333;
     color: #A0A0A0;
     border-radius: 3px;
 }
@@ -195,3 +195,10 @@ QComboBox::drop-down {
     margin-right: 5px;
     margin-top: 5px;
 }
+
+QMenu::separator {
+        height: 1px;
+        background: #444444;
+        margin: 4px 10px;
+        border-radius: 2px;
+    }

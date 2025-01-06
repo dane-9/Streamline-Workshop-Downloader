@@ -213,3 +213,10 @@ QComboBox::drop-down {
     margin-right: 5px;
     margin-top: 5px;
 }
+
+QMenu::separator {
+        height: 1px;
+        background: #C2C2C5;
+        margin: 4px 10px;
+        border-radius: 2px;
+    }

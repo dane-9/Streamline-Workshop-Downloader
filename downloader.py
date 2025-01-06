@@ -2965,6 +2965,8 @@ class SteamWorkshopDownloader(QWidget):
         move_bottom_action.triggered.connect(lambda: self.move_mod_to_bottom(selected_items))
         menu.addAction(move_bottom_action)
         
+        menu.addSeparator()
+        
         # Change Provider submenu
         change_provider_menu = menu.addMenu("Change Provider")
         steamcmd_action = QAction("SteamCMD", self)
