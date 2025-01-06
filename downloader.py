@@ -1361,7 +1361,7 @@ class SteamWorkshopDownloader(QWidget):
         super().__init__()
         self.download_queue = []
         self.is_downloading = False
-        self.header_locked = False
+        self.header_locked = True
         self.lock_action = None
         self.files_dir = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'Files')
         os.makedirs(self.files_dir, exist_ok=True)
@@ -1521,6 +1521,10 @@ class SteamWorkshopDownloader(QWidget):
         queue_layout.addWidget(self.export_queue_btn)
 
         main_layout.addLayout(queue_layout)
+        
+        self.reset_action = QAction("Reset", self)
+        self.reset_action.setEnabled(not self.header_locked)  # Disable when locked
+        self.reset_action.triggered.connect(self.reset_columns)
 
         self.queue_tree = CustomizableTreeWidgets()
         self.queue_tree.setColumnCount(5)
@@ -1713,9 +1717,8 @@ class SteamWorkshopDownloader(QWidget):
     def open_header_context_menu(self, position: QPoint):
         menu = QMenu()
     
+        # Submenu for hiding columns
         hide_submenu = menu.addMenu("Hide")
-        
-        # Add each column as a checkable action
         for column in range(self.queue_tree.columnCount()):
             column_name = self.queue_tree.headerItem().text(column)
             action = QAction(f"{column_name}", self)
@@ -1723,16 +1726,44 @@ class SteamWorkshopDownloader(QWidget):
             action.setChecked(self.queue_tree.header().isSectionHidden(column))
             action.toggled.connect(lambda checked, col=column: self.toggle_column_visibility(col, checked))
             hide_submenu.addAction(action)
-        
-        # Add a lock/unlock action
+            
+        self.reset_action = QAction("Reset", self)
+        self.reset_action.setEnabled(not self.header_locked)
+        self.reset_action.triggered.connect(self.reset_header_layout)
+        menu.addAction(self.reset_action)
+    
+        # Lock/Unlock action
         lock_action_text = "Locked" if self.header_locked else "Lock"
-        self.lock_action = QAction(lock_action_text, self)  # Store a reference
+        self.lock_action = QAction(lock_action_text, self)
         self.lock_action.setCheckable(True)
         self.lock_action.setChecked(self.header_locked)
         self.lock_action.toggled.connect(lambda: self.toggle_header_lock(not self.header_locked))
         menu.addAction(self.lock_action)
     
         menu.exec(self.queue_tree.header().viewport().mapToGlobal(position))
+        
+    def reset_header_layout(self):
+        default_widths = [115, 90, 230, 100, 95]
+        for i in range(self.queue_tree.columnCount()):
+            self.queue_tree.setColumnHidden(i, False)  # Show the column if hidden
+            if i < len(default_widths):
+                self.queue_tree.setColumnWidth(i, default_widths[i])
+
+        header = self.queue_tree.header()
+        for col in range(self.queue_tree.columnCount()):
+            header.moveSection(header.visualIndex(col), col)
+    
+        self.log_signal.emit("Header layout reset to default.")
+        self.config['queue_tree_column_widths'] = default_widths
+        self.config['queue_tree_column_hidden'] = [False]*self.queue_tree.columnCount()
+        self.save_config()
+        
+    def reset_columns(self):
+        default_widths = [115, 90, 230, 100, 95]
+        self.queue_tree.header().restoreState(self.queue_tree.header().saveState())  # Reset column order
+        for i, width in enumerate(default_widths):
+            self.queue_tree.setColumnWidth(i, width)
+        self.log_signal.emit("Columns have been reset to their default widths and positions.")
 
     def toggle_column_visibility(self, column: int, hide: bool):
         if hide:
@@ -1762,22 +1793,24 @@ class SteamWorkshopDownloader(QWidget):
         header = self.queue_tree.header()
     
         if locked:
-            # Disable resizing and moving
             header.setSectionsMovable(False)
             header.setStretchLastSection(False)
             for col in range(self.queue_tree.columnCount()):
                 header.setSectionResizeMode(col, QHeaderView.Fixed)
             if self.lock_action:
                 self.lock_action.setText("Locked")
+            if self.reset_action:
+                self.reset_action.setEnabled(False)  # Disable Reset when locked
         else:
-            # Restore normal resizing/moving
             header.setSectionsMovable(True)
             header.setStretchLastSection(False)
             for col in range(self.queue_tree.columnCount()):
                 header.setSectionResizeMode(col, QHeaderView.Interactive)
             if self.lock_action:
                 self.lock_action.setText("Lock")
-                
+            if self.reset_action:
+                self.reset_action.setEnabled(True)  # Enable Reset when unlocked
+    
         self.save_config()
                     
     def import_queue(self):
@@ -1851,7 +1884,7 @@ class SteamWorkshopDownloader(QWidget):
         if 'keep_downloaded_in_queue' not in self.config:
             self.config['keep_downloaded_in_queue'] = False
             
-        self.header_locked = self.config.get('header_locked', False)
+        self.header_locked = self.config.get('header_locked', True)
 
     def save_config(self):
         try:

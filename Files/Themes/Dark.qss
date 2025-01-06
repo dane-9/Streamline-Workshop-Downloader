@@ -27,7 +27,11 @@ QPushButton:pressed {
 }
 
 QPushButton:disabled {
-    background-color: #1A1A1A;
+    background-color: #222222;
+	color: #666666;
+	border-style: solid;
+    border-width: 1px;
+    border-color: #333333;
 }
 
 QLineEdit {
@@ -104,6 +108,16 @@ QMenu {
 QMenu::item:selected {
     background-color: #555555;
     color: #FFFFFF;
+}
+
+QMenu::item:disabled {
+    color: gray;
+    background: transparent;
+}
+
+QMenu::item:selected:disabled {
+    background: transparent;
+    color: gray;
 }
 
 QTabWidget::pane {

@@ -123,6 +123,16 @@ QMenu::item:selected {
     color: #282828;
 }
 
+QMenu::item:disabled {
+    color: gray;
+    background: transparent;
+}
+
+QMenu::item:selected:disabled {
+    background: transparent;
+    color: gray;
+}
+
 QTabWidget::pane {
     border: 1px solid #555555;
 }
