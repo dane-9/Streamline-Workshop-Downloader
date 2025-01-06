@@ -2945,6 +2945,11 @@ class SteamWorkshopDownloader(QWidget):
 
         menu = QMenu()
         
+        # Move to Top action
+        move_top_action = QAction("Move to Top", self)
+        move_top_action.triggered.connect(lambda: self.move_mod_to_top(selected_items))
+        menu.addAction(move_top_action)
+        
         # Move Up action
         move_up_action = QAction("Move Up", self)
         move_up_action.triggered.connect(lambda: self.move_mod_up(selected_items))
@@ -2954,6 +2959,11 @@ class SteamWorkshopDownloader(QWidget):
         move_down_action = QAction("Move Down", self)
         move_down_action.triggered.connect(lambda: self.move_mod_down(selected_items))
         menu.addAction(move_down_action)
+        
+        # Move to Bottom action
+        move_bottom_action = QAction("Move to Bottom", self)
+        move_bottom_action.triggered.connect(lambda: self.move_mod_to_bottom(selected_items))
+        menu.addAction(move_bottom_action)
         
         # Change Provider submenu
         change_provider_menu = menu.addMenu("Change Provider")
@@ -2997,7 +3007,6 @@ class SteamWorkshopDownloader(QWidget):
                 self.queue_tree.takeTopLevelItem(index)
                 self.queue_tree.insertTopLevelItem(index - 1, item)
     
-                # Also reorder in the download_queue
                 mod_id = item.text(1)
                 mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
                 if mod:
@@ -3012,13 +3021,53 @@ class SteamWorkshopDownloader(QWidget):
                 self.queue_tree.takeTopLevelItem(index)
                 self.queue_tree.insertTopLevelItem(index + 1, item)
     
-                # Also reorder in the download_queue
                 mod_id = item.text(1)
                 mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
                 if mod:
                     self.download_queue.remove(mod)
                     self.download_queue.insert(index + 1, mod)
                 self.update_queue_count()
+                
+    def move_mod_to_top(self, selected_items):
+        items_with_indexes = sorted(
+            [(self.queue_tree.indexOfTopLevelItem(item), item) for item in selected_items],
+            key=lambda x: x[0]
+        )
+        
+        for index, item in items_with_indexes:
+            if index > 0:
+                self.queue_tree.takeTopLevelItem(index)
+                self.queue_tree.insertTopLevelItem(0, item)
+                
+                mod_id = item.text(1)
+                mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
+                if mod:
+                    self.download_queue.remove(mod)
+                    self.download_queue.insert(0, mod)
+        
+        self.update_queue_count()
+    
+    def move_mod_to_bottom(self, selected_items):
+        items_with_indexes = sorted(
+            [(self.queue_tree.indexOfTopLevelItem(item), item) for item in selected_items],
+            key=lambda x: x[0],
+            reverse=True
+        )
+        
+        total_items = self.queue_tree.topLevelItemCount()
+        
+        for index, item in items_with_indexes:
+            if index < total_items - 1:
+                self.queue_tree.takeTopLevelItem(index)
+                self.queue_tree.insertTopLevelItem(self.queue_tree.topLevelItemCount(), item)
+                
+                mod_id = item.text(1)
+                mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
+                if mod:
+                    self.download_queue.remove(mod)
+                    self.download_queue.append(mod)
+        
+        self.update_queue_count()
 
     def remove_mod_from_queue(self, mod_id):
         self.download_queue = [mod for mod in self.download_queue if mod['mod_id'] != mod_id]
