@@ -1223,25 +1223,20 @@ async def parse_page(page_content, page_number, log_signal=None):
     try:
         tree = html.fromstring(page_content)
         workshop_items = tree.xpath("//div[@class='workshopItem']")
-        if log_signal:
-            log_signal(f"Page {page_number}: Found {len(workshop_items)} items")
         for item in workshop_items:
             link = item.xpath(".//a[contains(@href, 'sharedfiles/filedetails')]")
             if not link:
                 if log_signal:
                     log_signal(f"Page {page_number}: Skipped item, no link found.")
                 continue
-            
             mod_id = link[0].get("data-publishedfileid")
             if not mod_id:
                 mod_id = link[0].get("href").split("?id=")[-1]
-            
             title_div = item.xpath(".//div[contains(@class,'workshopItemTitle')]")
             if not title_div:
                 if log_signal:
                     log_signal(f"Page {page_number}: Skipped item, no title found.")
                 continue
-            
             mod_name = title_div[0].text_content().strip()
             mods.append((mod_id, mod_name))
     except Exception as e:
@@ -1251,15 +1246,10 @@ async def parse_page(page_content, page_number, log_signal=None):
 
 async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems", concurrency=100, log_signal=None, app_ids=None):
     base_url = "https://steamcommunity.com/workshop/browse/"
-    params = {
-        "appid": str(appid),
-        "browsesort": sort,
-        "section": section,
-        "p": "1"
-    }
-
+    params = {"appid": str(appid), "browsesort": sort, "section": section, "p": "1"}
     all_mods = []
     game_name = "Unknown Game"
+
     async with aiohttp.ClientSession() as session:
         first_page_content = await fetch_page(session, base_url, params, log_signal=log_signal)
         if not first_page_content:
@@ -1275,16 +1265,12 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
             return game_name, []
 
         # Determine game_name
-        # If appid not in app_ids, try scraping game name from the first page
         if app_ids and appid in app_ids:
             game_name = app_ids[appid]
         else:
-            # Attempt to extract game name from the first page
             gn = tree.xpath('//div[@class="apphub_AppName ellipsis"]/text()')
             if gn:
                 game_name = gn[0].strip()
-            else:
-                game_name = "Unknown Game"
 
         # Extract total entries
         total_entries = 0
@@ -1297,7 +1283,6 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
                     if log_signal:
                         log_signal("Failed to parse total entries.")
                     return game_name, []
-
         if total_entries == 0:
             if log_signal:
                 log_signal("No entries found for this workshop.")
@@ -1308,13 +1293,17 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
         max_page_count = 1667
         total_pages = min(total_pages, max_page_count)
         if log_signal:
-            log_signal(f"Total entries: {total_entries}, Total pages: {total_pages} (capped at {max_page_count})")
+            log_signal(f"Total mods: {total_entries}, Total pages: {total_pages} (capped at {max_page_count})")
 
-        # Fetch all pages
+        pages_fetched = 0
+
+        # Fetch all pages in blocks of "concurrency"
         for start_page in range(1, total_pages + 1, concurrency):
             end_page = min(start_page + concurrency - 1, total_pages)
-            if log_signal:
-                log_signal(f"Fetching pages {start_page}-{end_page}...")
+
+            if log_signal and pages_fetched > 0:
+                log_signal(f"Pages fetched: {pages_fetched} / {total_pages}")
+
             tasks = []
             for page in range(start_page, end_page + 1):
                 page_params = {
@@ -1328,16 +1317,19 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
             pages_content = await asyncio.gather(*tasks)
 
             parse_tasks = []
-            for content, page_number in zip(pages_content, range(start_page, end_page + 1)):
+            for content in pages_content:
                 if content:
-                    parse_tasks.append(parse_page(content, page_number, log_signal=log_signal))
+                    parse_tasks.append(parse_page(content, 0, log_signal=None))  # page_number = 0, silent
 
             results = await asyncio.gather(*parse_tasks)
             for result in results:
                 all_mods.extend(result)
+            pages_fetched += len(results)
 
-    if log_signal:
-        log_signal(f"Total mods found: {len(all_mods)}")
+        if log_signal and pages_fetched > 0:
+            # Final update for pages_fetched
+            log_signal(f"Pages fetched: {pages_fetched} / {total_pages}")
+
     return game_name, all_mods
 
 
@@ -1618,7 +1610,7 @@ class SteamWorkshopDownloader(QWidget):
             if not appid:
                 ThemedMessageBox.warning(self, 'Input Error', 'Could not parse an AppID from the given input.')
                 return
-            self.log_signal.emit(f"Starting to queue entire workshop for AppID: {appid}")
+            self.log_signal.emit(f"Starting to queue entire workshop for AppID: '{appid}'")
             # Run the asynchronous workshop scraper in a QThread, passing self.app_ids
             self.workshop_scraper = WorkshopScraperWorker(appid, self.app_ids)
             self.workshop_scraper.log_signal.connect(self.append_log)
@@ -1635,7 +1627,7 @@ class SteamWorkshopDownloader(QWidget):
         # Determine the provider once we know the app_id
         provider = self.get_provider_for_mod({'app_id': appid})
     
-        self.log_signal.emit(f"Adding {len(mods)} mods from AppID {appid} ({game_name}) to the queue...")
+        self.log_signal.emit(f"Adding {len(mods)} mods from '{game_name}' / '{appid}' to the queue...")
     
         # Create and start the worker thread
         self.queue_insertion_worker = QueueInsertionWorker(
