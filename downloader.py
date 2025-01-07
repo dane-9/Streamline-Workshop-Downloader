@@ -1403,7 +1403,7 @@ class SteamWorkshopDownloader(QWidget):
         self.app_ids = {}
         self.load_app_ids()
 
-        # Initialize the UI then load config
+        # Initialize the UI after loading config
         self.column_width_backup = {}
         self.initUI()
         self.adjust_widget_heights()
@@ -1529,6 +1529,7 @@ class SteamWorkshopDownloader(QWidget):
         self.reset_action.triggered.connect(self.reset_columns)
 
         self.queue_tree = CustomizableTreeWidgets()
+        self.queue_tree.setUniformRowHeights(True)
         self.queue_tree.setColumnCount(5)
         self.queue_tree.setHeaderLabels(['Game', 'Mod ID', 'Mod Name', 'Status', 'Provider'])
         self.queue_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
