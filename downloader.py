@@ -1530,6 +1530,7 @@ class SteamWorkshopDownloader(QWidget):
 
         self.queue_tree = CustomizableTreeWidgets()
         self.queue_tree.setUniformRowHeights(True)
+        self.queue_tree.setExpandsOnDoubleClick(False)
         self.queue_tree.setColumnCount(5)
         self.queue_tree.setHeaderLabels(['Game', 'Mod ID', 'Mod Name', 'Status', 'Provider'])
         self.queue_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
