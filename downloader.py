@@ -1244,17 +1244,22 @@ async def parse_page(page_content, page_number, log_signal=None):
             log_signal(f"Error parsing page {page_number}: {e}")
     return mods
 
-async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems", concurrency=100, log_signal=None, app_ids=None):
+async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems", concurrency=100, log_signal=None, app_ids=None, queue_entire_workshop_btn=None):
     base_url = "https://steamcommunity.com/workshop/browse/"
     params = {"appid": str(appid), "browsesort": sort, "section": section, "p": "1"}
     all_mods = []
     game_name = "Unknown Game"
+
+    if queue_entire_workshop_btn:
+        queue_entire_workshop_btn.setEnabled(False)
 
     async with aiohttp.ClientSession() as session:
         first_page_content = await fetch_page(session, base_url, params, log_signal=log_signal)
         if not first_page_content:
             if log_signal:
                 log_signal("Failed to fetch the first page.")
+            if queue_entire_workshop_btn:
+                queue_entire_workshop_btn.setEnabled(True)
             return game_name, []
 
         tree = html.fromstring(first_page_content)
@@ -1262,6 +1267,8 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
         if not paging_info:
             if log_signal:
                 log_signal("Could not find paging info on the first page. Possibly no results.")
+            if queue_entire_workshop_btn:
+                queue_entire_workshop_btn.setEnabled(True)
             return game_name, []
 
         # Determine game_name
@@ -1282,10 +1289,14 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
                 except (ValueError, IndexError):
                     if log_signal:
                         log_signal("Failed to parse total entries.")
+                    if queue_entire_workshop_btn:
+                        queue_entire_workshop_btn.setEnabled(True)
                     return game_name, []
         if total_entries == 0:
             if log_signal:
                 log_signal("No entries found for this workshop.")
+            if queue_entire_workshop_btn:
+                queue_entire_workshop_btn.setEnabled(True)
             return game_name, []
 
         mods_per_page = 30
@@ -1330,6 +1341,9 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
             # Final update for pages_fetched
             log_signal(f"Pages fetched: {pages_fetched} / {total_pages}")
 
+    if queue_entire_workshop_btn:
+        queue_entire_workshop_btn.setEnabled(True)
+
     return game_name, all_mods
 
 
@@ -1337,10 +1351,11 @@ class WorkshopScraperWorker(QThread):
     finished_scraping = Signal(str, list)  # Emit game_name and mods
     log_signal = Signal(str)
 
-    def __init__(self, appid, app_ids):
+    def __init__(self, appid, app_ids, queue_entire_workshop_btn=None):
         super().__init__()
         self.appid = appid
         self.app_ids = app_ids
+        self.queue_entire_workshop_btn = queue_entire_workshop_btn
 
     def run(self):
         loop = asyncio.new_event_loop()
@@ -1349,8 +1364,7 @@ class WorkshopScraperWorker(QThread):
         def log_message(msg):
             self.log_signal.emit(msg)
 
-        # Pass app_ids to scrape_workshop_data
-        game_name, mods = loop.run_until_complete(scrape_workshop_data(self.appid, log_signal=log_message, app_ids=self.app_ids))
+        game_name, mods = loop.run_until_complete(scrape_workshop_data( appid=self.appid, log_signal=log_message, app_ids=self.app_ids, queue_entire_workshop_btn=self.queue_entire_workshop_btn ))
         self.finished_scraping.emit(game_name, mods)
 
 class SteamWorkshopDownloader(QWidget):
@@ -1640,8 +1654,12 @@ class SteamWorkshopDownloader(QWidget):
                 ThemedMessageBox.warning(self, 'Input Error', 'Could not parse an AppID from the given input.')
                 return
             self.log_signal.emit(f"Starting to queue entire workshop for AppID: '{appid}'")
-            # Run the asynchronous workshop scraper in a QThread, passing self.app_ids
-            self.workshop_scraper = WorkshopScraperWorker(appid, self.app_ids)
+        
+            self.queue_entire_workshop_btn.setEnabled(False)
+
+             # Run the asynchronous workshop scraper in a QThread
+            self.workshop_scraper = WorkshopScraperWorker(appid, self.app_ids, queue_entire_workshop_btn=self.queue_entire_workshop_btn)
+            
             self.workshop_scraper.log_signal.connect(self.append_log)
             self.workshop_scraper.finished_scraping.connect(self.on_entire_workshop_fetched)
             self.workshop_scraper.start()
