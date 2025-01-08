@@ -299,6 +299,34 @@ class AddSteamAccountDialog(QDialog):
     def get_username(self):
         return self.username_input.text().strip()
         
+class OverrideAppIDDialog(QDialog):
+    def __init__(self, current_app_id="", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Override AppID")
+        self.setModal(True)
+        self.setFixedSize(350, 100)
+        
+        apply_theme_titlebar(self, self.parent().config)
+
+        layout = QVBoxLayout(self)
+        
+        self.label = QLabel("Enter AppID:")
+        layout.addWidget(self.label)
+
+        self.appid_input = QLineEdit()
+        self.appid_input.setPlaceholderText("e.g., 108600 or a Steam URL with an AppID")
+        layout.addWidget(self.appid_input)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=self)
+        self.start_button = QPushButton("Set")
+        buttons.addButton(self.start_button, QDialogButtonBox.AcceptRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_new_app_id(self):
+        return self.appid_input.text().strip()
+        
 class AppIDScraper:
     def __init__(self, files_dir):
         self.files_dir = files_dir
@@ -1957,6 +1985,78 @@ class SteamWorkshopDownloader(QWidget):
 
         # Save configuration
         self.save_config()
+        
+    async def fetch_game_name(self, app_id: str, log_signal=None):
+        base_url = "https://steamcommunity.com/workshop/browse/"
+        params = {"appid": str(app_id), "p": "1"}
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(base_url, params=params) as response:
+                    if response.status != 200:
+                        if log_signal:
+                            log_signal(f"Failed to fetch workshop front page for appid={app_id}, status={response.status}")
+                        return None
+                    page_html = await response.text()
+            except Exception as e:
+                if log_signal:
+                    log_signal(f"Error fetching page for appid={app_id}: {e}")
+                return None
+    
+        tree = html.fromstring(page_html)
+        gn = tree.xpath('//div[@class="apphub_AppName ellipsis"]/text()')
+        if gn:
+            return gn[0].strip()
+        return None
+    
+    def fetch_game_name_for_appid(self, app_id: str) -> str:
+        if app_id in self.app_ids:
+            return self.app_ids[app_id]
+    
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(self.fetch_game_name(app_id, self.log_signal))
+        loop.close()
+    
+        if result:
+            return result
+
+        return "Unknown Game"
+    
+    def on_override_appid(self, selected_items):
+        if not selected_items:
+            return
+
+        first_item = selected_items[0]
+        first_mod_id = first_item.text(1)
+    
+        # Find the matching mod in self.download_queue
+        mod = next((m for m in self.download_queue if m['mod_id'] == first_mod_id), None)
+        if not mod:
+            ThemedMessageBox.warning(self, 'Not Found', 'Selected mod not found in the queue.')
+            return
+    
+        old_app_id = mod.get('app_id', "")
+    
+        dialog = OverrideAppIDDialog(current_app_id=old_app_id, parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            user_input = dialog.get_new_app_id().strip()
+    
+            extracted_app_id = self.extract_appid(user_input)
+            if not extracted_app_id:
+                ThemedMessageBox.warning(self, 'Invalid AppID', 'Could not parse a valid AppID from your input. Please enter an ID or URL.')
+                return
+
+            new_game_name = self.fetch_game_name_for_appid(extracted_app_id)
+
+            for item in selected_items:
+                mod_id = item.text(1)
+                queue_mod = next((m for m in self.download_queue if m['mod_id'] == mod_id), None)
+                if queue_mod:
+                    queue_mod['app_id'] = extracted_app_id
+                    queue_mod['game_name'] = new_game_name
+                    item.setText(0, new_game_name)
+
+            self.log_signal.emit(f"Selected mod(s) changed to '{new_game_name}' / '{extracted_app_id}'.")
 
     def populate_game_dropdown(self):
         self.game_dropdown.clear()
@@ -2989,6 +3089,11 @@ class SteamWorkshopDownloader(QWidget):
         menu.addAction(move_bottom_action)
         
         menu.addSeparator()
+        
+        # Override AppID
+        override_appid_action = QAction("Override AppID", self)
+        override_appid_action.triggered.connect(lambda: self.on_override_appid(selected_items))
+        menu.addAction(override_appid_action)
         
         # Change Provider submenu
         change_provider_menu = menu.addMenu("Change Provider")
