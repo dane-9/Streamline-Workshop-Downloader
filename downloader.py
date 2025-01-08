@@ -3114,9 +3114,11 @@ class SteamWorkshopDownloader(QWidget):
             for idx, it in items_with_indexes:
                 if idx != -1:
                     self.queue_tree.takeTopLevelItem(idx)
-
-            self.log_signal.emit(f"{count_removed} mods removed from the queue.")
-    
+            
+            if count_removed == 1:
+                self.log_signal.emit(f"{mod_ids_to_remove[0]} removed from the queue.")
+            else:
+                self.log_signal.emit(f"{count_removed} mods removed from the queue.")
             self.update_queue_count()
             # Disable the export button if the queue is empty
             self.export_queue_btn.setEnabled(bool(self.download_queue))
