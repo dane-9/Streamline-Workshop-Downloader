@@ -60,6 +60,8 @@ def load_theme(app, theme_name, files_dir):
         app.setStyleSheet("")  # Revert to default if file not found
         
 def set_windows_dark_titlebar(window_handle, enable_dark, color=None):
+    if platform.system().lower() != 'windows':
+        return
     try:
         # Enable or disable dark mode
         DWMWA_USE_IMMERSIVE_DARK_MODE = 20
@@ -97,6 +99,8 @@ def set_windows_dark_titlebar(window_handle, enable_dark, color=None):
         print(f"Failed to customize title bar: {e}")
         
 def apply_theme_titlebar(window, config):
+    if platform.system().lower() != 'windows':
+        return
     theme = config.get('current_theme', 'Dark')
     is_dark = "dark" in theme.lower()
 
