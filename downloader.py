@@ -2058,11 +2058,6 @@ class SteamWorkshopDownloader(QWidget):
 
             self.log_signal.emit(f"Selected mod(s) changed to '{new_game_name}' / '{extracted_app_id}'.")
 
-    def populate_game_dropdown(self):
-        self.game_dropdown.clear()
-        for game in sorted(self.app_ids.keys()):
-            self.game_dropdown.addItem(game)
-
     def populate_steam_accounts(self):
         self.steam_accounts_dropdown.blockSignals(True)  # Prevent signals while updating
         self.steam_accounts_dropdown.clear()
