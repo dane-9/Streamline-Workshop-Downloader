@@ -1575,6 +1575,7 @@ class SteamWorkshopDownloader(QWidget):
         self.reset_action.triggered.connect(self.reset_columns)
 
         self.queue_tree = CustomizableTreeWidgets()
+        self.queue_tree.setRootIsDecorated(False)
         self.queue_tree.setUniformRowHeights(True)
         self.queue_tree.setExpandsOnDoubleClick(False)
         self.queue_tree.setColumnCount(5)
