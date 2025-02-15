@@ -1579,6 +1579,10 @@ class SteamWorkshopDownloader(QWidget):
         
         # Prevent the last column from stretching
         self.queue_tree.header().setStretchLastSection(False)
+        
+        # sorting by header
+        self.queue_tree.setSortingEnabled(True)
+        self.queue_tree.header().setSortIndicatorShown(False)
 
         # Add context menu to the header for hiding columns
         header = self.queue_tree.header()
