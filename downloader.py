@@ -2241,7 +2241,6 @@ class SteamWorkshopDownloader(QWidget):
     def on_item_error(self, error_message):
         ThemedMessageBox.critical(self, 'Error', error_message)
         self.log_signal.emit(error_message)
-        self.add_mod_btn.setEnabled(True)
 
     def add_workshop_to_queue(self):
         input_text = self.workshop_input.text().strip()
@@ -2335,8 +2334,6 @@ class SteamWorkshopDownloader(QWidget):
     def on_item_fetcher_finished(self, item_fetcher):
         if item_fetcher in self.item_fetchers:
             self.item_fetchers.remove(item_fetcher)
-        self.add_mod_btn.setEnabled(True)
-        self.add_collection_btn.setEnabled(True)
 
     def get_provider_for_mod(self, mod):
         selected_provider = self.provider_dropdown.currentText()
