@@ -2425,24 +2425,6 @@ class SteamWorkshopDownloader(QWidget):
             self.log_signal.emit(f"Error fetching mod info for mod {mod_id}: {e}")
         return 'Unknown Game', None, 'Unknown Title'
 
-    def get_game_info_from_tree(self, tree):
-        game_tag = tree.xpath('//a[@data-panel=\'{"noFocusRing":true}\']')
-        if game_tag and 'href' in game_tag[0].attrib:
-            href = game_tag[0].get('href')
-            app_id_match = re.search(r'/app/(\d+)', href)
-            if app_id_match:
-                game_app_id = app_id_match.group(1)
-                game_name = self.app_id_to_game.get(game_app_id, None)
-                return game_name, game_app_id
-        return None, None
-
-    def update_game_selection(self, game_name):
-        if game_name:
-            index = self.game_dropdown.findText(game_name, Qt.MatchFixedString)
-            if index >= 0:
-                self.game_dropdown.setCurrentIndex(index)
-                self.log_signal.emit(f"Game set to '{game_name}'.")
-
     def validate_steamcmd(self):
         if not self.steamcmd_executable or not os.path.isfile(self.steamcmd_executable):
             ThemedMessageBox.warning(self, 'Error', 'SteamCMD is not set up correctly.')
@@ -2795,9 +2777,6 @@ class SteamWorkshopDownloader(QWidget):
         self.log_area.append(message)
         self.log_area.moveCursor(QTextCursor.End)
 
-    def get_selected_app_id(self):
-        return self.app_ids.get(self.game_dropdown.currentText(), '')
-
     def download_workshop_immediately(self):
         input_text = self.workshop_input.text().strip()
         if not self.validate_steamcmd():
@@ -3145,16 +3124,6 @@ class SteamWorkshopDownloader(QWidget):
                         self.log_signal.emit(f"Failed to delete {file_path}: {e}")
         except Exception as e:
             self.log_signal.emit(f"Error during .acf file cleanup: {e}")
-        
-    def setup_download_folders(self):
-        script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        downloads_path = os.path.join(script_dir, 'Downloads')
-        self.steamcmd_download_path = os.path.join(downloads_path, 'SteamCMD')
-        self.webapi_download_path = os.path.join(downloads_path, 'SteamWebAPI')
-        
-        # Create folders if they don't exist
-        os.makedirs(self.steamcmd_download_path, exist_ok=True)
-        os.makedirs(self.webapi_download_path, exist_ok=True)
 
     def open_downloads_folder(self):
         selected_items = self.queue_tree.selectedItems()
@@ -3335,6 +3304,3 @@ if __name__ == '__main__':
     downloader.resize(670, 750)
     downloader.show()
     sys.exit(app.exec())
-    
-if __name__ == '__main__':
-    main()
