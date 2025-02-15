@@ -1518,39 +1518,20 @@ class SteamWorkshopDownloader(QWidget):
         apply_theme_titlebar(self, self.config)
 
         mod_layout = QHBoxLayout()
-        self.mod_label = QLabel('Workshop Mod:')
-        self.mod_input = QLineEdit()
-        self.mod_input.setPlaceholderText('Enter Mod URL or ID')
-        
-        self.download_mod_btn = QPushButton('Download')
-        self.download_mod_btn.setFixedWidth(80)
-        self.download_mod_btn.clicked.connect(self.download_mod_immediately)
-        self.add_mod_btn = QPushButton('Add to Queue')
-        self.add_mod_btn.setFixedWidth(90)
-        self.add_mod_btn.clicked.connect(self.add_mod_to_queue)
-
-        mod_layout.addWidget(self.mod_label)
-        mod_layout.addWidget(self.mod_input)
-        mod_layout.addWidget(self.download_mod_btn)
-        mod_layout.addWidget(self.add_mod_btn)
+        self.workshop_input = QLineEdit()
+        self.workshop_input.setPlaceholderText('Enter Workshop Mod or Collection URL / ID')
+        self.download_btn = QPushButton('Download')
+        self.download_btn.setFixedWidth(90)
+        self.download_btn.clicked.connect(self.download_workshop_immediately)
+        self.add_to_queue_btn = QPushButton('Add to Queue')
+        self.add_to_queue_btn.setFixedWidth(90)
+        self.add_to_queue_btn.clicked.connect(self.add_workshop_to_queue)
+        mod_layout.addWidget(self.workshop_input)
+        mod_layout.addWidget(self.download_btn)
+        mod_layout.addWidget(self.add_to_queue_btn)
         main_layout.addLayout(mod_layout)
 
-        collection_layout = QHBoxLayout()
-        self.collection_label = QLabel('Workshop Collection:')
-        self.collection_input = QLineEdit()
-        self.collection_input.setPlaceholderText('Enter Collection URL or ID')
-        self.add_collection_btn = QPushButton('Add to Queue')
-        self.add_collection_btn.setFixedWidth(90)
-        self.add_collection_btn.clicked.connect(self.add_collection_to_queue)
-        collection_layout.addWidget(self.collection_label)
-        collection_layout.addWidget(self.collection_input)
-        collection_layout.addWidget(self.add_collection_btn)
-        main_layout.addLayout(collection_layout)
-
         queue_layout = QHBoxLayout()
-        
-        self.search_label = QLabel('Search:')
-        queue_layout.addWidget(self.search_label)
         
         self.search_input = QLineEdit()
         self.update_queue_count()
@@ -2248,70 +2229,53 @@ class SteamWorkshopDownloader(QWidget):
     def get_steamcmd_executable_path(self):
         return os.path.join(self.steamcmd_dir, 'steamcmd.exe')
 
-    def add_mod_to_queue(self):
-        mod_input = self.mod_input.text().strip()
-        if not mod_input:
-            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
-            return
+    def on_item_error(self, error_message):
+        ThemedMessageBox.critical(self, 'Error', error_message)
+        self.log_signal.emit(error_message)
+        self.add_mod_btn.setEnabled(True)
 
-        mod_id = self.extract_id(mod_input)
-        if not mod_id:
+    def add_workshop_to_queue(self):
+        input_text = self.workshop_input.text().strip()
+        if not input_text:
+            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL or ID.')
+            return
+    
+        workshop_id = self.extract_id(input_text)
+        if not workshop_id:
             ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
-
-        # Disable the button while fetching
-        self.add_mod_btn.setEnabled(False)
-
-        existing_mod_ids = [mod['mod_id'] for mod in self.download_queue]
-
-        # Use ItemFetcher to detect and process the mod or collection
-        item_fetcher = ItemFetcher(
-            item_id=mod_id,
-            existing_mod_ids=existing_mod_ids
-        )
-        self.item_fetchers.append(item_fetcher)  # Keep a reference to prevent garbage collection
-        item_fetcher.mod_or_collection_detected.connect(self.on_mod_or_collection_detected_for_mod)
-        item_fetcher.item_processed.connect(self.on_item_processed_for_mod)
+    
+        # Disable the button while processing
+        self.add_to_queue_btn.setEnabled(False)
+    
+        existing_ids = [mod['mod_id'] for mod in self.download_queue]
+        item_fetcher = ItemFetcher(item_id=workshop_id, existing_mod_ids=existing_ids)
+        # Connect signals to a unified handler:
+        item_fetcher.mod_or_collection_detected.connect(self.on_workshop_item_detected)
+        item_fetcher.item_processed.connect(self.on_item_processed)
         item_fetcher.error_occurred.connect(self.on_item_error)
         item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
         item_fetcher.start()
-
-        self.log_signal.emit(f"Processing input {mod_id}...")
-
-    def on_mod_or_collection_detected_for_mod(self, is_collection, item_id):
+        self.log_signal.emit(f"Processing input {workshop_id}...")
+        
+    def on_workshop_item_detected(self, is_collection, item_id):
+        # If the item is detected as a collection, ask the user how to proceed.
         if is_collection:
-            reply = ThemedMessageBox.question(
-                self,
-                'Detected Collection',
-                'The input corresponds to a collection. Do you want to add it as a collection?',
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply == QMessageBox.Yes:
-                self.collection_input.setText(item_id)
-                self.mod_input.clear()
-                self.add_collection_to_queue()
-            else:
-                ThemedMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
-            self.add_mod_btn.setEnabled(True)
-            return
-
-    def on_item_processed_for_mod(self, result):
+            self.log_signal.emit("Collection detected. Adding to queue.")
+    
+    def on_item_processed(self, result):
+        # This slot handles both mods and collections.
         if result['type'] == 'mod':
             mod_info = result['mod_info']
             mod_id = mod_info['mod_id']
             mod_title = mod_info['mod_name']
             app_id = mod_info['app_id']
             game_name = mod_info['game_name']
-            self.add_mod_btn.setEnabled(True)
-
+            self.add_to_queue_btn.setEnabled(True)
             if self.is_mod_in_queue(mod_id):
-                self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
-                self.add_mod_btn.setEnabled(True)
+                self.log_signal.emit(f"Item {mod_id} is already in the queue.")
                 return
-
             provider = self.get_provider_for_mod({'app_id': app_id})
-            provider_display = provider
-
             self.download_queue.append({
                 'game_name': game_name,
                 'mod_id': mod_id,
@@ -2321,74 +2285,14 @@ class SteamWorkshopDownloader(QWidget):
                 'app_id': app_id,
                 'provider': provider
             })
-            tree_item = QTreeWidgetItem([game_name, mod_id, mod_title, 'Queued', provider_display])
+            tree_item = QTreeWidgetItem([game_name, mod_id, mod_title, 'Queued', provider])
             self.queue_tree.addTopLevelItem(tree_item)
             self.update_queue_count()
-
             self.export_queue_btn.setEnabled(bool(self.download_queue))
-
-            self.mod_input.clear()
-            self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
-        else:
-            pass
-
-    def on_item_fetching_complete_for_mod(self):
-        self.add_mod_btn.setEnabled(True)
-
-    def on_item_error(self, error_message):
-        ThemedMessageBox.critical(self, 'Error', error_message)
-        self.log_signal.emit(error_message)
-        self.add_mod_btn.setEnabled(True)
-
-    def add_collection_to_queue(self):
-        collection_input = self.collection_input.text().strip()
-        if not collection_input:
-            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Collection URL or ID.')
-            return
+            self.workshop_input.clear()
+            self.log_signal.emit(f"Item {mod_id} ('{mod_title}') added to the queue.")
     
-        collection_id = self.extract_id(collection_input)
-        if not collection_id:
-            ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop Collection URL or ID.')
-            return
-    
-        # Disable the button while fetching
-        self.add_collection_btn.setEnabled(False)
-    
-        existing_mod_ids = [mod['mod_id'] for mod in self.download_queue]
-    
-        # Use ItemFetcher to detect and process the mod or collection
-        item_fetcher = ItemFetcher(
-        item_id=collection_id,
-        existing_mod_ids=existing_mod_ids
-        )
-        self.item_fetchers.append(item_fetcher)  # Keep a reference to prevent garbage collection
-        item_fetcher.mod_or_collection_detected.connect(self.on_mod_or_collection_detected_for_collection)
-        item_fetcher.item_processed.connect(self.on_item_processed_for_collection)
-        item_fetcher.error_occurred.connect(self.on_item_error)
-        item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
-        item_fetcher.start()
-    
-        self.log_signal.emit(f"Processing input {collection_id}...")
-
-    def on_mod_or_collection_detected_for_collection(self, is_collection, item_id):
-        if not is_collection:
-            reply = ThemedMessageBox.question(
-                self,
-                'Detected Mod',
-                'The input corresponds to a mod. Do you want to add it as a mod?',
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply == QMessageBox.Yes:
-                self.mod_input.setText(item_id)
-                self.collection_input.clear()
-                self.add_mod_to_queue()
-            else:
-                ThemedMessageBox.information(self, 'Action Cancelled', 'The mod was not added.')
-            self.add_collection_btn.setEnabled(True)
-            return
-
-    def on_item_processed_for_collection(self, result):
-        if result['type'] == 'collection':
+        elif result['type'] == 'collection':
             mods_info = result['mods_info']
             added_count = 0
             for mod_info in mods_info:
@@ -2396,14 +2300,10 @@ class SteamWorkshopDownloader(QWidget):
                 mod_title = mod_info['mod_name']
                 app_id = mod_info['app_id']
                 game_name = mod_info['game_name']
-                
                 if self.is_mod_in_queue(mod_id):
-                    self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') is already in the queue. Skipping duplicate.")
+                    self.log_signal.emit(f"Item {mod_id} ('{mod_title}') is already in the queue. Skipping duplicate.")
                     continue
-
                 provider = self.get_provider_for_mod({'app_id': app_id})
-                provider_display = provider
-
                 self.download_queue.append({
                     'game_name': game_name,
                     'mod_id': mod_id,
@@ -2413,22 +2313,15 @@ class SteamWorkshopDownloader(QWidget):
                     'app_id': app_id,
                     'provider': provider
                 })
-                tree_item = QTreeWidgetItem([game_name, mod_id, mod_title, 'Queued', provider_display])
+                tree_item = QTreeWidgetItem([game_name, mod_id, mod_title, 'Queued', provider])
                 self.queue_tree.addTopLevelItem(tree_item)
                 added_count += 1
                 self.update_queue_count()
-
-            self.log_signal.emit(f"Collection processed. {added_count} mods added to the queue.")
-            self.collection_input.clear()
-
+            self.log_signal.emit(f"Collection processed. {added_count} items added to the queue.")
+            self.workshop_input.clear()
             if self.download_queue:
                 self.export_queue_btn.setEnabled(True)
-                self.add_collection_btn.setEnabled(True)
-        else:
-            pass
-
-    def on_item_fetching_complete_for_collection(self):
-        self.add_collection_btn.setEnabled(True)
+                self.add_to_queue_btn.setEnabled(True)
         
     def on_item_fetcher_finished(self, item_fetcher):
         if item_fetcher in self.item_fetchers:
@@ -2905,65 +2798,47 @@ class SteamWorkshopDownloader(QWidget):
     def get_selected_app_id(self):
         return self.app_ids.get(self.game_dropdown.currentText(), '')
 
-    def download_mod_immediately(self):
-        mod_input = self.mod_input.text().strip()
+    def download_workshop_immediately(self):
+        input_text = self.workshop_input.text().strip()
         if not self.validate_steamcmd():
             return
-        if not mod_input:
-            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop Mod URL or ID.')
+        if not input_text:
+            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL or ID.')
             return
     
-        mod_id = self.extract_id(mod_input)
-        if not mod_id:
+        workshop_id = self.extract_id(input_text)
+        if not workshop_id:
             ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
     
-        # Detect if the input ID corresponds to a collection
-        is_collection = self.is_collection(mod_id)
-        if is_collection:
-            reply = ThemedMessageBox.question(
-                self,
-                'Detected Collection',
-                'The input corresponds to a collection. Do you want to add it as a collection?',
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply == QMessageBox.Yes:
-                self.collection_input.setText(mod_id)
-                self.mod_input.clear()
-                self.add_collection_to_queue()
-            else:
-                ThemedMessageBox.information(self, 'Action Cancelled', 'The collection was not added.')
-            return  # Exit the method after handling the collection
-    
-        if self.is_mod_in_queue(mod_id):
-            self.log_signal.emit(f"Mod {mod_id} is already in the queue.")
+        if self.is_collection(workshop_id):
+            self.add_workshop_to_queue()
             return
     
-        # Fetch mod info using mod_id
-        game_name, app_id, mod_title = self.get_mod_info(mod_id)
+        if self.is_mod_in_queue(workshop_id):
+            self.log_signal.emit(f"Item {workshop_id} is already in the queue.")
+            return
+    
+        # Fetch mod info for a single mod:
+        game_name, app_id, mod_title = self.get_mod_info(workshop_id)
         if not app_id:
-            self.log_signal.emit(f"Failed to retrieve App ID for mod {mod_id}.")
+            self.log_signal.emit(f"Failed to retrieve App ID for item {workshop_id}.")
             return
     
-        # Determine the provider
         provider = self.get_provider_for_mod({'app_id': app_id})
-        provider_display = provider
-    
         self.download_queue.append({
             'game_name': game_name,
-            'mod_id': mod_id,
+            'mod_id': workshop_id,
             'mod_name': mod_title,
             'status': 'Queued',
             'retry_count': 0,
             'app_id': app_id,
             'provider': provider
         })
-        tree_item = QTreeWidgetItem([game_name, mod_id, mod_title, 'Queued', provider_display])
+        tree_item = QTreeWidgetItem([game_name, workshop_id, mod_title, 'Queued', provider])
         self.queue_tree.addTopLevelItem(tree_item)
-        self.log_signal.emit(f"Mod {mod_id} ('{mod_title}') added to the queue.")
-    
-        self.mod_input.clear()
-    
+        self.log_signal.emit(f"Item {workshop_id} ('{mod_title}') added to the queue.")
+        self.workshop_input.clear()
         self.start_download()
         
     def on_provider_changed(self):
