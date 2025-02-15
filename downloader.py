@@ -2805,41 +2805,22 @@ class SteamWorkshopDownloader(QWidget):
         if not input_text:
             ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL or ID.')
             return
-    
         workshop_id = self.extract_id(input_text)
         if not workshop_id:
             ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
             return
-    
-        if self.is_collection(workshop_id):
-            self.add_workshop_to_queue()
-            return
-    
-        if self.is_mod_in_queue(workshop_id):
-            self.log_signal.emit(f"Item {workshop_id} is already in the queue.")
-            return
-    
-        # Fetch mod info for a single mod:
-        game_name, app_id, mod_title = self.get_mod_info(workshop_id)
-        if not app_id:
-            self.log_signal.emit(f"Failed to retrieve App ID for item {workshop_id}.")
-            return
-    
-        provider = self.get_provider_for_mod({'app_id': app_id})
-        self.download_queue.append({
-            'game_name': game_name,
-            'mod_id': workshop_id,
-            'mod_name': mod_title,
-            'status': 'Queued',
-            'retry_count': 0,
-            'app_id': app_id,
-            'provider': provider
-        })
-        tree_item = QTreeWidgetItem([game_name, workshop_id, mod_title, 'Queued', provider])
-        self.queue_tree.addTopLevelItem(tree_item)
-        self.log_signal.emit(f"Item {workshop_id} ('{mod_title}') added to the queue.")
-        self.workshop_input.clear()
-        self.start_download()
+        existing_ids = [mod['mod_id'] for mod in self.download_queue]
+        item_fetcher = ItemFetcher(item_id=workshop_id, existing_mod_ids=existing_ids)
+        item_fetcher.mod_or_collection_detected.connect(self.on_workshop_item_detected)
+        def immediate_processed(result):
+            self.on_item_processed(result)
+            self.workshop_input.clear()
+            self.start_download()
+        item_fetcher.item_processed.connect(immediate_processed)
+        item_fetcher.error_occurred.connect(self.on_item_error)
+        item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
+        item_fetcher.start()
+        self.log_signal.emit(f"Processing input {workshop_id}...")
         
     def on_provider_changed(self):
         selected_provider = self.provider_dropdown.currentText()
