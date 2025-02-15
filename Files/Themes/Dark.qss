@@ -169,6 +169,16 @@ QTreeView {
     border-radius: 0px;
 }
 
+QTreeView::item:hover {
+    background-color: #5A5A5A;
+    color: #A0A0A0;
+}
+
+QTreeView::item:selected {
+    background-color: #2A2A2A;
+    color: #A0A0A0;
+}
+
 QPlainTextEdit, QTextEdit {
     background-color: #3A3A3A;
     color: #A0A0A0;

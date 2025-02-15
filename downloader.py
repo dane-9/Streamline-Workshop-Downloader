@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
-    QMenu, QCheckBox, QFileDialog, QHeaderView,
+    QMenu, QCheckBox, QFileDialog, QHeaderView, QAbstractItemView, QStyledItemDelegate, QStyle
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
@@ -1052,6 +1052,12 @@ class UpdateAppIDsDialog(QDialog):
         if self.tools_checkbox.isChecked():
             types.append("Tool")
         return types
+        
+class NoFocusDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        if option.state & QStyle.State_HasFocus:
+            option.state &= ~QStyle.State_HasFocus
+        super().paint(painter, option, index)
 
 class CustomizableTreeWidgets(QTreeWidget):
     def __init__(self, *args, **kwargs):
@@ -1559,6 +1565,9 @@ class SteamWorkshopDownloader(QWidget):
         self.reset_action.triggered.connect(self.reset_columns)
 
         self.queue_tree = CustomizableTreeWidgets()
+        self.queue_tree.setSelectionBehavior(QTreeWidget.SelectRows)
+        self.queue_tree.setEditTriggers(QTreeWidget.NoEditTriggers)
+        self.queue_tree.setItemDelegate(NoFocusDelegate(self.queue_tree))
         self.queue_tree.setRootIsDecorated(False)
         self.queue_tree.setUniformRowHeights(True)
         self.queue_tree.setExpandsOnDoubleClick(False)
