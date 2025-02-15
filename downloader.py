@@ -1554,12 +1554,10 @@ class SteamWorkshopDownloader(QWidget):
         
         self.import_queue_btn = QPushButton('Import Queue')
         self.import_queue_btn.setObjectName("ImportQueueBtn")
-        self.import_queue_btn.setFixedHeight(14)
         self.import_queue_btn.clicked.connect(self.import_queue)
         
         self.export_queue_btn = QPushButton('Export Queue')
         self.export_queue_btn.setObjectName("ExportQueueBtn")
-        self.export_queue_btn.setFixedHeight(14)
         self.export_queue_btn.clicked.connect(self.export_queue)
         self.export_queue_btn.setEnabled(False)
         
@@ -1654,17 +1652,16 @@ class SteamWorkshopDownloader(QWidget):
         
     def adjust_widget_heights(self):
         button_height = 28
+        import_export_button_height = 14
         dropdown_height = 27
-
+    
         for attr_name in dir(self):
-            # Get the attribute by name
             attr = getattr(self, attr_name)
-
-            # Check if the attribute is a button or a dropdown
-            if isinstance(attr, QPushButton) and 'import' or 'export' in attr_name:
-                return
-            elif isinstance(attr, QPushButton) and "_btn" in attr_name:
-                attr.setFixedHeight(button_height)
+            if isinstance(attr, QPushButton):
+                if "import_queue_btn" in attr_name.lower() or "export_queue_btn" in attr_name.lower():
+                    attr.setFixedHeight(import_export_button_height)
+                elif "_btn" in attr_name:
+                    attr.setFixedHeight(button_height)
             elif isinstance(attr, QComboBox) and "_dropdown" in attr_name:
                 attr.setFixedHeight(dropdown_height)
                 
