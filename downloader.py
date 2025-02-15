@@ -1554,7 +1554,10 @@ class SteamWorkshopDownloader(QWidget):
         
         self.search_input = QLineEdit()
         self.update_queue_count()
-        self.search_input.textChanged.connect(self.filter_queue_items)
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.timeout.connect(self.perform_search)
+        self.search_input.textChanged.connect(self.on_search_text_changed)
         queue_layout.addWidget(self.search_input)
         
         self.import_queue_btn = QPushButton('Import Queue')
@@ -3460,6 +3463,13 @@ class SteamWorkshopDownloader(QWidget):
         except Exception as e:
             self.log_signal.emit(f"Error updating AppIDs: {e}")
             ThemedMessageBox.critical(self, 'Error', f"Failed to update AppIDs: {e}")
+            
+    def on_search_text_changed(self, text: str):
+        self.search_timer.start(300)
+    
+    def perform_search(self):
+        current_text = self.search_input.text()
+        self.filter_queue_items(current_text)
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
