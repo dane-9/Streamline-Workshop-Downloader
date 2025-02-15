@@ -1547,16 +1547,27 @@ class SteamWorkshopDownloader(QWidget):
         self.search_input.textChanged.connect(self.on_search_text_changed)
         queue_layout.addWidget(self.search_input)
         
+        buttonContainer = QWidget()
+        vbox = QVBoxLayout(buttonContainer)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(1)
+        
         self.import_queue_btn = QPushButton('Import Queue')
-        self.import_queue_btn.setFixedWidth(90)
+        self.import_queue_btn.setObjectName("ImportQueueBtn")
+        self.import_queue_btn.setFixedHeight(14)
         self.import_queue_btn.clicked.connect(self.import_queue)
-        queue_layout.addWidget(self.import_queue_btn)
-
+        
         self.export_queue_btn = QPushButton('Export Queue')
-        self.export_queue_btn.setFixedWidth(90)
+        self.export_queue_btn.setObjectName("ExportQueueBtn")
+        self.export_queue_btn.setFixedHeight(14)
         self.export_queue_btn.clicked.connect(self.export_queue)
-        self.export_queue_btn.setEnabled(False)  # Disable initially as the queue is empty
-        queue_layout.addWidget(self.export_queue_btn)
+        self.export_queue_btn.setEnabled(False)
+        
+        vbox.addWidget(self.import_queue_btn)
+        vbox.addWidget(self.export_queue_btn)
+        
+        buttonContainer.setFixedWidth(90)
+        queue_layout.addWidget(buttonContainer)
 
         main_layout.addLayout(queue_layout)
         
@@ -1650,7 +1661,9 @@ class SteamWorkshopDownloader(QWidget):
             attr = getattr(self, attr_name)
 
             # Check if the attribute is a button or a dropdown
-            if isinstance(attr, QPushButton) and "_btn" in attr_name:
+            if isinstance(attr, QPushButton) and 'import' or 'export' in attr_name:
+                return
+            elif isinstance(attr, QPushButton) and "_btn" in attr_name:
                 attr.setFixedHeight(button_height)
             elif isinstance(attr, QComboBox) and "_dropdown" in attr_name:
                 attr.setFixedHeight(dropdown_height)
