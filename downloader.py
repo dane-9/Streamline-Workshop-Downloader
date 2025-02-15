@@ -29,7 +29,8 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
-    QMenu, QCheckBox, QFileDialog, QHeaderView, QAbstractItemView, QStyledItemDelegate, QStyle
+    QMenu, QCheckBox, QFileDialog, QHeaderView, QAbstractItemView, 
+    QStyledItemDelegate, QStyle, QToolButton
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
@@ -1547,6 +1548,24 @@ class SteamWorkshopDownloader(QWidget):
         self.search_input.textChanged.connect(self.on_search_text_changed)
         queue_layout.addWidget(self.search_input)
         
+        self.caseButton = QToolButton()
+        self.caseButton.setCheckable(True)
+        self.caseButton.setToolTip("Case sensitivity")
+        self.caseButton.setIcon(QIcon("Files/case_disabled.png"))
+        self.caseButton.setIconSize(QSize(16, 16))
+        self.caseButton.setStyleSheet("QToolButton { border: none; }")
+        self.caseButton.toggled.connect(self.updateCaseIcon)
+        queue_layout.addWidget(self.caseButton)
+        
+        self.regexButton = QToolButton()
+        self.regexButton.setCheckable(True)
+        self.regexButton.setToolTip("Regex")
+        self.regexButton.setIcon(QIcon("Files/regex_disabled.png"))
+        self.regexButton.setIconSize(QSize(16, 16))
+        self.regexButton.setStyleSheet("QToolButton { border: none; }")
+        self.regexButton.toggled.connect(self.updateRegexIcon)
+        queue_layout.addWidget(self.regexButton)
+        
         buttonContainer = QWidget()
         vbox = QVBoxLayout(buttonContainer)
         vbox.setContentsMargins(0, 0, 0, 0)
@@ -1666,17 +1685,39 @@ class SteamWorkshopDownloader(QWidget):
                 attr.setFixedHeight(dropdown_height)
                 
     def filter_queue_items(self, text: str):
-        search_term = text.lower().strip()
+        regex_enabled = self.regexButton.isChecked()
+        case_sensitive = self.caseButton.isChecked()
+        
+        # If regex is enabled, try to compile the pattern
+        if regex_enabled:
+            try:
+                flags = 0 if case_sensitive else re.IGNORECASE
+                pattern = re.compile(text, flags)
+            except re.error:
+                pattern = None
+        else:
+            # For non-regex searches, adjust the text if not case sensitive
+            if not case_sensitive:
+                text = text.lower()
     
         for i in range(self.queue_tree.topLevelItemCount()):
             item = self.queue_tree.topLevelItem(i)
-            mod_id = item.text(1).lower()
-            mod_name = item.text(2).lower()
+            mod_id = item.text(1)
+            mod_name = item.text(2)
             
-            if search_term in mod_id or search_term in mod_name:
-                item.setHidden(False)
+            if regex_enabled and pattern:
+                if pattern.search(mod_id) or pattern.search(mod_name):
+                    item.setHidden(False)
+                else:
+                    item.setHidden(True)
             else:
-                item.setHidden(True)
+                if not case_sensitive:
+                    mod_id = mod_id.lower()
+                    mod_name = mod_name.lower()
+                if text in mod_id or text in mod_name:
+                    item.setHidden(False)
+                else:
+                    item.setHidden(True)
                 
     def update_queue_count(self):
         total_count = len(self.download_queue)
@@ -3315,6 +3356,20 @@ class SteamWorkshopDownloader(QWidget):
     def perform_search(self):
         current_text = self.search_input.text()
         self.filter_queue_items(current_text)
+        
+    def updateRegexIcon(self, checked: bool):
+        if checked:
+            self.regexButton.setIcon(QIcon("Files/regex_enabled.png"))
+        else:
+            self.regexButton.setIcon(QIcon("Files/regex_disabled.png"))
+        self.perform_search()
+    
+    def updateCaseIcon(self, checked: bool):
+        if checked:
+            self.caseButton.setIcon(QIcon("Files/case_enabled.png"))
+        else:
+            self.caseButton.setIcon(QIcon("Files/case_disabled.png"))
+        self.perform_search()
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
