@@ -3285,11 +3285,11 @@ class SteamWorkshopDownloader(QWidget):
     
                 # Check if the detected mod or collection is already in the corresponding input field
                 if is_collection:
-                    current_collection_id = self.extract_id(self.collection_input.text().strip())
+                    current_collection_id = self.extract_id(self.workshop_input.text().strip())
                     if current_collection_id == mod_id:
                         return
                 else:
-                    current_mod_id = self.extract_id(self.mod_input.text().strip())
+                    current_mod_id = self.extract_id(self.workshop_input.text().strip())
                     if current_mod_id == mod_id:
                         return
     
@@ -3299,10 +3299,10 @@ class SteamWorkshopDownloader(QWidget):
                 else:
                     # Otherwise, populate the input field
                     if is_collection:
-                        self.collection_input.setText(mod_id)
+                        self.workshop_input.setText(mod_id)
                         self.log_signal.emit(f"Auto-populated Workshop Collection with mod ID: {mod_id}")
                     else:
-                        self.mod_input.setText(mod_id)
+                        self.workshop_input.setText(mod_id)
                         self.log_signal.emit(f"Auto-populated Workshop Mod with mod ID: {mod_id}")
     
             else:
@@ -3325,14 +3325,12 @@ class SteamWorkshopDownloader(QWidget):
         is_collection = self.is_collection(mod_id)
         if is_collection:
             # Auto-add collection to the queue
-            self.collection_input.setText(mod_id)
-            self.log_signal.emit(f"Auto-detected and adding Workshop Collection with mod ID: {mod_id} to queue")
-            self.add_collection_to_queue()
+            self.workshop_input.setText(mod_id)
+            self.add_workshop_to_queue()
         else:
             # Auto-add mod to the queue
-            self.mod_input.setText(mod_id)
-            self.log_signal.emit(f"Auto-detected and adding Workshop Mod with mod ID: {mod_id} to queue")
-            self.add_mod_to_queue()
+            self.workshop_input.setText(mod_id)
+            self.add_workshop_to_queue()
             
     def open_update_appids(self):
         dialog = UpdateAppIDsDialog(self)
