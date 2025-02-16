@@ -1656,13 +1656,11 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addLayout(button_layout)
 
         log_layout = QVBoxLayout()
-        self.log_label = QLabel('Logs:')
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
         self.log_area.setFixedHeight(150)
-        log_layout.addWidget(self.log_label)
-        log_layout.addWidget(self.log_area)
-        main_layout.addLayout(log_layout, stretch=1)
+        self.log_area.setPlaceholderText("Logs")
+        main_layout.addWidget(self.log_area, stretch=1)
 
         self.provider_layout = QHBoxLayout()
         self.queue_entire_workshop_btn = QPushButton("Queue Entire Workshop")
@@ -2139,7 +2137,6 @@ class SteamWorkshopDownloader(QWidget):
 
     def apply_settings(self):
         self.log_area.setVisible(self.config.get('show_logs', True))
-        self.log_label.setVisible(self.config.get('show_logs', True))
 
         self.provider_label.setVisible(self.config.get('show_provider', True))
         self.provider_dropdown.setVisible(self.config.get('show_provider', True))
