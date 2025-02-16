@@ -1506,8 +1506,11 @@ class SteamWorkshopDownloader(QWidget):
         self.settings_btn.clicked.connect(self.open_settings)
         top_layout.addWidget(self.settings_btn)
 
-        self.configure_steam_accounts_btn = QPushButton('Configure Steam Accounts')
-        self.configure_steam_accounts_btn.setFixedWidth(160)
+        accounts_icon = QIcon(resource_path('Files/accounts.png'))
+        self.configure_steam_accounts_btn = QPushButton()
+        self.configure_steam_accounts_btn.setIcon(accounts_icon)
+        self.configure_steam_accounts_btn.setIconSize(QSize(16, 16))
+        self.configure_steam_accounts_btn.setFixedWidth(32)
         self.configure_steam_accounts_btn.clicked.connect(self.open_configure_steam_accounts)
         top_layout.addWidget(self.configure_steam_accounts_btn)
         
