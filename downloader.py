@@ -3272,65 +3272,25 @@ class SteamWorkshopDownloader(QWidget):
             self.clipboard_signal_connected = False
 
     def check_clipboard_for_url(self):
+        if not self.add_to_queue_btn.isEnabled():
+            return
+    
+        current_time = time.time()
+        if hasattr(self, '_last_clipboard_trigger'):
+            if current_time - self._last_clipboard_trigger < 0.5:
+                return
+        self._last_clipboard_trigger = current_time
+    
         current_text = self.clipboard.text().strip()
-    
         if self.is_valid_workshop_url(current_text):
-            # Extract mod_id from the URL
-            mod_id = self.extract_id(current_text)
-    
-            # If mod_id is detected
-            if mod_id:
-                # Determine if it's a mod or a collection
-                is_collection = self.is_collection(mod_id)
-    
-                # Check if the detected mod or collection is already in the corresponding input field
-                if is_collection:
-                    current_collection_id = self.extract_id(self.workshop_input.text().strip())
-                    if current_collection_id == mod_id:
-                        return
-                else:
-                    current_mod_id = self.extract_id(self.workshop_input.text().strip())
-                    if current_mod_id == mod_id:
-                        return
-    
-                # Auto-add to queue if the setting is enabled
-                if self.config.get('auto_add_to_queue', False):
-                    self.add_url_to_queue(current_text)
-                else:
-                    # Otherwise, populate the input field
-                    if is_collection:
-                        self.workshop_input.setText(mod_id)
-                        self.log_signal.emit(f"Auto-populated Workshop Collection with mod ID: {mod_id}")
-                    else:
-                        self.workshop_input.setText(mod_id)
-                        self.log_signal.emit(f"Auto-populated Workshop Mod with mod ID: {mod_id}")
-    
-            else:
-                self.log_signal.emit(f"Invalid URL detected: {current_text}")
+            # Paste the URL into the input field
+            self.workshop_input.setText(current_text)
+
+            if self.config.get('auto_add_to_queue', False):
+                QTimer.singleShot(200, self.add_workshop_to_queue)
 
     def is_valid_workshop_url(self, text):
         return re.match(r'https?://steamcommunity\.com/sharedfiles/filedetails/\?id=\d+', text)
-
-    def add_url_to_queue(self, url):
-        mod_id = self.extract_id(url)
-        if not mod_id:
-            self.log_signal.emit(f"Invalid URL detected: {url}")
-            return
-    
-        # Check if the mod or collection is already in the queue
-        if self.is_mod_in_queue(mod_id):
-            return
-    
-        # Determine if it's a collection or a mod
-        is_collection = self.is_collection(mod_id)
-        if is_collection:
-            # Auto-add collection to the queue
-            self.workshop_input.setText(mod_id)
-            self.add_workshop_to_queue()
-        else:
-            # Auto-add mod to the queue
-            self.workshop_input.setText(mod_id)
-            self.add_workshop_to_queue()
             
     def open_update_appids(self):
         dialog = UpdateAppIDsDialog(self)
