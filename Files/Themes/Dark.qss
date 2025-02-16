@@ -207,9 +207,13 @@ QHeaderView::section {
     background-color: #3A3A3A;
     color: #A0A0A0;
     border: 0px solid #555555;
-    border-left: 2px solid #555555;
+    border-right: 1px solid #343434;
     padding-left: 4px;
 }
+
+QHeaderView::section:last {
+        border-right: none;
+    }
 
 QTreeView {
     background-color: #3A3A3A;
