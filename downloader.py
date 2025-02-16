@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
     QMenu, QCheckBox, QFileDialog, QHeaderView, QAbstractItemView, 
-    QStyledItemDelegate, QStyle, QToolButton
+    QStyledItemDelegate, QStyle, QToolButton, QRadioButton,
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
@@ -120,17 +120,16 @@ def set_custom_clear_icon(line_edit: QLineEdit):
         clear_btn.setStyleSheet(""" QToolButton { qproperty-icon: url(Files/clear.png); } """)
 
 class SettingsDialog(QDialog):
-    def __init__(self, current_theme, current_batch_size, show_logs, show_provider, show_queue_entire_workshop, auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, parent=None):
+    def __init__(self, current_theme, current_batch_size, show_logs, show_provider,
+                 show_queue_entire_workshop, auto_detect_urls, auto_add_to_queue,
+                 keep_downloaded_in_queue, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.setFixedSize(320, 300)
+        self.setFixedSize(320, 330)
         
         apply_theme_titlebar(self, self.parent().config)
-
         layout = QFormLayout(self)
-
-        # Adjust spacing
         layout.setVerticalSpacing(10)
 
         # Theme Selection
@@ -141,13 +140,27 @@ class SettingsDialog(QDialog):
         if 'Dark' not in theme_names:
             theme_names.insert(0, 'Dark')
         self.theme_dropdown.addItems(theme_names)
-
-        # Set current selection to current theme
         current_theme = parent.config.get('current_theme', 'Dark')
         if current_theme in theme_names:
             self.theme_dropdown.setCurrentText(current_theme)
-
         layout.addRow("Theme:", self.theme_dropdown)
+
+        # Logo Style
+        logo_layout = QHBoxLayout()
+        self.light_logo_radio = QRadioButton("Light")
+        self.dark_logo_radio = QRadioButton("Dark")
+        self.darker_logo_radio = QRadioButton("Darker")
+        logo_style = parent.config.get("logo_style", "Light")
+        if logo_style == "Dark":
+            self.dark_logo_radio.setChecked(True)
+        elif logo_style == "Darker":
+            self.darker_logo_radio.setChecked(True)
+        else:
+            self.light_logo_radio.setChecked(True)
+        logo_layout.addWidget(self.light_logo_radio)
+        logo_layout.addWidget(self.dark_logo_radio)
+        logo_layout.addWidget(self.darker_logo_radio)
+        layout.addRow("Logo:", logo_layout)
 
         # Batch Size Setting
         self.batch_size_spinbox = QSpinBox()
@@ -213,8 +226,17 @@ class SettingsDialog(QDialog):
             self.auto_add_to_queue_checkbox.setStyleSheet("color: grey;")
 
     def get_settings(self):
+        if self.light_logo_radio.isChecked():
+            logo_style = "Light"
+        elif self.dark_logo_radio.isChecked():
+            logo_style = "Dark"
+        elif self.darker_logo_radio.isChecked():
+            logo_style = "Darker"
+        else:
+            logo_style = "Light"
         return {
             'current_theme': self.theme_dropdown.currentText(),
+            'logo_style': logo_style,
             'batch_size': self.batch_size_spinbox.value(),
             'show_logs': self.show_logs_checkbox.isChecked(),
             'show_provider': self.show_provider_checkbox.isChecked(),
@@ -1442,8 +1464,14 @@ class SteamWorkshopDownloader(QWidget):
         self.item_fetchers = []
         
         self.default_widths = [115, 90, 230, 100, 95]
-        
-        self.setWindowIcon(QIcon(resource_path('Files/logo.ico')))
+         
+        if self.config.get("logo_style", "Light") == "Light":
+            logo = "logo.png"
+        elif self.config.get("logo_style", "Dark") == "Dark":
+            logo = "logo_dark.png"
+        elif self.config.get("logo_style", "Darker") == "Darker":
+            logo = "logo_darker.png"
+        self.setWindowIcon(QIcon(resource_path(f'Files/{logo}')))
         
         if 'current_theme' not in self.config:
             self.config['current_theme'] = 'Dark'
@@ -2160,7 +2188,7 @@ class SteamWorkshopDownloader(QWidget):
         auto_detect_urls = self.config.get('auto_detect_urls', False)
         auto_add_to_queue = self.config.get('auto_add_to_queue', False)
         keep_downloaded_in_queue = self.config.get('keep_downloaded_in_queue', False)
-
+    
         dialog = SettingsDialog(
             current_theme, 
             current_batch_size, 
@@ -2172,17 +2200,25 @@ class SteamWorkshopDownloader(QWidget):
             keep_downloaded_in_queue, 
             self
         )
-
+    
         if dialog.exec() == QDialog.Accepted:
             settings = dialog.get_settings()
             new_theme = settings.get('current_theme', 'Dark')
-            
             load_theme(QApplication.instance(), new_theme, self.files_dir)
             self.config.update(settings)
             self.save_config()
             self.apply_settings()
+            logo_style = self.config.get("logo_style", "Light")
+            if logo_style == "Light":
+                logo = "logo.png"
+            elif logo_style == "Dark":
+                logo = "logo_dark.png"
+            elif logo_style == "Darker":
+                logo = "logo_darker.png"
+            else:
+                logo = "logo.png"
+            self.setWindowIcon(QIcon(resource_path(f'Files/{logo}')))
             self.log_signal.emit("Settings updated successfully.")
-
             apply_theme_titlebar(self, self.config)
 
     def open_configure_steam_accounts(self):
@@ -3344,7 +3380,7 @@ if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     downloader = SteamWorkshopDownloader()
-    app.setWindowIcon(QIcon(resource_path('Files/logo.ico')))
+    app.setWindowIcon(QIcon(resource_path('Files/logo.png')))
     downloader.resize(670, 750)
     downloader.show()
     sys.exit(app.exec())
