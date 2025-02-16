@@ -112,6 +112,12 @@ def apply_theme_titlebar(window, config):
 
     color = theme_color_mapping.get(theme, None)
     set_windows_dark_titlebar(int(window.winId()), is_dark, color)
+    
+def set_custom_clear_icon(line_edit: QLineEdit):
+    line_edit.setClearButtonEnabled(True)
+    clear_btn = line_edit.findChild(QToolButton)
+    if clear_btn:
+        clear_btn.setStyleSheet(""" QToolButton { qproperty-icon: url(Files/clear.png); } """)
 
 class SettingsDialog(QDialog):
     def __init__(self, current_theme, current_batch_size, show_logs, show_provider, show_queue_entire_workshop, auto_detect_urls, auto_add_to_queue, keep_downloaded_in_queue, parent=None):
@@ -277,6 +283,7 @@ class AddSteamAccountDialog(QDialog):
 
         form_layout = QFormLayout()
         self.username_input = QLineEdit()
+        set_custom_clear_icon(self.username_input)
         self.username_input.setPlaceholderText("Enter Steam Username")
         form_layout.addRow("Username:", self.username_input)
         layout.addLayout(form_layout)
@@ -315,6 +322,7 @@ class OverrideAppIDDialog(QDialog):
         layout.addWidget(self.label)
 
         self.appid_input = QLineEdit()
+        set_custom_clear_icon(self.appid_input)
         self.appid_input.setPlaceholderText("e.g., 108600 or a Steam URL with an AppID")
         layout.addWidget(self.appid_input)
 
@@ -1231,6 +1239,7 @@ class QueueEntireWorkshopDialog(QDialog):
         layout.addWidget(self.label)
 
         self.input_line = QLineEdit()
+        set_custom_clear_icon(self.input_line)
         self.input_line.setPlaceholderText("e.g., 108600 or a Steam URL with an AppID")
         layout.addWidget(self.input_line)
 
@@ -1526,6 +1535,7 @@ class SteamWorkshopDownloader(QWidget):
 
         mod_layout = QHBoxLayout()
         self.workshop_input = QLineEdit()
+        set_custom_clear_icon(self.workshop_input)
         self.workshop_input.setPlaceholderText('Enter Workshop Mod or Collection URL / ID')
         self.download_btn = QPushButton('Download')
         self.download_btn.setFixedWidth(90)
@@ -1542,6 +1552,7 @@ class SteamWorkshopDownloader(QWidget):
         
         self.search_input = QLineEdit()
         self.update_queue_count()
+        set_custom_clear_icon(self.search_input)
         self.search_timer = QTimer(self)
         self.search_timer.setSingleShot(True)
         self.search_timer.timeout.connect(self.perform_search)
