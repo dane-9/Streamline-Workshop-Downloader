@@ -1515,7 +1515,7 @@ class SteamWorkshopDownloader(QWidget):
 
         self.steam_accounts_dropdown = QComboBox()
         self.steam_accounts_dropdown.addItem("Anonymous")
-        self.steam_accounts_dropdown.setFixedWidth(180)
+        self.steam_accounts_dropdown.setFixedWidth(186)
         self.steam_accounts_dropdown.currentIndexChanged.connect(self.change_active_account)
         account_layout.addWidget(self.steam_accounts_dropdown)
 
@@ -1632,9 +1632,9 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addWidget(self.queue_tree, stretch=3)
 
         button_layout = QHBoxLayout()
-        self.download_btn = QPushButton('Start Download')
-        self.download_btn.clicked.connect(self.start_download)
-        button_layout.addWidget(self.download_btn)
+        self.download_start_btn = QPushButton('Start Download')
+        self.download_start_btn.clicked.connect(self.start_download)
+        button_layout.addWidget(self.download_start_btn)
 
         self.open_folder_btn = QPushButton('Open Downloads Folder')
         self.open_folder_btn.clicked.connect(self.open_downloads_folder)
@@ -2324,7 +2324,7 @@ class SteamWorkshopDownloader(QWidget):
     def on_workshop_item_detected(self, is_collection, item_id):
         # If the item is detected as a collection, ask the user how to proceed.
         if is_collection:
-            self.log_signal.emit("Collection detected. Adding to queue.")
+            self.log_signal.emit("Collection detected. Adding to queue...")
     
     def on_item_processed(self, result):
         # This slot handles both mods and collections.
@@ -2503,8 +2503,8 @@ class SteamWorkshopDownloader(QWidget):
 
         self.is_downloading = True
         self.canceled = False
-        self.download_btn.setText('Cancel Download')
-        self.download_btn.setEnabled(True)
+        self.download_cancel_btn.setText('Cancel Download')
+        self.download_cancel_btn.setEnabled(True)
         self.log_signal.emit("Starting download process...")
         threading.Thread(target=self.download_worker, daemon=True).start()
 
@@ -2526,8 +2526,8 @@ class SteamWorkshopDownloader(QWidget):
         self.remove_appworkshop_acf_files()
     
         self.is_downloading = False
-        self.download_btn.setText('Start Download')
-        self.download_btn.setEnabled(True)
+        self.download_start_btn.setText('Start Download')
+        self.download_start_btn.setEnabled(True)
 
     def download_worker(self):
         batch_size = self.config.get('batch_size', 20)
@@ -2587,8 +2587,8 @@ class SteamWorkshopDownloader(QWidget):
         # End the download process
         self.log_signal.emit("All downloads have been processed.")
         self.is_downloading = False
-        self.download_btn.setText('Start Download')
-        self.download_btn.setEnabled(True)
+        self.download_start_btn.setText('Start Download')
+        self.download_start_btn.setEnabled(True)
         
     def change_provider_for_mods(self, selected_items, new_provider):
         for item in selected_items:
