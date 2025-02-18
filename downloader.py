@@ -126,7 +126,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.setFixedSize(320, 330)
+        self.setFixedSize(320, 350)
         
         apply_theme_titlebar(self, self.parent().config)
         layout = QFormLayout(self)
@@ -187,6 +187,11 @@ class SettingsDialog(QDialog):
         self.keep_downloaded_in_queue_checkbox = QCheckBox("Keep Downloaded Mods in Queue")
         self.keep_downloaded_in_queue_checkbox.setChecked(keep_downloaded_in_queue)
         layout.addRow(self.keep_downloaded_in_queue_checkbox)
+        
+        # Use Mod Name for Folder setting
+        self.use_mod_name_checkbox = QCheckBox("Mod Name instead of ID for Mod Folder")
+        self.use_mod_name_checkbox.setChecked(parent.config.get('use_mod_name_for_folder', True))
+        layout.addRow(self.use_mod_name_checkbox)
 
         # Auto-Detect URLs Setting
         self.auto_detect_urls_checkbox = QCheckBox("Auto-detect URLs from Clipboard")
@@ -244,6 +249,7 @@ class SettingsDialog(QDialog):
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
             'keep_downloaded_in_queue': self.keep_downloaded_in_queue_checkbox.isChecked(),
+            'use_mod_name_for_folder': self.use_mod_name_checkbox.isChecked(),
         }
         
 class ThemedMessageBox(QMessageBox):
@@ -1444,6 +1450,7 @@ class SteamWorkshopDownloader(QWidget):
     def __init__(self):
         super().__init__()
         self.download_queue = []
+        self.downloaded_mods_info = {}
         self.is_downloading = False
         self.header_locked = True
         self.lock_action = None
@@ -2023,6 +2030,8 @@ class SteamWorkshopDownloader(QWidget):
             self.config['auto_add_to_queue'] = False
         if 'keep_downloaded_in_queue' not in self.config:
             self.config['keep_downloaded_in_queue'] = False
+        if 'use_mod_name_for_folder' not in self.config:
+            self.config['use_mod_name_for_folder'] = True
             
         self.header_locked = self.config.get('header_locked', True)
 
@@ -2188,6 +2197,7 @@ class SteamWorkshopDownloader(QWidget):
         auto_detect_urls = self.config.get('auto_detect_urls', False)
         auto_add_to_queue = self.config.get('auto_add_to_queue', False)
         keep_downloaded_in_queue = self.config.get('keep_downloaded_in_queue', False)
+        use_mod_name_for_folder = self.config.get('use_mod_name_for_folder', True)
     
         dialog = SettingsDialog(
             current_theme, 
@@ -2550,8 +2560,8 @@ class SteamWorkshopDownloader(QWidget):
 
         self.is_downloading = True
         self.canceled = False
-        self.download_cancel_btn.setText('Cancel Download')
-        self.download_cancel_btn.setEnabled(True)
+        self.download_start_btn.setText('Cancel Download')
+        self.download_start_btn.setEnabled(True)
         self.log_signal.emit("Starting download process...")
         threading.Thread(target=self.download_worker, daemon=True).start()
 
@@ -2657,12 +2667,19 @@ class SteamWorkshopDownloader(QWidget):
                 self.log_signal.emit(f"No app_id for mod {mod['mod_id']}. Skipping.")
                 mod['status'] = 'Failed'
                 self.update_queue_signal.emit(mod['mod_id'], 'Failed')
-
+    
+        # Ensure we have a dictionary to store downloaded mod names
+        if not hasattr(self, 'downloaded_mods_info'):
+            self.downloaded_mods_info = {}
+    
+        # Process each group of mods (by app_id)
         for app_id, mods in mods_by_app_id.items():
+            # Mark each mod as downloading
             for mod in mods:
                 mod['status'] = 'Downloading'
                 self.update_queue_signal.emit(mod['mod_id'], 'Downloading')
-
+    
+            # Build the SteamCMD command
             steamcmd_commands = [self.steamcmd_executable]
             active_account = self.config.get('active_account', "Anonymous")
 
@@ -2703,17 +2720,19 @@ class SteamWorkshopDownloader(QWidget):
                     shell=False, # Keep false otherwise it can't terminate
                     creationflags=subprocess.CREATE_NO_WINDOW
                 )
-
-                # Process SteamCMD output line-by-line to track progress
+    
+                # Process SteamCMD output line-by-line
                 for line in self.current_process.stdout:
                     clean_line = line.strip()
                     if clean_line:
                         self.log_signal.emit(clean_line)
-
-                    # Check the log line to determine success or failure
                     for mod in mods:
-                        self.parse_log_line(clean_line, mod)
-
+                        if f"Downloaded item {mod['mod_id']}" in clean_line:
+                            mod['status'] = 'Downloaded'
+                            # Save the mod name so we can use it later when moving the folder.
+                            self.downloaded_mods_info[mod['mod_id']] = mod.get('mod_name', mod['mod_id'])
+                            self.update_queue_signal.emit(mod['mod_id'], 'Downloaded')
+    
                 self.current_process.stdout.close()
                 self.current_process.wait()
                 
@@ -2732,8 +2751,6 @@ class SteamWorkshopDownloader(QWidget):
                         self.log_signal.emit('<span style="color:black;"></span>'f"Mod {mod['mod_id']} failed to download. Status: {mod['status']}")
 
             except Exception as e:
-                self.log_signal.emit(f"Error during batch download for App ID {app_id}: {e}")
-                # Mark all mods in the current batch as failed
                 for mod in mods:
                     mod['status'] = f'Failed: {e}'
                     self.update_queue_signal.emit(mod['mod_id'], mod['status'])
@@ -2829,19 +2846,28 @@ class SteamWorkshopDownloader(QWidget):
         if not app_id or not mod_id:
             return
     
-        # Original SteamCMD path where mods are downloaded
+        # Original path where SteamCMD downloaded the mod
         original_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content', app_id, mod_id)
+        
+        # Choose folder name based on setting
+        folder_name = mod_id  # default
+        if self.config.get('use_mod_name_for_folder', False):
+            # Get mod name (or fallback to mod_id)
+            mod_name = mod.get('mod_name', mod_id)
+            # Convert to UTF-8, ignoring characters that can't be encoded
+            mod_name_utf8 = mod_name.encode('utf-8', 'ignore').decode('utf-8')
+            # Replace illegal filename characters with an underscore
+            safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', mod_name_utf8)
+            folder_name = safe_mod_name
     
-        # Target path in Downloads/SteamCMD/app_id
-        target_path = os.path.join(self.steamcmd_download_path, app_id, mod_id)
+        target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
     
         if os.path.exists(original_path):
             try:
                 if not os.path.exists(os.path.dirname(target_path)):
                     os.makedirs(os.path.dirname(target_path))
-                # Move the entire folder
                 shutil.move(original_path, target_path)
-                self.log_signal.emit(f"Mod {mod_id} moved successfully.")
+                self.log_signal.emit(f"Mod {mod_id} moved successfully to folder '{folder_name}'.")
             except Exception as e:
                 self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
 
@@ -2979,26 +3005,32 @@ class SteamWorkshopDownloader(QWidget):
         workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
         if not os.path.exists(workshop_content_path):
             return
-        time.sleep(1)
     
-        # For each app_id folder in workshop_content_path
+        # Iterate over each App ID folder
         for app_id in os.listdir(workshop_content_path):
             app_path = os.path.join(workshop_content_path, app_id)
-            if os.path.isdir(app_path):
-                # For each mod_id folder in app_path
-                for mod_id in os.listdir(app_path):
-                    mod_path = os.path.join(app_path, mod_id)
-                    if os.path.isdir(mod_path):
-                        # Move mod_path to the corresponding Downloads/SteamCMD/app_id/mod_id
-                        target_path = os.path.join(self.steamcmd_download_path, app_id, mod_id)
-                        # Make sure the target directory exists
-                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                        # Move the folder
-                        try:
-                            shutil.move(mod_path, target_path)
-                            self.log_signal.emit(f"Mod {mod_id} moved successfully.")
-                        except Exception as e:
-                            self.log_signal.emit(f"Failed to move mod {mod_id}: {e}")
+            if not os.path.isdir(app_path):
+                continue
+    
+            # Iterate over each mod folder within the App folder
+            for mod_id in os.listdir(app_path):
+                mod_path = os.path.join(app_path, mod_id)
+                if os.path.isdir(mod_path):
+                    folder_name = mod_id
+                    if self.config.get('use_mod_name_for_folder', False):
+                        safe_mod_name = self.downloaded_mods_info.get(mod_id, mod_id)
+                        # Remove characters that are illegal in file/folder names
+                        safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', safe_mod_name)
+                        folder_name = safe_mod_name
+    
+                    target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
+                    try:
+                        if not os.path.exists(os.path.dirname(target_path)):
+                            os.makedirs(os.path.dirname(target_path))
+                        shutil.move(mod_path, target_path)
+                        self.log_signal.emit(f"Mod {mod_id} moved successfully to folder '{folder_name}'.")
+                    except Exception as e:
+                        self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
 
     def open_context_menu(self, position: QPoint):
         if self.is_downloading:
