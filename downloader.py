@@ -312,6 +312,10 @@ class SettingsDialog(QDialog):
         
         self.show_searchbar_checkbox.stateChanged.connect(self.searchbar_dependent_options)
         self.searchbar_dependent_options()
+        
+        self.show_export_import_buttons_checkbox = QCheckBox("Import/Export Queue Buttons")
+        self.show_export_import_buttons_checkbox.setChecked(self._config.get('show_export_import_buttons', True))
+        layout.addRow(self.show_export_import_buttons_checkbox)
     
         self.show_logs_checkbox = QCheckBox("Logs View")
         self.show_logs_checkbox.setChecked(self._show_logs)
@@ -467,6 +471,7 @@ class SettingsDialog(QDialog):
             'show_regex_button': self.show_regex_checkbox.isChecked(),
             'show_case_button': self.show_case_checkbox.isChecked(),
             'show_searchbar': self.show_searchbar_checkbox.isChecked(),
+            'show_export_import_buttons': self.show_export_import_buttons_checkbox.isChecked(),
         }
         
 class ThemedMessageBox(QMessageBox):
@@ -1857,6 +1862,8 @@ class SteamWorkshopDownloader(QWidget):
         
         buttonContainer.setFixedWidth(90)
         queue_layout.addWidget(buttonContainer)
+        
+        self.import_export_container = buttonContainer
 
         main_layout.addLayout(queue_layout)
         
@@ -2396,10 +2403,12 @@ class SteamWorkshopDownloader(QWidget):
     def apply_settings(self):
         self.download_btn.setVisible(self.config.get('download_button', True))
         
+        self.search_input.setVisible(self.config.get('show_searchbar', True))
+        
         self.regexButton.setVisible(self.config.get('show_regex_button', True))
         self.caseButton.setVisible(self.config.get('show_case_button', True))
         
-        self.search_input.setVisible(self.config.get('show_searchbar', True))
+        self.import_export_container.setVisible(self.config.get('show_export_import_buttons', True))
     
         self.log_area.setVisible(self.config.get('show_logs', True))
 
