@@ -237,7 +237,10 @@ class SettingsDialog(QDialog):
         self.category_tree.currentItemChanged.connect(self.on_category_changed)
 
         buttons_layout = QHBoxLayout()
-        buttons_layout.addStretch()
+        
+        self.reset_defaults_btn = QPushButton("Reset to Default")
+        self.reset_defaults_btn.clicked.connect(self.reset_defaults)
+        buttons_layout.addWidget(self.reset_defaults_btn)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         self.button_box.accepted.connect(self.accept)
@@ -478,6 +481,32 @@ class SettingsDialog(QDialog):
             'show_export_import_buttons': self.show_export_import_buttons_checkbox.isChecked(),
             'show_sort_indicator': self.show_sort_indicator_checkbox.isChecked(),
         }
+        
+    def reset_defaults(self):
+        # Appearance
+        self.theme_dropdown.setCurrentText("Dark")
+        self.light_logo_radio.setChecked(True)
+        
+        # Show
+        self.show_download_button_checkbox.setChecked(True)
+        self.show_searchbar_checkbox.setChecked(True)
+        self.show_regex_checkbox.setChecked(True)
+        self.show_case_checkbox.setChecked(True)
+        self.show_export_import_buttons_checkbox.setChecked(True)
+        self.show_sort_indicator_checkbox.setChecked(True)
+        self.show_logs_checkbox.setChecked(True)
+        self.show_queue_entire_workshop_checkbox.setChecked(True)
+        self.show_provider_checkbox.setChecked(True)
+        
+        # Download Options
+        self.batch_size_spinbox.setValue(20)
+        self.keep_downloaded_in_queue_checkbox.setChecked(False)
+        self.use_mod_name_checkbox.setChecked(True)
+        
+        # Utility Functions
+        self.auto_detect_urls_checkbox.setChecked(False)
+        self.auto_add_to_queue_checkbox.setChecked(False)
+        self.update_checkbox_style()
         
 class ThemedMessageBox(QMessageBox):
     def __init__(self, parent=None):
