@@ -8,8 +8,8 @@
 
 ## Features
 
-- **Robust Backend** / *<sub>Supports queues with **hundreds of thousands of mods**.</sub>*
-- **Steam Account Management** / *<sub>Add, remove, and manage **multiple Steam accounts** to download mods seamlessly.</sub>*
+- **Robust Backend** / *<sub>Supports queues with **thousands of mods**.</sub>*
+- **Multiple Steam Accounts** / *<sub>Add, remove, and manage **multiple Steam accounts** to download mods.</sub>*
 - **Mod & Collection Downloading** / *<sub>Queue individual mods or entire collections from the Steam Workshop.</sub>*
 - **Queue Entire Workshop for an AppID** / *<sub>Easily queue all mods from a specific game's Workshop using its AppID. Currently up to **50010 Mods per scrape**.</sub>*
 - **Detailed GUI with Realtime Overview** / *<sub>**Monitor downloads as they happen** and troubleshoot issues with a Realtime Overview of what's going on, aided by **Status Indicators for easy troubleshooting**.</sub>*
