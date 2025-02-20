@@ -2211,18 +2211,12 @@ class SteamWorkshopDownloader(QWidget):
             self.config = {}
             self.log_signal.emit("No existing configuration found.")
 
-        if 'steam_accounts' not in self.config:
-            self.config['steam_accounts'] = []
-        if 'active_account' not in self.config:
-            self.config['active_account'] = "Anonymous"
-        if 'auto_detect_urls' not in self.config:
-            self.config['auto_detect_urls'] = False
-        if 'auto_add_to_queue' not in self.config:
-            self.config['auto_add_to_queue'] = False
-        if 'keep_downloaded_in_queue' not in self.config:
-            self.config['keep_downloaded_in_queue'] = False
-        if 'use_mod_name_for_folder' not in self.config:
-            self.config['use_mod_name_for_folder'] = True
+        self.config.setdefault('steam_accounts', [])
+        self.config.setdefault('active_account', "Anonymous")
+        self.config.setdefault('auto_detect_urls', False)
+        self.config.setdefault('auto_add_to_queue', False)
+        self.config.setdefault('keep_downloaded_in_queue', False)
+        self.config.setdefault('use_mod_name_for_folder', True)
             
         self.header_locked = self.config.get('header_locked', True)
 
