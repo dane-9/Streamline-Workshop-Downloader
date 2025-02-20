@@ -301,9 +301,9 @@ class SettingsDialog(QDialog):
         indent_layout.addSpacing(20)  # Indentation
         dependent_layout = QVBoxLayout()
         dependent_layout.setSpacing(0)
-        self.show_regex_checkbox = QCheckBox("Regex Button")
+        self.show_regex_checkbox = QCheckBox("Regex")
         self.show_regex_checkbox.setChecked(self._config.get('show_regex_button', True))
-        self.show_case_checkbox = QCheckBox("Case-Sensitivity Button")
+        self.show_case_checkbox = QCheckBox("Case-Sensitivity")
         self.show_case_checkbox.setChecked(self._config.get('show_case_button', True))
         dependent_layout.addWidget(self.show_regex_checkbox)
         dependent_layout.addWidget(self.show_case_checkbox)
@@ -324,14 +324,14 @@ class SettingsDialog(QDialog):
         self.show_logs_checkbox = QCheckBox("Logs View")
         self.show_logs_checkbox.setChecked(self._show_logs)
         layout.addRow(self.show_logs_checkbox)
+        
+        self.show_queue_entire_workshop_checkbox = QCheckBox("Queue Entire Workshop Button")
+        self.show_queue_entire_workshop_checkbox.setChecked(self._show_queue_entire_workshop)
+        layout.addRow(self.show_queue_entire_workshop_checkbox)
     
         self.show_provider_checkbox = QCheckBox("Download Provider Dropdown")
         self.show_provider_checkbox.setChecked(self._show_provider)
         layout.addRow(self.show_provider_checkbox)
-    
-        self.show_queue_entire_workshop_checkbox = QCheckBox("Queue Entire Workshop Button")
-        self.show_queue_entire_workshop_checkbox.setChecked(self._show_queue_entire_workshop)
-        layout.addRow(self.show_queue_entire_workshop_checkbox)
     
         return page
 
