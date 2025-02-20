@@ -300,6 +300,10 @@ class SettingsDialog(QDialog):
         self.show_download_button_checkbox.setChecked(self._config.get('download_button', True))
         layout.addRow(self.show_download_button_checkbox)
         
+        self.show_searchbar_checkbox = QCheckBox("Search Bar")
+        self.show_searchbar_checkbox.setChecked(self._config.get('show_searchbar', True))
+        layout.addRow(self.show_searchbar_checkbox)
+        
         self.show_regex_checkbox = QCheckBox("Regex Button")
         self.show_regex_checkbox.setChecked(self._config.get('show_regex_button', True))
         layout.addRow(self.show_regex_checkbox)
@@ -451,6 +455,7 @@ class SettingsDialog(QDialog):
             'download_button': self.show_download_button_checkbox.isChecked(),
             'show_regex_button': self.show_regex_checkbox.isChecked(),
             'show_case_button': self.show_case_checkbox.isChecked(),
+            'show_searchbar': self.show_searchbar_checkbox.isChecked(),
         }
         
 class ThemedMessageBox(QMessageBox):
@@ -2236,6 +2241,7 @@ class SteamWorkshopDownloader(QWidget):
         self.config.setdefault('download_button', True)
         self.config.setdefault('show_regex_button', True)
         self.config.setdefault('show_case_button', True)
+        self.config.setdefault('show_searchbar', True)
             
         self.header_locked = self.config.get('header_locked', True)
 
@@ -2381,6 +2387,8 @@ class SteamWorkshopDownloader(QWidget):
         
         self.regexButton.setVisible(self.config.get('show_regex_button', True))
         self.caseButton.setVisible(self.config.get('show_case_button', True))
+        
+        self.search_input.setVisible(self.config.get('show_searchbar', True))
     
         self.log_area.setVisible(self.config.get('show_logs', True))
 
