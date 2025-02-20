@@ -300,6 +300,10 @@ class SettingsDialog(QDialog):
         self.show_download_button_checkbox.setChecked(self._config.get('download_button', True))
         layout.addRow(self.show_download_button_checkbox)
         
+        self.show_regex_checkbox = QCheckBox("Regex Button")
+        self.show_regex_checkbox.setChecked(self._config.get('show_regex_button', True))
+        layout.addRow(self.show_regex_checkbox)
+    
         self.show_logs_checkbox = QCheckBox("Logs View")
         self.show_logs_checkbox.setChecked(self._show_logs)
         layout.addRow(self.show_logs_checkbox)
@@ -441,6 +445,7 @@ class SettingsDialog(QDialog):
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
             'download_button': self.show_download_button_checkbox.isChecked(),
+            'show_regex_button': self.show_regex_checkbox.isChecked(),
         }
         
 class ThemedMessageBox(QMessageBox):
@@ -2224,6 +2229,7 @@ class SteamWorkshopDownloader(QWidget):
         self.config.setdefault('keep_downloaded_in_queue', False)
         self.config.setdefault('use_mod_name_for_folder', True)
         self.config.setdefault('download_button', True)
+        self.config.setdefault('show_regex_button', True)
             
         self.header_locked = self.config.get('header_locked', True)
 
@@ -2366,6 +2372,8 @@ class SteamWorkshopDownloader(QWidget):
 
     def apply_settings(self):
         self.download_btn.setVisible(self.config.get('download_button', True))
+        
+        self.regexButton.setVisible(self.config.get('show_regex_button', True))
     
         self.log_area.setVisible(self.config.get('show_logs', True))
 
