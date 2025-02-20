@@ -304,6 +304,10 @@ class SettingsDialog(QDialog):
         self.show_regex_checkbox.setChecked(self._config.get('show_regex_button', True))
         layout.addRow(self.show_regex_checkbox)
     
+        self.show_case_checkbox = QCheckBox("Case-Sensitivity Button")
+        self.show_case_checkbox.setChecked(self._config.get('show_case_button', True))
+        layout.addRow(self.show_case_checkbox)
+        
         self.show_logs_checkbox = QCheckBox("Logs View")
         self.show_logs_checkbox.setChecked(self._show_logs)
         layout.addRow(self.show_logs_checkbox)
@@ -446,6 +450,7 @@ class SettingsDialog(QDialog):
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
             'download_button': self.show_download_button_checkbox.isChecked(),
             'show_regex_button': self.show_regex_checkbox.isChecked(),
+            'show_case_button': self.show_case_checkbox.isChecked(),
         }
         
 class ThemedMessageBox(QMessageBox):
@@ -2230,6 +2235,7 @@ class SteamWorkshopDownloader(QWidget):
         self.config.setdefault('use_mod_name_for_folder', True)
         self.config.setdefault('download_button', True)
         self.config.setdefault('show_regex_button', True)
+        self.config.setdefault('show_case_button', True)
             
         self.header_locked = self.config.get('header_locked', True)
 
@@ -2374,6 +2380,7 @@ class SteamWorkshopDownloader(QWidget):
         self.download_btn.setVisible(self.config.get('download_button', True))
         
         self.regexButton.setVisible(self.config.get('show_regex_button', True))
+        self.caseButton.setVisible(self.config.get('show_case_button', True))
     
         self.log_area.setVisible(self.config.get('show_logs', True))
 
