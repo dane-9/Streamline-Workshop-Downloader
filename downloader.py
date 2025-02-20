@@ -1339,36 +1339,57 @@ class UpdateAppIDsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Update AppIDs")
         self.setModal(True)
-        self.setFixedSize(250, 120)
+        self.setFixedSize(350, 125)
         
         apply_theme_titlebar(self, self.parent().config)
+        
+        main_layout = QVBoxLayout(self)
+            
+        self.last_updated_label = QLabel()
+        main_layout.addWidget(self.last_updated_label)
+        self.total_appids_label = QLabel()
+        main_layout.addWidget(self.total_appids_label)
 
-        layout = QVBoxLayout(self)
-
-        label = QLabel("Check which Types to Include:")
-        layout.addWidget(label)
-
+        self.update_file_info()
+        
+        types_layout = QHBoxLayout()
+        types_label = QLabel("Types:")
+        types_layout.addWidget(types_label)
+        
         self.games_checkbox = QCheckBox("Games")
         self.games_checkbox.setChecked(True)
-
         self.applications_checkbox = QCheckBox("Applications")
         self.applications_checkbox.setChecked(False)
-
         self.tools_checkbox = QCheckBox("Tools")
         self.tools_checkbox.setChecked(False)
-
-        checkboxes_layout = QHBoxLayout()
-        checkboxes_layout.addWidget(self.games_checkbox)
-        checkboxes_layout.addWidget(self.applications_checkbox)
-        checkboxes_layout.addWidget(self.tools_checkbox)
-        layout.addLayout(checkboxes_layout)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=self)
+        types_layout.addWidget(self.games_checkbox)
+        types_layout.addWidget(self.applications_checkbox)
+        types_layout.addWidget(self.tools_checkbox)
+        types_layout.addStretch()
+        main_layout.addLayout(types_layout)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
         start_button = buttons.addButton("Start", QDialogButtonBox.AcceptRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
+        main_layout.addWidget(buttons)
+    
+    def update_file_info(self):
+        appids_path = os.path.join(self.parent().files_dir, 'AppIDs.txt')
+        if os.path.isfile(appids_path):
+            # Get last modified time
+            mtime = os.path.getmtime(appids_path)
+            last_updated_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime))
+            self.last_updated_label.setText(f"Last Updated: {last_updated_str}")
+            # Only Count non-empty lines
+            with open(appids_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            total_count = len([line for line in lines if line.strip()])
+            self.total_appids_label.setText(f"Current AppIDs: {total_count}")
+        else:
+            self.last_updated_label.setText("Last Updated: N/A")
+            self.total_appids_label.setText("Current AppIDs: 0")
+    
     def get_selected_types(self):
         types = []
         if self.games_checkbox.isChecked():
@@ -1378,13 +1399,13 @@ class UpdateAppIDsDialog(QDialog):
         if self.tools_checkbox.isChecked():
             types.append("Tool")
         return types
-        
+
 class NoFocusDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         if option.state & QStyle.State_HasFocus:
             option.state &= ~QStyle.State_HasFocus
         super().paint(painter, option, index)
-        
+
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
         # Remove the hover state if the item is not selected
