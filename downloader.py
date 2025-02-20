@@ -1863,6 +1863,7 @@ class SteamWorkshopDownloader(QWidget):
         buttonContainer.setFixedWidth(90)
         queue_layout.addWidget(buttonContainer)
         
+        self.queue_layout = queue_layout
         self.import_export_container = buttonContainer
 
         main_layout.addLayout(queue_layout)
@@ -2423,9 +2424,11 @@ class SteamWorkshopDownloader(QWidget):
         if searchbar_visible:
             self.regexButton.setVisible(self.config.get('show_regex_button', True))
             self.caseButton.setVisible(self.config.get('show_case_button', True))
+            self.queue_layout.setAlignment(self.import_export_container, Qt.AlignLeft)
         else:
             self.regexButton.setVisible(False)
             self.caseButton.setVisible(False)
+            self.queue_layout.setAlignment(self.import_export_container, Qt.AlignRight)
 
         if self.config.get('auto_detect_urls', False):
             self.start_clipboard_monitoring()
