@@ -296,6 +296,10 @@ class SettingsDialog(QDialog):
         
         layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Show", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
 
+        self.show_download_button_checkbox = QCheckBox("Download Button")
+        self.show_download_button_checkbox.setChecked(self._config.get('download_button', True))
+        layout.addRow(self.show_download_button_checkbox)
+        
         self.show_logs_checkbox = QCheckBox("Logs View")
         self.show_logs_checkbox.setChecked(self._show_logs)
         layout.addRow(self.show_logs_checkbox)
@@ -416,6 +420,7 @@ class SettingsDialog(QDialog):
             'use_mod_name_for_folder': use_mod_name_for_folder,
             'auto_detect_urls': auto_detect_urls,
             'auto_add_to_queue': auto_add_to_queue,
+            'download_button': self.show_download_button_checkbox.isChecked()
         }
         super().accept()
 
@@ -435,6 +440,7 @@ class SettingsDialog(QDialog):
             'use_mod_name_for_folder': self.use_mod_name_checkbox.isChecked(),
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
+            'download_button': self.show_download_button_checkbox.isChecked(),
         }
         
 class ThemedMessageBox(QMessageBox):
@@ -2217,6 +2223,7 @@ class SteamWorkshopDownloader(QWidget):
         self.config.setdefault('auto_add_to_queue', False)
         self.config.setdefault('keep_downloaded_in_queue', False)
         self.config.setdefault('use_mod_name_for_folder', True)
+        self.config.setdefault('download_button', True)
             
         self.header_locked = self.config.get('header_locked', True)
 
@@ -2358,6 +2365,8 @@ class SteamWorkshopDownloader(QWidget):
         self.steam_accounts_dropdown.blockSignals(False)
 
     def apply_settings(self):
+        self.download_btn.setVisible(self.config.get('download_button', True))
+    
         self.log_area.setVisible(self.config.get('show_logs', True))
 
         self.provider_label.setVisible(self.config.get('show_provider', True))
