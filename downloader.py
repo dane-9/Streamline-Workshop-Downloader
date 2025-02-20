@@ -30,7 +30,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
     QMenu, QCheckBox, QFileDialog, QHeaderView, QAbstractItemView, 
-    QStyledItemDelegate, QStyle, QToolButton, QRadioButton,
+    QStyledItemDelegate, QStyle, QToolButton, QRadioButton, 
+    QStackedWidget, QFrame, QSizePolicy
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
@@ -118,138 +119,322 @@ def set_custom_clear_icon(line_edit: QLineEdit):
     clear_btn = line_edit.findChild(QToolButton)
     if clear_btn:
         clear_btn.setStyleSheet(""" QToolButton { qproperty-icon: url(Files/clear.png); } """)
+        
+def create_separator(object_name, parent=None, width="", label="", label_alignment="center", size_policy=None, font_style="standard", margin=True):
+    separator = QWidget(parent)
+    layout = QHBoxLayout(separator)
+    if margin==True:
+        layout.setContentsMargins(0, 15, 0, 0)
+    else:
+        layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+    
+    def create_sep():
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setObjectName(object_name)
+        if size_policy is not None:
+            if isinstance(size_policy, tuple) and len(size_policy) == 2:
+                sep.setSizePolicy(QSizePolicy(size_policy[0], size_policy[1]))
+            elif isinstance(size_policy, QSizePolicy):
+                sep.setSizePolicy(size_policy)
+        else:
+            sep.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        return sep
+
+    if not label:
+        layout.addWidget(create_sep())
+    else:
+        lbl = QLabel(label)
+        lbl.setContentsMargins(0, -4, 0, 0)
+        lbl.setMargin(0)
+        lbl.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        
+        font = lbl.font()
+        style = font_style.lower()
+        if style == "bold":
+            font.setBold(True)
+            font.setItalic(False)
+        elif style == "italic":
+            font.setItalic(True)
+            font.setBold(False)
+        elif style == "bold italic":
+            font.setBold(True)
+            font.setItalic(True)
+        else:  # standard
+            font.setBold(False)
+            font.setItalic(False)
+        lbl.setFont(font)
+        
+        if label_alignment.lower() == "left":
+            lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            layout.addWidget(lbl)
+            layout.addWidget(create_sep())
+        elif label_alignment.lower() == "right":
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            layout.addWidget(create_sep())
+            layout.addWidget(lbl)
+        else:  # Default to center
+            lbl.setAlignment(Qt.AlignCenter)
+            layout.addWidget(create_sep())
+            layout.addWidget(lbl)
+            layout.addWidget(create_sep())
+    return separator
 
 class SettingsDialog(QDialog):
-    def __init__(self, current_theme, current_batch_size, show_logs, show_provider,
-                 show_queue_entire_workshop, auto_detect_urls, auto_add_to_queue,
-                 keep_downloaded_in_queue, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.setFixedSize(320, 350)
-        
-        apply_theme_titlebar(self, self.parent().config)
-        layout = QFormLayout(self)
-        layout.setVerticalSpacing(10)
+        self.setFixedSize(550, 450)
 
-        # Theme Selection
+        self._config = parent.config if parent else {}
+        apply_theme_titlebar(self, self._config)
+
+        self._current_theme = self._config.get('current_theme', 'Dark')
+        self._logo_style = self._config.get('logo_style', 'Light')
+        self._batch_size = self._config.get('batch_size', 20)
+        self._show_logs = self._config.get('show_logs', True)
+        self._show_provider = self._config.get('show_provider', True)
+        self._show_queue_entire_workshop = self._config.get('show_queue_entire_workshop', True)
+        self._keep_downloaded_in_queue = self._config.get('keep_downloaded_in_queue', False)
+        self._use_mod_name_for_folder = self._config.get('use_mod_name_for_folder', True)
+        self._auto_detect_urls = self._config.get('auto_detect_urls', False)
+        self._auto_add_to_queue = self._config.get('auto_add_to_queue', False)
+
+        main_layout = QHBoxLayout()
+
+        self.category_tree = QTreeWidget()
+        self.category_tree.setObjectName("settings_tree")
+        self.category_tree.setHeaderHidden(True)
+        self.category_tree.setMinimumWidth(125)
+        self.category_tree.setMaximumWidth(150)
+        appearance_item = QTreeWidgetItem(["Appearance"])
+        download_item = QTreeWidgetItem(["Download Options"])
+        utility_item = QTreeWidgetItem(["Utility Functions"])
+        self.category_tree.setRootIsDecorated(False)
+        self.category_tree.addTopLevelItem(appearance_item)
+        self.category_tree.addTopLevelItem(download_item)
+        self.category_tree.addTopLevelItem(utility_item)
+        self.category_tree.setItemDelegate(NoFocusDelegate(self.category_tree))
+        self.category_tree.expandAll()
+        self.category_tree.setCurrentItem(appearance_item)  # Default selection
+        main_layout.addWidget(self.category_tree)
+
+        self.pages_widget = QStackedWidget()
+        main_layout.addWidget(self.pages_widget)
+
+        # Build each category page
+        self.appearance_page = self._build_appearance_page()
+        self.download_page = self._build_download_options_page()
+        self.utility_page = self._build_utility_page()
+
+        self.pages_widget.addWidget(self.appearance_page)  # index 0
+        self.pages_widget.addWidget(self.download_page)    # index 1
+        self.pages_widget.addWidget(self.utility_page)     # index 2
+
+        # Connect tree selection to page switching
+        self.category_tree.currentItemChanged.connect(self.on_category_changed)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addStretch()
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        buttons_layout.addWidget(self.button_box)
+
+        main_vbox = QVBoxLayout()
+        main_vbox.addLayout(main_layout)
+        main_vbox.addLayout(buttons_layout)
+        self.setLayout(main_vbox)
+
+    def _build_appearance_page(self):
+        page = QWidget()
+        layout = QFormLayout(page)
+        layout.setVerticalSpacing(10)
+        
+
+        theme_label = QLabel("Theme:")
         self.theme_dropdown = QComboBox()
         self.theme_dropdown.setMinimumHeight(25)
-        theme_files = glob.glob(os.path.join(parent.files_dir, "Themes", "*.qss"))
-        theme_names = [os.path.splitext(os.path.basename(t))[0] for t in theme_files]
-        if 'Dark' not in theme_names:
-            theme_names.insert(0, 'Dark')
-        self.theme_dropdown.addItems(theme_names)
-        current_theme = parent.config.get('current_theme', 'Dark')
-        if current_theme in theme_names:
-            self.theme_dropdown.setCurrentText(current_theme)
-        layout.addRow("Theme:", self.theme_dropdown)
+        self.theme_dropdown.setMaximumWidth(125)
 
-        # Logo Style
+        if hasattr(self.parent(), 'files_dir'):
+            files_dir = self.parent().files_dir
+            theme_files = glob.glob(os.path.join(files_dir, "Themes", "*.qss"))
+            theme_names = [os.path.splitext(os.path.basename(t))[0] for t in theme_files]
+            # Ensure Dark is present
+            if 'Dark' not in theme_names:
+                theme_names.insert(0, 'Dark')
+            self.theme_dropdown.addItems(theme_names)
+        else:
+            self.theme_dropdown.addItems(["Dark", "Light"])
+
+        if self._current_theme in [self.theme_dropdown.itemText(i) for i in range(self.theme_dropdown.count())]:
+            self.theme_dropdown.setCurrentText(self._current_theme)
+
+        layout.addRow(theme_label, self.theme_dropdown)
+
+        logo_label = QLabel("Logo Style:")
         logo_layout = QHBoxLayout()
         self.light_logo_radio = QRadioButton("Light")
         self.dark_logo_radio = QRadioButton("Dark")
         self.darker_logo_radio = QRadioButton("Darker")
-        logo_style = parent.config.get("logo_style", "Light")
-        if logo_style == "Dark":
+
+        if self._logo_style == "Dark":
             self.dark_logo_radio.setChecked(True)
-        elif logo_style == "Darker":
+        elif self._logo_style == "Darker":
             self.darker_logo_radio.setChecked(True)
         else:
             self.light_logo_radio.setChecked(True)
+
         logo_layout.addWidget(self.light_logo_radio)
         logo_layout.addWidget(self.dark_logo_radio)
         logo_layout.addWidget(self.darker_logo_radio)
-        layout.addRow("Logo:", logo_layout)
+        layout.addRow(logo_label, logo_layout)
+        
+        layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Show", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
 
-        # Batch Size Setting
-        self.batch_size_spinbox = QSpinBox()
-        self.batch_size_spinbox.setRange(1, 100)
-        self.batch_size_spinbox.setValue(current_batch_size)
-        layout.addRow("Batch Size:", self.batch_size_spinbox)
-
-        # Show Logs Setting
-        self.show_logs_checkbox = QCheckBox("Show Logs")
-        self.show_logs_checkbox.setChecked(show_logs)
+        self.show_logs_checkbox = QCheckBox("Logs View")
+        self.show_logs_checkbox.setChecked(self._show_logs)
         layout.addRow(self.show_logs_checkbox)
 
-        # Show Provider Setting
-        self.show_provider_checkbox = QCheckBox("Show Download Provider")
-        self.show_provider_checkbox.setChecked(show_provider)
+        self.show_provider_checkbox = QCheckBox("Download Provider Dropdown")
+        self.show_provider_checkbox.setChecked(self._show_provider)
         layout.addRow(self.show_provider_checkbox)
 
-        # Show Queue Entire Workshop Setting
-        self.show_queue_entire_workshop_checkbox = QCheckBox("Show Queue Entire Workshop Button")
-        self.show_queue_entire_workshop_checkbox.setChecked(show_queue_entire_workshop)
+        self.show_queue_entire_workshop_checkbox = QCheckBox("Queue Entire Workshop Button")
+        self.show_queue_entire_workshop_checkbox.setChecked(self._show_queue_entire_workshop)
         layout.addRow(self.show_queue_entire_workshop_checkbox)
 
-        # Keep Downloaded Mods in Queue Setting
+        return page
+
+    def _build_download_options_page(self):
+        page = QWidget()
+        layout = QFormLayout(page)
+        layout.setVerticalSpacing(10)
+
+        batch_label = QLabel("Batch Size:")
+        self.batch_size_spinbox = QSpinBox()
+        self.batch_size_spinbox.setRange(1, 100)
+        self.batch_size_spinbox.setValue(self._batch_size)
+        self.batch_size_spinbox.setMaximumWidth(125)
+        max_label = QLabel("Default: 20 | Max: 100")
+        max_label.setStyleSheet("font-size: 10px;")
+        
+        spin_layout = QHBoxLayout()
+        spin_layout.setContentsMargins(0, 0, 0, 0)
+        spin_layout.addWidget(self.batch_size_spinbox)
+        spin_layout.setSpacing(5)
+        spin_layout.addWidget(max_label)
+        
+        # Add the row to the form layout
+        layout.addRow(batch_label, spin_layout)
+        
         self.keep_downloaded_in_queue_checkbox = QCheckBox("Keep Downloaded Mods in Queue")
-        self.keep_downloaded_in_queue_checkbox.setChecked(keep_downloaded_in_queue)
+        self.keep_downloaded_in_queue_checkbox.setChecked(self._keep_downloaded_in_queue)
         layout.addRow(self.keep_downloaded_in_queue_checkbox)
         
-        # Use Mod Name for Folder setting
-        self.use_mod_name_checkbox = QCheckBox("Mod Name instead of ID for Mod Folder")
-        self.use_mod_name_checkbox.setChecked(parent.config.get('use_mod_name_for_folder', True))
+        layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Downloads", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
+
+        self.use_mod_name_checkbox = QCheckBox("Use Mod Name instead of ID for Mod Folder")
+        self.use_mod_name_checkbox.setChecked(self._use_mod_name_for_folder)
         layout.addRow(self.use_mod_name_checkbox)
 
-        # Auto-Detect URLs Setting
+        return page
+
+    def _build_utility_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+    
         self.auto_detect_urls_checkbox = QCheckBox("Auto-detect URLs from Clipboard")
-        self.auto_detect_urls_checkbox.setChecked(auto_detect_urls)
+        self.auto_detect_urls_checkbox.setChecked(self._auto_detect_urls)
         self.auto_detect_urls_checkbox.stateChanged.connect(self.toggle_auto_add_checkbox)
-        layout.addRow(self.auto_detect_urls_checkbox)
-
-        # Auto-Add URLs to Queue Setting
+        layout.addWidget(self.auto_detect_urls_checkbox)
+    
         offset_layout = QHBoxLayout()
-        offset_layout.addSpacing(20)
+        offset_layout.addSpacing(20)  # Indents the "auto-add" checkbox
         self.auto_add_to_queue_checkbox = QCheckBox("Auto-add detected URLs to Queue")
-        self.auto_add_to_queue_checkbox.setChecked(auto_add_to_queue)
-        self.auto_add_to_queue_checkbox.setEnabled(auto_detect_urls)  # Initially set based on auto-detect status
-        self.update_checkbox_style()
+        self.auto_add_to_queue_checkbox.setChecked(self._auto_add_to_queue)
+        self.auto_add_to_queue_checkbox.setEnabled(self._auto_detect_urls)
         offset_layout.addWidget(self.auto_add_to_queue_checkbox)
-        layout.addRow(offset_layout)
-
-        # Dialog Buttons
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=self)
-        save_button = QPushButton("Save")
-        buttons.addButton(save_button, QDialogButtonBox.AcceptRole)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
+        layout.addLayout(offset_layout)
+    
+        self.update_checkbox_style()
+    
+        layout.addStretch()
+        return page
+    
+    
     def toggle_auto_add_checkbox(self):
-        # Determine the new state based on "Auto-detect URLs" checkbox
         new_state = self.auto_detect_urls_checkbox.isChecked()
         self.auto_add_to_queue_checkbox.setEnabled(new_state)
         self.update_checkbox_style()
-
+    
+    
     def update_checkbox_style(self):
-        # Set the visual style to match the enabled/disabled state
         if self.auto_add_to_queue_checkbox.isEnabled():
             self.auto_add_to_queue_checkbox.setStyleSheet("color: #28c64f;")
         else:
             self.auto_add_to_queue_checkbox.setStyleSheet("color: grey;")
 
-    def get_settings(self):
+    def on_category_changed(self, current, previous):
+        if not current:
+            return
+        index = self.category_tree.indexOfTopLevelItem(current)
+        self.pages_widget.setCurrentIndex(index)
+
+    def accept(self):
+        selected_theme = self.theme_dropdown.currentText()
         if self.light_logo_radio.isChecked():
             logo_style = "Light"
         elif self.dark_logo_radio.isChecked():
             logo_style = "Dark"
-        elif self.darker_logo_radio.isChecked():
-            logo_style = "Darker"
         else:
-            logo_style = "Light"
+            logo_style = "Darker"
+
+        batch_size = self.batch_size_spinbox.value()
+        keep_downloaded_in_queue = self.keep_downloaded_in_queue_checkbox.isChecked()
+        use_mod_name_for_folder = self.use_mod_name_checkbox.isChecked()
+
+        auto_detect_urls = self.auto_detect_urls_checkbox.isChecked()
+        auto_add_to_queue = self.auto_add_to_queue_checkbox.isChecked()
+
+        show_logs = self.show_logs_checkbox.isChecked()
+        show_provider = self.show_provider_checkbox.isChecked()
+        show_queue_entire_workshop = self.show_queue_entire_workshop_checkbox.isChecked()
+
+        new_settings = {
+            'current_theme': selected_theme,
+            'logo_style': logo_style,
+            'batch_size': batch_size,
+            'show_logs': show_logs,
+            'show_provider': show_provider,
+            'show_queue_entire_workshop': show_queue_entire_workshop,
+            'keep_downloaded_in_queue': keep_downloaded_in_queue,
+            'use_mod_name_for_folder': use_mod_name_for_folder,
+            'auto_detect_urls': auto_detect_urls,
+            'auto_add_to_queue': auto_add_to_queue,
+        }
+        super().accept()
+
+    def get_settings(self):
         return {
             'current_theme': self.theme_dropdown.currentText(),
-            'logo_style': logo_style,
+            'logo_style': (
+                "Light" if self.light_logo_radio.isChecked()
+                else "Dark" if self.dark_logo_radio.isChecked()
+                else "Darker"
+            ),
             'batch_size': self.batch_size_spinbox.value(),
             'show_logs': self.show_logs_checkbox.isChecked(),
             'show_provider': self.show_provider_checkbox.isChecked(),
             'show_queue_entire_workshop': self.show_queue_entire_workshop_checkbox.isChecked(),
-            'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
-            'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
             'keep_downloaded_in_queue': self.keep_downloaded_in_queue_checkbox.isChecked(),
             'use_mod_name_for_folder': self.use_mod_name_checkbox.isChecked(),
+            'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
+            'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
         }
         
 class ThemedMessageBox(QMessageBox):
@@ -1095,6 +1280,12 @@ class NoFocusDelegate(QStyledItemDelegate):
         if option.state & QStyle.State_HasFocus:
             option.state &= ~QStyle.State_HasFocus
         super().paint(painter, option, index)
+        
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # Remove the hover state if the item is not selected
+        if not (option.state & QStyle.State_Selected):
+            option.state &= ~QStyle.State_MouseOver
 
 class CustomizableTreeWidgets(QTreeWidget):
     def __init__(self, *args, **kwargs):
@@ -2189,47 +2380,30 @@ class SteamWorkshopDownloader(QWidget):
             self.config['auto_add_to_queue'] = False
 
     def open_settings(self):
-        current_theme = self.config.get('current_theme')
-        current_batch_size = self.config.get('batch_size', 20)
-        show_logs = self.config.get('show_logs', True)
-        show_provider = self.config.get('show_provider', True)
-        show_queue_entire_workshop = self.config.get('show_queue_entire_workshop', True)
-        auto_detect_urls = self.config.get('auto_detect_urls', False)
-        auto_add_to_queue = self.config.get('auto_add_to_queue', False)
-        keep_downloaded_in_queue = self.config.get('keep_downloaded_in_queue', False)
-        use_mod_name_for_folder = self.config.get('use_mod_name_for_folder', True)
-    
-        dialog = SettingsDialog(
-            current_theme, 
-            current_batch_size, 
-            show_logs, 
-            show_provider, 
-            show_queue_entire_workshop,
-            auto_detect_urls, 
-            auto_add_to_queue, 
-            keep_downloaded_in_queue, 
-            self
-        )
-    
+        dialog = SettingsDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            settings = dialog.get_settings()
-            new_theme = settings.get('current_theme', 'Dark')
-            load_theme(QApplication.instance(), new_theme, self.files_dir)
-            self.config.update(settings)
+            new_settings = dialog.get_settings()
+    
+            self.config.update(new_settings)
             self.save_config()
+    
+            selected_theme = new_settings.get('current_theme', 'Dark')
+            load_theme(QApplication.instance(), selected_theme, self.files_dir)
+
             self.apply_settings()
-            logo_style = self.config.get("logo_style", "Light")
-            if logo_style == "Light":
-                logo = "logo.png"
-            elif logo_style == "Dark":
+    
+            logo_style = new_settings.get("logo_style", "Light")
+            if logo_style == "Dark":
                 logo = "logo_dark.png"
             elif logo_style == "Darker":
                 logo = "logo_darker.png"
             else:
                 logo = "logo.png"
             self.setWindowIcon(QIcon(resource_path(f'Files/{logo}')))
-            self.log_signal.emit("Settings updated successfully.")
+    
             apply_theme_titlebar(self, self.config)
+    
+            self.log_signal.emit("Settings updated successfully.")
 
     def open_configure_steam_accounts(self):
         dialog = ConfigureSteamAccountsDialog(self.config, self.steamcmd_dir, self)

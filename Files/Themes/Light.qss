@@ -213,6 +213,10 @@ QMenu::item:selected:disabled {
     color: gray;
 }
 
+QTreeWidget::item:hover:!selected#settings_tree { 
+background: #FEFEFE; 
+}
+
 QTabWidget::pane {
     border: 1px solid #555555;
 }
@@ -237,6 +241,11 @@ QToolTip {
 
 QCheckBox {
     color: #000000;
+}
+
+QFrame#settings_separator {
+	color: #C2C2C5;
+	margin-left: 10px;
 }
 
 QCheckBox:adjoins-item {
