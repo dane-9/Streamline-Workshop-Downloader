@@ -316,6 +316,10 @@ class SettingsDialog(QDialog):
         self.show_export_import_buttons_checkbox = QCheckBox("Import/Export Queue Buttons")
         self.show_export_import_buttons_checkbox.setChecked(self._config.get('show_export_import_buttons', True))
         layout.addRow(self.show_export_import_buttons_checkbox)
+        
+        self.show_sort_indicator_checkbox = QCheckBox("Header Sort Indicator")
+        self.show_sort_indicator_checkbox.setChecked(self._config.get('show_sort_indicator', True))
+        layout.addRow(self.show_sort_indicator_checkbox)
     
         self.show_logs_checkbox = QCheckBox("Logs View")
         self.show_logs_checkbox.setChecked(self._show_logs)
@@ -472,6 +476,7 @@ class SettingsDialog(QDialog):
             'show_case_button': self.show_case_checkbox.isChecked(),
             'show_searchbar': self.show_searchbar_checkbox.isChecked(),
             'show_export_import_buttons': self.show_export_import_buttons_checkbox.isChecked(),
+            'show_sort_indicator': self.show_sort_indicator_checkbox.isChecked(),
         }
         
 class ThemedMessageBox(QMessageBox):
@@ -1889,8 +1894,10 @@ class SteamWorkshopDownloader(QWidget):
         self.queue_tree.header().setStretchLastSection(False)
         
         # sorting by header
+        self._sortClicked = False
         self.queue_tree.setSortingEnabled(True)
         self.queue_tree.header().setSortIndicatorShown(False)
+        self.queue_tree.header().sectionClicked.connect(self.sort_column_indicator)
 
         # Add context menu to the header for hiding columns
         header = self.queue_tree.header()
@@ -1961,6 +1968,11 @@ class SteamWorkshopDownloader(QWidget):
                     attr.setFixedHeight(button_height)
             elif isinstance(attr, QComboBox) and "_dropdown" in attr_name:
                 attr.setFixedHeight(dropdown_height)
+                
+    def sort_column_indicator(self, index):
+        if self.config.get('show_sort_indicator', False):
+            self._sortClicked = True
+            self.queue_tree.header().setSortIndicatorShown(True)
                 
     def filter_queue_items(self, text: str):
         regex_enabled = self.regexButton.isChecked()
@@ -2048,6 +2060,8 @@ class SteamWorkshopDownloader(QWidget):
 
     @Slot(list)
     def on_batch_ready(self, mod_batch):
+        self.queue_tree.setSortingEnabled(False)
+    
         # Append the batch to the download_queue
         self.download_queue.extend(mod_batch)
 
@@ -2060,6 +2074,11 @@ class SteamWorkshopDownloader(QWidget):
             self.queue_tree.addTopLevelItems(tree_items)
         finally:
             self.queue_tree.setUpdatesEnabled(True)
+            
+        self.queue_tree.setSortingEnabled(True)
+        # If the header has not been clicked yet, keep the sort indicator hidden
+        if not self._sortClicked:
+            self.queue_tree.header().setSortIndicatorShown(False)
 
         # Update counts and buttons
         self.update_queue_count()
@@ -2261,6 +2280,8 @@ class SteamWorkshopDownloader(QWidget):
         self.config.setdefault('show_regex_button', True)
         self.config.setdefault('show_case_button', True)
         self.config.setdefault('show_searchbar', True)
+        self.config.setdefault('show_export_import_buttons', True)
+        self.config.setdefault('show_sort_indicator', True)
             
         self.header_locked = self.config.get('header_locked', True)
 
@@ -2417,6 +2438,9 @@ class SteamWorkshopDownloader(QWidget):
         self.provider_dropdown.setVisible(self.config.get('show_provider', True))
         
         self.queue_entire_workshop_btn.setVisible(self.config.get('show_queue_entire_workshop', True))
+        
+        if not self.config.get('show_sort_indicator', False):
+            self.queue_tree.header().setSortIndicatorShown(False)
         
         searchbar_visible = self.config.get('show_searchbar', True)
         self.search_input.setVisible(searchbar_visible)
