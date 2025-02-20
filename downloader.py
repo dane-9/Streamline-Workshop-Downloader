@@ -254,48 +254,41 @@ class SettingsDialog(QDialog):
         layout = QFormLayout(page)
         layout.setVerticalSpacing(10)
         
-
         theme_label = QLabel("Theme:")
         self.theme_dropdown = QComboBox()
         self.theme_dropdown.setMinimumHeight(25)
         self.theme_dropdown.setMaximumWidth(125)
-
         if hasattr(self.parent(), 'files_dir'):
             files_dir = self.parent().files_dir
             theme_files = glob.glob(os.path.join(files_dir, "Themes", "*.qss"))
             theme_names = [os.path.splitext(os.path.basename(t))[0] for t in theme_files]
-            # Ensure Dark is present
             if 'Dark' not in theme_names:
                 theme_names.insert(0, 'Dark')
             self.theme_dropdown.addItems(theme_names)
         else:
             self.theme_dropdown.addItems(["Dark", "Light"])
-
         if self._current_theme in [self.theme_dropdown.itemText(i) for i in range(self.theme_dropdown.count())]:
             self.theme_dropdown.setCurrentText(self._current_theme)
-
         layout.addRow(theme_label, self.theme_dropdown)
-
+    
         logo_label = QLabel("Logo Style:")
         logo_layout = QHBoxLayout()
         self.light_logo_radio = QRadioButton("Light")
         self.dark_logo_radio = QRadioButton("Dark")
         self.darker_logo_radio = QRadioButton("Darker")
-
         if self._logo_style == "Dark":
             self.dark_logo_radio.setChecked(True)
         elif self._logo_style == "Darker":
             self.darker_logo_radio.setChecked(True)
         else:
             self.light_logo_radio.setChecked(True)
-
         logo_layout.addWidget(self.light_logo_radio)
         logo_layout.addWidget(self.dark_logo_radio)
         logo_layout.addWidget(self.darker_logo_radio)
         layout.addRow(logo_label, logo_layout)
         
         layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Show", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
-
+    
         self.show_download_button_checkbox = QCheckBox("Download Button")
         self.show_download_button_checkbox.setChecked(self._config.get('download_button', True))
         layout.addRow(self.show_download_button_checkbox)
@@ -304,26 +297,34 @@ class SettingsDialog(QDialog):
         self.show_searchbar_checkbox.setChecked(self._config.get('show_searchbar', True))
         layout.addRow(self.show_searchbar_checkbox)
         
+        indent_layout = QHBoxLayout()
+        indent_layout.addSpacing(20)  # Indentation
+        dependent_layout = QVBoxLayout()
+        dependent_layout.setSpacing(0)
         self.show_regex_checkbox = QCheckBox("Regex Button")
         self.show_regex_checkbox.setChecked(self._config.get('show_regex_button', True))
-        layout.addRow(self.show_regex_checkbox)
-    
         self.show_case_checkbox = QCheckBox("Case-Sensitivity Button")
         self.show_case_checkbox.setChecked(self._config.get('show_case_button', True))
-        layout.addRow(self.show_case_checkbox)
+        dependent_layout.addWidget(self.show_regex_checkbox)
+        dependent_layout.addWidget(self.show_case_checkbox)
+        indent_layout.addLayout(dependent_layout)
+        layout.addRow(indent_layout)
         
+        self.show_searchbar_checkbox.stateChanged.connect(self.searchbar_dependent_options)
+        self.searchbar_dependent_options()
+    
         self.show_logs_checkbox = QCheckBox("Logs View")
         self.show_logs_checkbox.setChecked(self._show_logs)
         layout.addRow(self.show_logs_checkbox)
-
+    
         self.show_provider_checkbox = QCheckBox("Download Provider Dropdown")
         self.show_provider_checkbox.setChecked(self._show_provider)
         layout.addRow(self.show_provider_checkbox)
-
+    
         self.show_queue_entire_workshop_checkbox = QCheckBox("Queue Entire Workshop Button")
         self.show_queue_entire_workshop_checkbox.setChecked(self._show_queue_entire_workshop)
         layout.addRow(self.show_queue_entire_workshop_checkbox)
-
+    
         return page
 
     def _build_download_options_page(self):
@@ -382,7 +383,6 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return page
     
-    
     def toggle_auto_add_checkbox(self):
         new_state = self.auto_detect_urls_checkbox.isChecked()
         self.auto_add_to_queue_checkbox.setEnabled(new_state)
@@ -394,6 +394,17 @@ class SettingsDialog(QDialog):
             self.auto_add_to_queue_checkbox.setStyleSheet("color: #28c64f;")
         else:
             self.auto_add_to_queue_checkbox.setStyleSheet("color: grey;")
+            
+    def searchbar_dependent_options(self):
+        enabled = self.show_searchbar_checkbox.isChecked()
+        self.show_regex_checkbox.setEnabled(enabled)
+        self.show_case_checkbox.setEnabled(enabled)
+        if enabled:
+            self.show_regex_checkbox.setStyleSheet("")
+            self.show_case_checkbox.setStyleSheet("")
+        else:
+            self.show_regex_checkbox.setStyleSheet("color: grey;")
+            self.show_case_checkbox.setStyleSheet("color: grey;")
 
     def on_category_changed(self, current, previous):
         if not current:
@@ -2396,6 +2407,16 @@ class SteamWorkshopDownloader(QWidget):
         self.provider_dropdown.setVisible(self.config.get('show_provider', True))
         
         self.queue_entire_workshop_btn.setVisible(self.config.get('show_queue_entire_workshop', True))
+        
+        searchbar_visible = self.config.get('show_searchbar', True)
+        self.search_input.setVisible(searchbar_visible)
+        
+        if searchbar_visible:
+            self.regexButton.setVisible(self.config.get('show_regex_button', True))
+            self.caseButton.setVisible(self.config.get('show_case_button', True))
+        else:
+            self.regexButton.setVisible(False)
+            self.caseButton.setVisible(False)
 
         if self.config.get('auto_detect_urls', False):
             self.start_clipboard_monitoring()
