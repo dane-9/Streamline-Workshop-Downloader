@@ -42,6 +42,36 @@ from PySide6.QtGui import (
     QColor, QPixmap, QPolygon,
 )
 
+DEFAULT_SETTINGS = {
+    "current_theme": "Dark",
+    "logo_style": "Light",
+    "batch_size": 20,
+    
+    "show_logs": True,
+    "show_provider": True,
+    "show_queue_entire_workshop": True,
+    "keep_downloaded_in_queue": False,
+    "use_mod_name_for_folder": True,
+    "auto_detect_urls": False,
+    "auto_add_to_queue": False,
+    
+    "download_button": True,
+    "show_searchbar": True,
+    "show_regex_button": True,
+    "show_case_button": True,
+    "show_export_import_buttons": True,
+    "show_sort_indicator": True,
+    
+    "header_locked": True,
+    
+    "steam_accounts": [],
+    "active_account": "Anonymous",
+    
+    "queue_tree_default_widths": [115, 90, 230, 100, 95],
+    "queue_tree_column_widths": None,
+    "queue_tree_column_hidden": None,
+}
+
 # Allows logo to be applied over pythonw.exe's own
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('streamline.app.logo')
 
@@ -483,29 +513,32 @@ class SettingsDialog(QDialog):
         }
         
     def reset_defaults(self):
-        # Appearance
-        self.theme_dropdown.setCurrentText("Dark")
-        self.light_logo_radio.setChecked(True)
-        
-        # Show
-        self.show_download_button_checkbox.setChecked(True)
-        self.show_searchbar_checkbox.setChecked(True)
-        self.show_regex_checkbox.setChecked(True)
-        self.show_case_checkbox.setChecked(True)
-        self.show_export_import_buttons_checkbox.setChecked(True)
-        self.show_sort_indicator_checkbox.setChecked(True)
-        self.show_logs_checkbox.setChecked(True)
-        self.show_queue_entire_workshop_checkbox.setChecked(True)
-        self.show_provider_checkbox.setChecked(True)
-        
-        # Download Options
-        self.batch_size_spinbox.setValue(20)
-        self.keep_downloaded_in_queue_checkbox.setChecked(False)
-        self.use_mod_name_checkbox.setChecked(True)
-        
-        # Utility Functions
-        self.auto_detect_urls_checkbox.setChecked(False)
-        self.auto_add_to_queue_checkbox.setChecked(False)
+        self.theme_dropdown.setCurrentText(DEFAULT_SETTINGS["current_theme"])
+    
+        logo_style = DEFAULT_SETTINGS["logo_style"]
+        if logo_style == "Dark":
+            self.dark_logo_radio.setChecked(True)
+        elif logo_style == "Darker":
+            self.darker_logo_radio.setChecked(True)
+        else:
+            self.light_logo_radio.setChecked(True)
+    
+        self.show_download_button_checkbox.setChecked(DEFAULT_SETTINGS["download_button"])
+        self.show_searchbar_checkbox.setChecked(DEFAULT_SETTINGS["show_searchbar"])
+        self.show_regex_checkbox.setChecked(DEFAULT_SETTINGS["show_regex_button"])
+        self.show_case_checkbox.setChecked(DEFAULT_SETTINGS["show_case_button"])
+        self.show_export_import_buttons_checkbox.setChecked(DEFAULT_SETTINGS["show_export_import_buttons"])
+        self.show_sort_indicator_checkbox.setChecked(DEFAULT_SETTINGS["show_sort_indicator"])
+        self.show_logs_checkbox.setChecked(DEFAULT_SETTINGS["show_logs"])
+        self.show_queue_entire_workshop_checkbox.setChecked(DEFAULT_SETTINGS["show_queue_entire_workshop"])
+        self.show_provider_checkbox.setChecked(DEFAULT_SETTINGS["show_provider"])
+    
+        self.batch_size_spinbox.setValue(DEFAULT_SETTINGS["batch_size"])
+        self.keep_downloaded_in_queue_checkbox.setChecked(DEFAULT_SETTINGS["keep_downloaded_in_queue"])
+        self.use_mod_name_checkbox.setChecked(DEFAULT_SETTINGS["use_mod_name_for_folder"])
+    
+        self.auto_detect_urls_checkbox.setChecked(DEFAULT_SETTINGS["auto_detect_urls"])
+        self.auto_add_to_queue_checkbox.setChecked(DEFAULT_SETTINGS["auto_add_to_queue"])
         self.update_checkbox_style()
         
 class ThemedMessageBox(QMessageBox):
@@ -1731,21 +1764,21 @@ class SteamWorkshopDownloader(QWidget):
         self.last_clipboard_text = ""
         self.clipboard_signal_connected = False
         self.item_fetchers = []
-        
-        self.default_widths = [115, 90, 230, 100, 95]
          
-        if self.config.get("logo_style", "Light") == "Light":
-            logo = "logo.png"
-        elif self.config.get("logo_style", "Dark") == "Dark":
+        logo_style = self.config.get("logo_style", DEFAULT_SETTINGS["logo_style"])
+        if logo_style == "Dark":
             logo = "logo_dark.png"
-        elif self.config.get("logo_style", "Darker") == "Darker":
+        elif logo_style == "Darker":
             logo = "logo_darker.png"
+        else:
+            logo = "logo.png"
         self.setWindowIcon(QIcon(resource_path(f'Files/{logo}')))
         
-        if 'current_theme' not in self.config:
-            self.config['current_theme'] = 'Dark'
-            
-        is_dark = "dark" in self.config.get('current_theme', 'Dark').lower()
+        current_theme = self.config.get("current_theme", DEFAULT_SETTINGS["current_theme"])
+        self.config.setdefault("current_theme", current_theme)
+        load_theme(QApplication.instance(), self.config['current_theme'], self.files_dir)
+        
+        is_dark = "dark" in current_theme.lower()
         set_windows_dark_titlebar(int(self.winId()), is_dark)
 
         # Define download paths for SteamCMD and SteamWebAPI
@@ -1935,15 +1968,28 @@ class SteamWorkshopDownloader(QWidget):
         self.toggle_header_lock(self.header_locked)
 
         # Restore column widths and hidden state from the configuration
-        column_widths = self.config.get('queue_tree_column_widths', self.default_widths)
-        column_hidden = self.config.get('queue_tree_column_hidden', [False] * self.queue_tree.columnCount())
+        default_widths = self.config["queue_tree_default_widths"]
+
+        saved_widths = self.config["queue_tree_column_widths"]
+        if not saved_widths:
+            saved_widths = default_widths
         
+        saved_hidden = self.config["queue_tree_column_hidden"]
+        if not saved_hidden:
+            saved_hidden = [False] * self.queue_tree.columnCount()
+        
+        # Apply widths and hidden state
         for i in range(self.queue_tree.columnCount()):
-            # Set the width from config or default
-            width = column_widths[i] if i < len(column_widths) else self.default_widths[i]
-            self.queue_tree.setColumnWidth(i, width)
-            # Set hidden state
-            self.queue_tree.setColumnHidden(i, column_hidden[i])
+
+            if i < len(saved_widths):
+                self.queue_tree.setColumnWidth(i, saved_widths[i])
+            else:
+                self.queue_tree.setColumnWidth(i, default_widths[i])
+        
+            if i < len(saved_hidden):
+                self.queue_tree.setColumnHidden(i, saved_hidden[i])
+            else:
+                self.queue_tree.setColumnHidden(i, False)
 
         main_layout.addWidget(self.queue_tree, stretch=3)
 
@@ -1980,8 +2026,6 @@ class SteamWorkshopDownloader(QWidget):
         main_layout.addLayout(self.provider_layout)
 
         self.setLayout(main_layout)
-        
-        load_theme(QApplication.instance(), self.config['current_theme'], self.files_dir)
         
     def adjust_widget_heights(self):
         button_height = 28
@@ -2171,46 +2215,51 @@ class SteamWorkshopDownloader(QWidget):
         menu.exec(self.queue_tree.header().viewport().mapToGlobal(position))
         
     def reset_header_layout(self):
+        default_widths = DEFAULT_SETTINGS["queue_tree_default_widths"]
+    
         for i in range(self.queue_tree.columnCount()):
-            self.queue_tree.setColumnHidden(i, False)  # Show the column if hidden
-            if i < len(self.default_widths):
-                self.queue_tree.setColumnWidth(i, self.default_widths[i])
-
+            self.queue_tree.setColumnHidden(i, False)
+            if i < len(default_widths):
+                self.queue_tree.setColumnWidth(i, default_widths[i])
+    
+        # Reset the column order
         header = self.queue_tree.header()
         for col in range(self.queue_tree.columnCount()):
             header.moveSection(header.visualIndex(col), col)
     
         self.log_signal.emit("Header layout reset to default.")
-        self.config['queue_tree_column_widths'] = self.default_widths
-        self.config['queue_tree_column_hidden'] = [False]*self.queue_tree.columnCount()
+    
+        # Update config so next run uses these defaults
+        self.config["queue_tree_column_widths"] = list(default_widths)
+        self.config["queue_tree_column_hidden"] = [False] * self.queue_tree.columnCount()
         self.save_config()
         
     def reset_columns(self):
-        self.queue_tree.header().restoreState(self.queue_tree.header().saveState())  # Reset column order
-        for i, width in enumerate(self.default_widths):
+        self.queue_tree.header().restoreState(self.queue_tree.header().saveState())  
+        default_widths = DEFAULT_SETTINGS["queue_tree_default_widths"]
+        for i, width in enumerate(default_widths):
             self.queue_tree.setColumnWidth(i, width)
+        
         self.log_signal.emit("Columns have been reset to their default widths and positions.")
 
     def toggle_column_visibility(self, column: int, hide: bool):
         if hide:
-            # Backup the current width before hiding
             current_width = self.queue_tree.columnWidth(column)
             self.column_width_backup[column] = current_width
     
-            # Save the current width in the config if not already saved
-            if 'queue_tree_column_widths' not in self.config:
-                self.config['queue_tree_column_widths'] = [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())]
-            self.config['queue_tree_column_widths'][column] = current_width
+            if self.config.get("queue_tree_column_widths") is None:
+                self.config["queue_tree_column_widths"] = list(DEFAULT_SETTINGS["queue_tree_default_widths"])
+            self.config["queue_tree_column_widths"][column] = current_width
     
             self.queue_tree.setColumnHidden(column, True)
         else:
-            # Restore the column's width if it was previously hidden
             self.queue_tree.setColumnHidden(column, False)
             if column in self.column_width_backup:
                 self.queue_tree.setColumnWidth(column, self.column_width_backup[column])
             else:
-                # Use the width from config
-                column_widths = self.config.get('queue_tree_column_widths', [])
+                column_widths = self.config.get("queue_tree_column_widths")
+                if column_widths is None:
+                    column_widths = DEFAULT_SETTINGS["queue_tree_default_widths"]
                 if len(column_widths) > column:
                     self.queue_tree.setColumnWidth(column, column_widths[column])
                     
@@ -2299,20 +2348,8 @@ class SteamWorkshopDownloader(QWidget):
             self.config = {}
             self.log_signal.emit("No existing configuration found.")
 
-        self.config.setdefault('steam_accounts', [])
-        self.config.setdefault('active_account', "Anonymous")
-        self.config.setdefault('auto_detect_urls', False)
-        self.config.setdefault('auto_add_to_queue', False)
-        self.config.setdefault('keep_downloaded_in_queue', False)
-        self.config.setdefault('use_mod_name_for_folder', True)
-        self.config.setdefault('download_button', True)
-        self.config.setdefault('show_regex_button', True)
-        self.config.setdefault('show_case_button', True)
-        self.config.setdefault('show_searchbar', True)
-        self.config.setdefault('show_export_import_buttons', True)
-        self.config.setdefault('show_sort_indicator', True)
-            
-        self.header_locked = self.config.get('header_locked', True)
+        for key, default_value in DEFAULT_SETTINGS.items():
+            self.config.setdefault(key, default_value)
 
     def save_config(self):
         try:
@@ -2325,7 +2362,6 @@ class SteamWorkshopDownloader(QWidget):
              
     def closeEvent(self, event):
         if self.is_downloading:
-            # Ask user if they want to cancel the ongoing download before quitting
             reply = ThemedMessageBox.question(
                 self,
                 'Quit Application',
@@ -2333,34 +2369,37 @@ class SteamWorkshopDownloader(QWidget):
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
-    
             if reply == QMessageBox.Yes:
-                # If the user confirms, cancel the ongoing download
                 self.cancel_download()
                 if self.current_process and self.current_process.poll() is None:
-                    self.current_process.terminate()  # Ensure SteamCMD process is terminated
-                event.accept()  # Allow the window to close
+                    self.current_process.terminate()
+                event.accept()
             else:
-                event.ignore()  # Prevent the window from closing
+                event.ignore()
                 return
         else:
             event.accept()
-
+    
         # Save window size before closing
         self.config['window_size'] = {'width': self.width(), 'height': self.height()}
-
+    
+        # Safely retrieve or initialize column_widths as a list
+        column_widths = self.config.get('queue_tree_column_widths')
+        if not column_widths:
+            # If None (or empty), build a new list from current widths
+            column_widths = [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())]
+    
         # Only save widths for visible columns
-        column_widths = self.config.get('queue_tree_column_widths', [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())])
         for i in range(self.queue_tree.columnCount()):
             if not self.queue_tree.isColumnHidden(i):
                 column_widths[i] = self.queue_tree.columnWidth(i)
+    
         self.config['queue_tree_column_widths'] = column_widths
- 
+    
         # Save column hidden states
         column_hidden = [self.queue_tree.isColumnHidden(i) for i in range(self.queue_tree.columnCount())]
         self.config['queue_tree_column_hidden'] = column_hidden
-
-        # Save configuration
+    
         self.save_config()
         
     async def fetch_game_name(self, app_id: str, log_signal=None):
@@ -2452,44 +2491,38 @@ class SteamWorkshopDownloader(QWidget):
         self.steam_accounts_dropdown.blockSignals(False)
 
     def apply_settings(self):
-        self.download_btn.setVisible(self.config.get('download_button', True))
-        
-        self.search_input.setVisible(self.config.get('show_searchbar', True))
-        
-        self.regexButton.setVisible(self.config.get('show_regex_button', True))
-        self.caseButton.setVisible(self.config.get('show_case_button', True))
-        
-        self.import_export_container.setVisible(self.config.get('show_export_import_buttons', True))
-    
-        self.log_area.setVisible(self.config.get('show_logs', True))
 
-        self.provider_label.setVisible(self.config.get('show_provider', True))
-        self.provider_dropdown.setVisible(self.config.get('show_provider', True))
-        
-        self.queue_entire_workshop_btn.setVisible(self.config.get('show_queue_entire_workshop', True))
-        
-        if not self.config.get('show_sort_indicator', False):
+        self.download_btn.setVisible(self.config["download_button"])
+        self.search_input.setVisible(self.config["show_searchbar"])
+        self.regexButton.setVisible(self.config["show_regex_button"])
+        self.caseButton.setVisible(self.config["show_case_button"])
+        self.import_export_container.setVisible(self.config["show_export_import_buttons"])
+        self.log_area.setVisible(self.config["show_logs"])
+        self.provider_label.setVisible(self.config["show_provider"])
+        self.provider_dropdown.setVisible(self.config["show_provider"])
+        self.queue_entire_workshop_btn.setVisible(self.config["show_queue_entire_workshop"])
+    
+        if not self.config["show_sort_indicator"]:
             self.queue_tree.header().setSortIndicatorShown(False)
-        
-        searchbar_visible = self.config.get('show_searchbar', True)
+    
+        searchbar_visible = self.config["show_searchbar"]
         self.search_input.setVisible(searchbar_visible)
-        
         if searchbar_visible:
-            self.regexButton.setVisible(self.config.get('show_regex_button', True))
-            self.caseButton.setVisible(self.config.get('show_case_button', True))
+            self.regexButton.setVisible(self.config["show_regex_button"])
+            self.caseButton.setVisible(self.config["show_case_button"])
             self.queue_layout.setAlignment(self.import_export_container, Qt.AlignLeft)
         else:
             self.regexButton.setVisible(False)
             self.caseButton.setVisible(False)
             self.queue_layout.setAlignment(self.import_export_container, Qt.AlignRight)
-
-        if self.config.get('auto_detect_urls', False):
+    
+        if self.config["auto_detect_urls"]:
             self.start_clipboard_monitoring()
         else:
             self.stop_clipboard_monitoring()
-
-        if not self.config.get('auto_detect_urls', False):
-            self.config['auto_add_to_queue'] = False
+    
+        if not self.config["auto_detect_urls"]:
+            self.config["auto_add_to_queue"] = False
 
     def open_settings(self):
         dialog = SettingsDialog(self)
@@ -2873,8 +2906,8 @@ class SteamWorkshopDownloader(QWidget):
         self.download_start_btn.setEnabled(True)
 
     def download_worker(self):
-        batch_size = self.config.get('batch_size', 20)
-        keep_downloaded = self.config.get('keep_downloaded_in_queue', False)
+        batch_size = self.config["batch_size"]
+        keep_downloaded = self.config["keep_downloaded_in_queue"]
     
         while self.is_downloading:
             queued_mods = [mod for mod in self.download_queue if mod['status'] == 'Queued']
