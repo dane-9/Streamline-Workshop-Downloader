@@ -210,6 +210,32 @@ def create_separator(object_name, parent=None, width="", label="", label_alignme
             layout.addWidget(lbl)
             layout.addWidget(create_sep())
     return separator
+    
+def create_help_icon(self, tooltip_text: str, detailed_text: str, parent=None) -> QToolButton:
+    help_btn = QToolButton(parent)
+    
+    icon_path = resource_path("Files/questionmark.png")
+    if os.path.exists(icon_path):
+        help_btn.setIcon(QIcon(icon_path))
+    else:
+        help_btn.setText("?")
+    
+    help_btn.setIconSize(QSize(8, 8))
+    help_btn.setToolTip(tooltip_text)
+    help_btn.setStyleSheet("QToolButton { border: none; padding: 0px; margin: 0px; }")
+    
+    def on_click():
+        msg_box = ThemedMessageBox(parent)
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setWindowTitle("More Information")
+        msg_box.setText(detailed_text)
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.setDefaultButton(QMessageBox.Ok)
+        apply_theme_titlebar(msg_box, parent.config if parent and hasattr(parent, 'config') else {})
+        msg_box.exec()
+    
+    help_btn.clicked.connect(on_click)
+    return help_btn
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):

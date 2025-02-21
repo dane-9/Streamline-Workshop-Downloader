@@ -241,6 +241,7 @@ QToolTip {
 
 QCheckBox {
     color: #000000;
+	margin-right: 2px;
 }
 
 QFrame#settings_separator {
