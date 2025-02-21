@@ -246,6 +246,9 @@ class SettingsDialog(QDialog):
 
         self._config = parent.config if parent else {}
         apply_theme_titlebar(self, self._config)
+        
+        self.pages_widget = QStackedWidget()
+        QTimer.singleShot(100, self.buildPages)
 
         self._current_theme = self._config.get('current_theme', 'Dark')
         self._logo_style = self._config.get('logo_style', 'Light')
@@ -277,17 +280,7 @@ class SettingsDialog(QDialog):
         self.category_tree.setCurrentItem(appearance_item)  # Default selection
         main_layout.addWidget(self.category_tree)
 
-        self.pages_widget = QStackedWidget()
         main_layout.addWidget(self.pages_widget)
-
-        # Build each category page
-        self.appearance_page = self._build_appearance_page()
-        self.download_page = self._build_download_options_page()
-        self.utility_page = self._build_utility_page()
-
-        self.pages_widget.addWidget(self.appearance_page)  # index 0
-        self.pages_widget.addWidget(self.download_page)    # index 1
-        self.pages_widget.addWidget(self.utility_page)     # index 2
 
         # Connect tree selection to page switching
         self.category_tree.currentItemChanged.connect(self.on_category_changed)
@@ -307,6 +300,15 @@ class SettingsDialog(QDialog):
         main_vbox.addLayout(main_layout)
         main_vbox.addLayout(buttons_layout)
         self.setLayout(main_vbox)
+        
+    def buildPages(self):
+        self.appearance_page = self._build_appearance_page()
+        self.download_page = self._build_download_options_page()
+        self.utility_page = self._build_utility_page()
+            
+        self.pages_widget.addWidget(self.appearance_page)  # index 0
+        self.pages_widget.addWidget(self.download_page)    # index 1
+        self.pages_widget.addWidget(self.utility_page)     # index 2
 
     def _build_appearance_page(self):
         page = QWidget()
