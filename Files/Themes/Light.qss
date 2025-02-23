@@ -319,8 +319,24 @@ QComboBox::drop-down {
 }
 
 QMenu::separator {
-        height: 1px;
-        background: #C2C2C5;
-        margin: 4px 10px;
-        border-radius: 2px;
-    }
+    height: 1px;
+    background: #C2C2C5;
+    margin: 4px 10px;
+    border-radius: 2px;
+}
+
+QMenuBar#menuBar {
+	color: #444444;
+    margin: 0px;
+    padding: 0px;
+	spacing: 0px;
+}
+	
+QMenuBar::item#menuBar {
+    padding: 2px 4px;
+    margin-left: 6px;
+}
+
+QMenuBar::item:selected#menuBar {
+    color: #000000;
+}

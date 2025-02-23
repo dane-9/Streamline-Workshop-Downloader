@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
     QMenu, QCheckBox, QFileDialog, QHeaderView, QAbstractItemView, 
     QStyledItemDelegate, QStyle, QToolButton, QRadioButton, 
-    QStackedWidget, QFrame, QSizePolicy
+    QStackedWidget, QFrame, QSizePolicy, QMenuBar
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
@@ -56,6 +56,7 @@ DEFAULT_SETTINGS = {
     "auto_add_to_queue": False,
     
     "download_button": True,
+    "show_menu_bar": True, 
     "show_searchbar": True,
     "show_regex_button": True,
     "show_case_button": True,
@@ -270,7 +271,7 @@ class SettingsDialog(QDialog):
         self.category_tree.setMaximumWidth(150)
         appearance_item = QTreeWidgetItem(["Appearance"])
         download_item = QTreeWidgetItem(["Download Options"])
-        utility_item = QTreeWidgetItem(["Utility Functions"])
+        utility_item = QTreeWidgetItem(["Tools"])
         self.category_tree.setRootIsDecorated(False)
         self.category_tree.addTopLevelItem(appearance_item)
         self.category_tree.addTopLevelItem(download_item)
@@ -350,6 +351,10 @@ class SettingsDialog(QDialog):
         
         layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Show", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
     
+        self.show_menu_bar_checkbox = QCheckBox("Menu Bar")
+        self.show_menu_bar_checkbox.setChecked(self._config.get('show_menu_bar', True))
+        layout.addRow(self.show_menu_bar_checkbox)
+    
         self.show_download_button_checkbox = QCheckBox("Download Button")
         self.show_download_button_checkbox.setChecked(self._config.get('download_button', True))
         layout.addRow(self.show_download_button_checkbox)
@@ -364,7 +369,7 @@ class SettingsDialog(QDialog):
         dependent_layout.setSpacing(0)
         self.show_regex_checkbox = QCheckBox("Regex")
         self.show_regex_checkbox.setChecked(self._config.get('show_regex_button', True))
-        self.show_case_checkbox = QCheckBox("Case-Sensitivity")
+        self.show_case_checkbox = QCheckBox("Case Sensitivity")
         self.show_case_checkbox.setChecked(self._config.get('show_case_button', True))
         dependent_layout.addWidget(self.show_regex_checkbox)
         dependent_layout.addWidget(self.show_case_checkbox)
@@ -512,7 +517,8 @@ class SettingsDialog(QDialog):
             'use_mod_name_for_folder': use_mod_name_for_folder,
             'auto_detect_urls': auto_detect_urls,
             'auto_add_to_queue': auto_add_to_queue,
-            'download_button': self.show_download_button_checkbox.isChecked()
+            'download_button': self.show_download_button_checkbox.isChecked(),
+            'show_menu_bar': self.show_menu_bar_checkbox.isChecked()
         }
         super().accept()
 
@@ -538,6 +544,7 @@ class SettingsDialog(QDialog):
             'show_searchbar': self.show_searchbar_checkbox.isChecked(),
             'show_export_import_buttons': self.show_export_import_buttons_checkbox.isChecked(),
             'show_sort_indicator': self.show_sort_indicator_checkbox.isChecked(),
+            'show_menu_bar': self.show_menu_bar_checkbox.isChecked()
         }
         
     def reset_defaults(self):
@@ -1813,7 +1820,7 @@ class SteamWorkshopDownloader(QWidget):
         self.last_clipboard_text = ""
         self.clipboard_signal_connected = False
         self.item_fetchers = []
-         
+
         logo_style = self.config.get("logo_style", DEFAULT_SETTINGS["logo_style"])
         if logo_style == "Dark":
             logo = "logo_dark.png"
@@ -1822,21 +1829,17 @@ class SteamWorkshopDownloader(QWidget):
         else:
             logo = "logo.png"
         self.setWindowIcon(QIcon(resource_path(f'Files/{logo}')))
-        
+
         current_theme = self.config.get("current_theme", DEFAULT_SETTINGS["current_theme"])
         self.config.setdefault("current_theme", current_theme)
         load_theme(QApplication.instance(), self.config['current_theme'], self.files_dir)
-        
+
         is_dark = "dark" in current_theme.lower()
         set_windows_dark_titlebar(int(self.winId()), is_dark)
 
-        # Define download paths for SteamCMD and SteamWebAPI
-        script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        self.downloads_root_path = os.path.join(script_dir, 'Downloads')
+        self.downloads_root_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'Downloads')
         self.steamcmd_download_path = os.path.join(self.downloads_root_path, 'SteamCMD')
         self.steamwebapi_download_path = os.path.join(self.downloads_root_path, 'SteamWebAPI')
-
-        # Ensure download directories exist
         os.makedirs(self.steamcmd_download_path, exist_ok=True)
         os.makedirs(self.steamwebapi_download_path, exist_ok=True)
 
@@ -1849,9 +1852,8 @@ class SteamWorkshopDownloader(QWidget):
         self.initUI()
         self.adjust_widget_heights()
 
-        # Load the application settings
-        self.populate_steam_accounts()
         self.apply_settings()
+        self.populate_steam_accounts()
 
         self.download_counter = 0
         self.consecutive_failures = 0
@@ -1863,7 +1865,6 @@ class SteamWorkshopDownloader(QWidget):
         # Setup SteamCMD asynchronously
         threading.Thread(target=self.setup_applications, daemon=True).start()
 
-        # Restore the saved window size if it exists
         window_size = self.config.get('window_size')
         if window_size:
             self.resize(window_size.get('width', 670), window_size.get('height', 750))
@@ -1872,12 +1873,132 @@ class SteamWorkshopDownloader(QWidget):
 
     def initUI(self):
         self.setWindowTitle('Streamline')
-        main_layout = QVBoxLayout()
+        self.main_layout = QVBoxLayout(self)
+        if self.config.get("show_menu_bar", True):
+            self.main_layout.setContentsMargins(6, 0, 6, 6)
+            self.main_layout.setSpacing(6)
+        else:
+            self.main_layout.setContentsMargins(6, 6, 6, 6)
+            self.main_layout.setSpacing(6)
+
+        self.menu_bar = QMenuBar()
+        self.menu_bar.setObjectName("menuBar")
+        self.main_layout.setMenuBar(self.menu_bar)
+
+        self.appearance_menu = self.menu_bar.addMenu("Appearance")
+        self.tools_menu = self.menu_bar.addMenu("Tools")
+        self.help_menu = self.menu_bar.addMenu("Help")
+
+        self.theme_submenu = QMenu("Theme", self)
+        self.appearance_menu.addMenu(self.theme_submenu)
+
+        themes_available = []
+        if hasattr(self, 'files_dir'):
+            theme_dir = os.path.join(self.files_dir, "Themes")
+            if os.path.isdir(theme_dir):
+                for f in os.listdir(theme_dir):
+                    if f.endswith(".qss"):
+                        themes_available.append(os.path.splitext(f)[0])
+        if not themes_available:
+            themes_available = ["Dark", "Light"]
+
+        self.theme_actions = []
+        current_theme_name = self.config.get("current_theme", "Dark")
+        for theme_name in themes_available:
+            action = QAction(theme_name, self, checkable=True)
+            action.setChecked(theme_name == current_theme_name)
+            action.triggered.connect(lambda checked, tn=theme_name: self.set_theme(tn) if checked else None)
+            self.theme_submenu.addAction(action)
+            self.theme_actions.append(action)
+
+        self.logo_submenu = QMenu("Logo Style", self)
+        self.appearance_menu.addMenu(self.logo_submenu)
+
+        self.logo_styles = ["Light", "Dark", "Darker"]
+        current_logo_style = self.config.get("logo_style", "Light")
+        self.logo_actions = []
+        for ls in self.logo_styles:
+            logo_action = QAction(ls, self, checkable=True)
+            logo_action.setChecked(ls == current_logo_style)
+            logo_action.triggered.connect(lambda checked, style=ls: self.set_logo_style(style) if checked else None)
+            self.logo_submenu.addAction(logo_action)
+            self.logo_actions.append(logo_action)
+
+        self.show_download_button_act = QAction("Download Button", self, checkable=True)
+        self.show_download_button_act.setChecked(self.config["download_button"])
+        self.show_download_button_act.triggered.connect(lambda checked: self.toggle_config("download_button", checked))
+
+        self.show_searchbar_act = QAction("Search Bar", self, checkable=True)
+        self.show_searchbar_act.setChecked(self.config["show_searchbar"])
+        self.show_searchbar_act.triggered.connect(lambda checked: self.toggle_config("show_searchbar", checked))
+
+        self.show_regex_act = QAction("Regex", self, checkable=True)
+        self.show_regex_act.setChecked(self.config["show_regex_button"])
+        self.show_regex_act.triggered.connect(lambda checked: self.toggle_config("show_regex_button", checked))
+
+        self.show_case_act = QAction("Case-Sensitivity", self, checkable=True)
+        self.show_case_act.setChecked(self.config["show_case_button"])
+        self.show_case_act.triggered.connect(lambda checked: self.toggle_config("show_case_button", checked))
+
+        self.show_import_export_act = QAction("Import/Export Buttons", self, checkable=True)
+        self.show_import_export_act.setChecked(self.config["show_export_import_buttons"])
+        self.show_import_export_act.triggered.connect(lambda checked: self.toggle_config("show_export_import_buttons", checked))
+
+        self.show_sort_act = QAction("Header Sort Indicator", self, checkable=True)
+        self.show_sort_act.setChecked(self.config["show_sort_indicator"])
+        self.show_sort_act.triggered.connect(lambda checked: self.toggle_config("show_sort_indicator", checked))
+
+        self.show_logs_act = QAction("Logs View", self, checkable=True)
+        self.show_logs_act.setChecked(self.config["show_logs"])
+        self.show_logs_act.triggered.connect(lambda checked: self.toggle_config("show_logs", checked))
+
+        self.show_workshop_btn_act = QAction("Queue Entire Workshop Button", self, checkable=True)
+        self.show_workshop_btn_act.setChecked(self.config["show_queue_entire_workshop"])
+        self.show_workshop_btn_act.triggered.connect(lambda checked: self.toggle_config("show_queue_entire_workshop", checked))
+
+        self.show_provider_act = QAction("Provider Dropdown", self, checkable=True)
+        self.show_provider_act.setChecked(self.config["show_provider"])
+        self.show_provider_act.triggered.connect(lambda checked: self.toggle_config("show_provider", checked))
+
+        self.appearance_menu.addSeparator()
+        self.show_submenu = QMenu("Show", self)
+        self.appearance_menu.addMenu(self.show_submenu)
+
+        self.show_submenu.addAction(self.show_download_button_act)
+        self.show_submenu.addAction(self.show_searchbar_act)
+
+        self.searchbar_options_menu = QMenu("Search Bar Options", self)
+        self.searchbar_options_menu.addAction(self.show_regex_act)
+        self.searchbar_options_menu.addAction(self.show_case_act)
+
+        self.show_searchbar_act.toggled.connect(lambda checked: self.searchbar_options_menu.setEnabled(checked))
+        self.show_submenu.addMenu(self.searchbar_options_menu)
+
+        self.show_submenu.addAction(self.show_import_export_act)
+        self.show_submenu.addAction(self.show_sort_act)
+        self.show_submenu.addAction(self.show_logs_act)
+        self.show_submenu.addAction(self.show_workshop_btn_act)
+        self.show_submenu.addAction(self.show_provider_act)
+
+        self.auto_detect_urls_act = QAction("Auto-detect URLs from Clipboard", self, checkable=True)
+        self.auto_detect_urls_act.setChecked(self.config["auto_detect_urls"])
+        self.auto_detect_urls_act.triggered.connect(lambda checked: self.toggle_config("auto_detect_urls", checked))
+
+        self.auto_add_to_queue_act = QAction("     Auto-add detected URLs to Queue", self, checkable=True)
+        self.auto_add_to_queue_act.setChecked(self.config["auto_add_to_queue"])
+        self.auto_add_to_queue_act.setEnabled(self.config["auto_detect_urls"])
+        self.auto_add_to_queue_act.triggered.connect(lambda checked: self.toggle_config("auto_add_to_queue", checked))
+
+        self.tools_menu.addAction(self.auto_detect_urls_act)
+        self.tools_menu.addAction(self.auto_add_to_queue_act)
+
+        doc_action = QAction("Documentation", self)
+        about_action = QAction("About", self)
+        self.help_menu.addAction(doc_action)
+        self.help_menu.addAction(about_action)
 
         top_layout = QHBoxLayout()
-        
         settings_icon = QIcon(resource_path('Files/settings.png'))
-        
         self.settings_btn = QPushButton()
         self.settings_btn.setIcon(settings_icon)
         self.settings_btn.setIconSize(QSize(20, 20))
@@ -1892,14 +2013,13 @@ class SteamWorkshopDownloader(QWidget):
         self.configure_steam_accounts_btn.setFixedWidth(32)
         self.configure_steam_accounts_btn.clicked.connect(self.open_configure_steam_accounts)
         top_layout.addWidget(self.configure_steam_accounts_btn)
-        
+
         self.update_appids_btn = QPushButton('Update AppIDs')
         self.update_appids_btn.setFixedWidth(100)
         self.update_appids_btn.clicked.connect(self.open_update_appids)
         top_layout.addWidget(self.update_appids_btn)
 
         account_layout = QHBoxLayout()
-
         self.active_account_label = QLabel("Active Account:")
         account_layout.addStretch() # Pushes the text closer to the dropdown
         account_layout.addWidget(self.active_account_label)
@@ -1911,9 +2031,7 @@ class SteamWorkshopDownloader(QWidget):
         account_layout.addWidget(self.steam_accounts_dropdown)
 
         top_layout.addLayout(account_layout)
-
-        main_layout.addLayout(top_layout)
-        apply_theme_titlebar(self, self.config)
+        self.main_layout.addLayout(top_layout)
 
         mod_layout = QHBoxLayout()
         self.workshop_input = QLineEdit()
@@ -1928,10 +2046,9 @@ class SteamWorkshopDownloader(QWidget):
         mod_layout.addWidget(self.workshop_input)
         mod_layout.addWidget(self.download_btn)
         mod_layout.addWidget(self.add_to_queue_btn)
-        main_layout.addLayout(mod_layout)
+        self.main_layout.addLayout(mod_layout)
 
         queue_layout = QHBoxLayout()
-        
         self.search_input = QLineEdit()
         self.update_queue_count()
         set_custom_clear_icon(self.search_input)
@@ -1940,7 +2057,7 @@ class SteamWorkshopDownloader(QWidget):
         self.search_timer.timeout.connect(self.perform_search)
         self.search_input.textChanged.connect(self.on_search_text_changed)
         queue_layout.addWidget(self.search_input)
-        
+
         self.caseButton = QToolButton()
         self.caseButton.setCheckable(True)
         self.caseButton.setToolTip("Case sensitivity")
@@ -1949,7 +2066,7 @@ class SteamWorkshopDownloader(QWidget):
         self.caseButton.setStyleSheet("QToolButton { border: none; }")
         self.caseButton.toggled.connect(self.updateCaseIcon)
         queue_layout.addWidget(self.caseButton)
-        
+
         self.regexButton = QToolButton()
         self.regexButton.setCheckable(True)
         self.regexButton.setToolTip("Regex")
@@ -1958,32 +2075,28 @@ class SteamWorkshopDownloader(QWidget):
         self.regexButton.setStyleSheet("QToolButton { border: none; }")
         self.regexButton.toggled.connect(self.updateRegexIcon)
         queue_layout.addWidget(self.regexButton)
-        
+
         buttonContainer = QWidget()
         vbox = QVBoxLayout(buttonContainer)
         vbox.setContentsMargins(0, 0, 0, 0)
         vbox.setSpacing(1)
-        
+
         self.import_queue_btn = QPushButton('Import Queue')
         self.import_queue_btn.setObjectName("ImportQueueBtn")
         self.import_queue_btn.clicked.connect(self.import_queue)
-        
         self.export_queue_btn = QPushButton('Export Queue')
         self.export_queue_btn.setObjectName("ExportQueueBtn")
         self.export_queue_btn.clicked.connect(self.export_queue)
         self.export_queue_btn.setEnabled(False)
-        
+
         vbox.addWidget(self.import_queue_btn)
         vbox.addWidget(self.export_queue_btn)
-        
         buttonContainer.setFixedWidth(90)
         queue_layout.addWidget(buttonContainer)
-        
         self.queue_layout = queue_layout
         self.import_export_container = buttonContainer
+        self.main_layout.addLayout(queue_layout)
 
-        main_layout.addLayout(queue_layout)
-        
         self.reset_action = QAction("Reset", self)
         self.reset_action.setEnabled(not self.header_locked)  # Disable when locked
         self.reset_action.triggered.connect(self.reset_columns)
@@ -2000,47 +2113,35 @@ class SteamWorkshopDownloader(QWidget):
         self.queue_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.queue_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue_tree.customContextMenuRequested.connect(self.open_context_menu)
-        
-        # Prevent the last column from stretching
         self.queue_tree.header().setStretchLastSection(False)
-        
-        # sorting by header
         self._sortClicked = False
         self.queue_tree.setSortingEnabled(True)
         self.queue_tree.header().setSortIndicatorShown(False)
         self.queue_tree.header().sectionClicked.connect(self.sort_column_indicator)
-
-        # Add context menu to the header for hiding columns
         header = self.queue_tree.header()
         header.setContextMenuPolicy(Qt.CustomContextMenu)
         header.customContextMenuRequested.connect(self.open_header_context_menu)
         self.toggle_header_lock(self.header_locked)
 
-        # Restore column widths and hidden state from the configuration
         default_widths = self.config["queue_tree_default_widths"]
-
         saved_widths = self.config["queue_tree_column_widths"]
         if not saved_widths:
             saved_widths = default_widths
-        
         saved_hidden = self.config["queue_tree_column_hidden"]
         if not saved_hidden:
             saved_hidden = [False] * self.queue_tree.columnCount()
-        
-        # Apply widths and hidden state
-        for i in range(self.queue_tree.columnCount()):
 
+        for i in range(self.queue_tree.columnCount()):
             if i < len(saved_widths):
                 self.queue_tree.setColumnWidth(i, saved_widths[i])
             else:
                 self.queue_tree.setColumnWidth(i, default_widths[i])
-        
             if i < len(saved_hidden):
                 self.queue_tree.setColumnHidden(i, saved_hidden[i])
             else:
                 self.queue_tree.setColumnHidden(i, False)
 
-        main_layout.addWidget(self.queue_tree, stretch=3)
+        self.main_layout.addWidget(self.queue_tree, stretch=3)
 
         button_layout = QHBoxLayout()
         self.download_start_btn = QPushButton('Start Download')
@@ -2050,14 +2151,13 @@ class SteamWorkshopDownloader(QWidget):
         self.open_folder_btn = QPushButton('Open Downloads Folder')
         self.open_folder_btn.clicked.connect(self.open_downloads_folder)
         button_layout.addWidget(self.open_folder_btn)
-        main_layout.addLayout(button_layout)
+        self.main_layout.addLayout(button_layout)
 
-        log_layout = QVBoxLayout()
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
         self.log_area.setFixedHeight(150)
         self.log_area.setPlaceholderText("Logs")
-        main_layout.addWidget(self.log_area, stretch=1)
+        self.main_layout.addWidget(self.log_area, stretch=1)
 
         self.provider_layout = QHBoxLayout()
         self.queue_entire_workshop_btn = QPushButton("Queue Entire Workshop")
@@ -2072,9 +2172,10 @@ class SteamWorkshopDownloader(QWidget):
         self.provider_dropdown.addItems(['Default', 'SteamCMD', 'SteamWebAPI'])
         self.provider_dropdown.currentIndexChanged.connect(self.on_provider_changed)
         self.provider_layout.addWidget(self.provider_dropdown)
-        main_layout.addLayout(self.provider_layout)
+        self.main_layout.addLayout(self.provider_layout)
 
-        self.setLayout(main_layout)
+        apply_theme_titlebar(self, self.config)
+        self.setLayout(self.main_layout)
         
     def adjust_widget_heights(self):
         button_height = 28
@@ -2530,7 +2631,6 @@ class SteamWorkshopDownloader(QWidget):
         for account in self.config.get('steam_accounts', []):
             self.steam_accounts_dropdown.addItem(account['username'])
  
-        # Set active account from the config
         active = self.config.get('active_account', "Anonymous")
         index = self.steam_accounts_dropdown.findText(active, Qt.MatchExactly)
         if index >= 0:
@@ -2538,9 +2638,43 @@ class SteamWorkshopDownloader(QWidget):
         else:
             self.steam_accounts_dropdown.setCurrentIndex(0)
         self.steam_accounts_dropdown.blockSignals(False)
+        
+    def set_theme(self, theme_name):
+        self.config["current_theme"] = theme_name
+        self.save_config()
+        load_theme(QApplication.instance(), theme_name, self.files_dir)
+        apply_theme_titlebar(self, self.config)
+        self.log_signal.emit(f"Theme changed to '{theme_name}'.")
+
+        for action in self.theme_actions:
+            action.setChecked(action.text() == theme_name)
+
+    def set_logo_style(self, style_name):
+        self.config["logo_style"] = style_name
+        self.save_config()
+
+        if style_name == "Dark":
+            logo = "logo_dark.png"
+        elif style_name == "Darker":
+            logo = "logo_darker.png"
+        else:
+            logo = "logo.png"
+        self.setWindowIcon(QIcon(resource_path(f'Files/{logo}')))
+        self.log_signal.emit(f"Logo style changed to '{style_name}'.")
+
+        for action in self.logo_actions:
+            action.setChecked(action.text() == style_name)
+
+    def toggle_config(self, key, checked):
+        self.config[key] = checked
+        self.save_config()
+
+        if key == "auto_detect_urls":
+            self.auto_add_to_queue_act.setEnabled(checked)
+        self.apply_settings()
+        self.log_signal.emit(f"Option '{key}' set to {checked}.")
 
     def apply_settings(self):
-
         self.download_btn.setVisible(self.config["download_button"])
         self.search_input.setVisible(self.config["show_searchbar"])
         self.regexButton.setVisible(self.config["show_regex_button"])
@@ -2550,13 +2684,19 @@ class SteamWorkshopDownloader(QWidget):
         self.provider_label.setVisible(self.config["show_provider"])
         self.provider_dropdown.setVisible(self.config["show_provider"])
         self.queue_entire_workshop_btn.setVisible(self.config["show_queue_entire_workshop"])
-    
+        self.menu_bar.setVisible(self.config["show_menu_bar"])
+        
+        if self.config.get("show_menu_bar", True):
+            self.main_layout.setContentsMargins(6, 0, 6, 6)
+            self.main_layout.setSpacing(6)
+        else:
+            self.main_layout.setContentsMargins(6, 6, 6, 6)
+            self.main_layout.setSpacing(6)
+
         if not self.config["show_sort_indicator"]:
             self.queue_tree.header().setSortIndicatorShown(False)
-    
-        searchbar_visible = self.config["show_searchbar"]
-        self.search_input.setVisible(searchbar_visible)
-        if searchbar_visible:
+
+        if self.config["show_searchbar"]:
             self.regexButton.setVisible(self.config["show_regex_button"])
             self.caseButton.setVisible(self.config["show_case_button"])
             self.queue_layout.setAlignment(self.import_export_container, Qt.AlignLeft)
@@ -2564,14 +2704,27 @@ class SteamWorkshopDownloader(QWidget):
             self.regexButton.setVisible(False)
             self.caseButton.setVisible(False)
             self.queue_layout.setAlignment(self.import_export_container, Qt.AlignRight)
-    
+
         if self.config["auto_detect_urls"]:
             self.start_clipboard_monitoring()
         else:
             self.stop_clipboard_monitoring()
-    
+
         if not self.config["auto_detect_urls"]:
             self.config["auto_add_to_queue"] = False
+            self.auto_add_to_queue_act.setChecked(False)
+            self.save_config()
+            
+    def update_menubar(self):
+        self.show_download_button_act.setChecked(self.config["download_button"])
+        self.show_searchbar_act.setChecked(self.config["show_searchbar"])
+        self.show_regex_act.setChecked(self.config["show_regex_button"])
+        self.show_case_act.setChecked(self.config["show_case_button"])
+        self.show_import_export_act.setChecked(self.config["show_export_import_buttons"])
+        self.show_sort_act.setChecked(self.config["show_sort_indicator"])
+        self.show_logs_act.setChecked(self.config["show_logs"])
+        self.show_workshop_btn_act.setChecked(self.config["show_queue_entire_workshop"])
+        self.show_provider_act.setChecked(self.config["show_provider"])
 
     def open_settings(self):
         dialog = SettingsDialog(self)
@@ -2596,6 +2749,8 @@ class SteamWorkshopDownloader(QWidget):
             self.setWindowIcon(QIcon(resource_path(f'Files/{logo}')))
     
             apply_theme_titlebar(self, self.config)
+            
+            self.update_menubar()
     
             self.log_signal.emit("Settings updated successfully.")
 
