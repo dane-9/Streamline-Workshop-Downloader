@@ -677,7 +677,96 @@ class SettingsDialog(QDialog):
         self.auto_detect_urls_checkbox.setChecked(DEFAULT_SETTINGS["auto_detect_urls"])
         self.auto_add_to_queue_checkbox.setChecked(DEFAULT_SETTINGS["auto_add_to_queue"])
         self.update_checkbox_style()
+
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("About Streamline")
+        self.setModal(True)
+        self.setFixedSize(450, 350)
         
+        apply_theme_titlebar(self, self.parent().config)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        logo_container = QWidget()
+        logo_container.setFixedHeight(80)
+        logo_container_layout = QVBoxLayout(logo_container)
+        logo_container_layout.setContentsMargins(0, 0, 0, 0)
+        
+        logo_label = QLabel()
+        logo_style = self.parent().config.get("logo_style", "Light")
+        if logo_style == "Dark":
+            logo = "logo_dark.png"
+        elif logo_style == "Darker":
+            logo = "logo_darker.png"
+        else:
+            logo = "logo.png"
+
+        logo_path = resource_path(f'Files/{logo}')
+        pixmap = QPixmap(logo_path)
+        logo_label.setPixmap(pixmap.scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo_label.setAlignment(Qt.AlignCenter)
+        logo_container_layout.addWidget(logo_label)
+        layout.addWidget(logo_container)
+
+        title_label = QLabel("Streamline - Steam Workshop Downloader")
+        title_label.setAlignment(Qt.AlignCenter)
+        font = title_label.font()
+        font.setBold(True)
+        font.setPointSize(font.pointSize() + 3)
+        title_label.setFont(font)
+        title_label.setObjectName("about_title_label")
+        layout.addWidget(title_label)
+
+        version_label = QLabel("Version 1.2.0")
+        version_label.setAlignment(Qt.AlignCenter)
+        version_font = version_label.font()
+        version_font.setItalic(True)
+        version_label.setFont(version_font)
+        layout.addWidget(version_label)
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        separator.setFixedHeight(1)
+        layout.addWidget(separator)
+
+        description = QLabel(
+            "A modern Steam Workshop Downloader with queue management,\n"
+            "supporting both SteamCMD and SteamWebAPI."
+        )
+        description.setAlignment(Qt.AlignCenter)
+        description.setWordWrap(True)
+        description.setObjectName("about_description")
+        description_font = description.font()
+        description_font.setPointSize(description_font.pointSize() + 1)
+        description.setFont(description_font)
+        layout.addWidget(description)
+
+        creator_label = QLabel("Created by <b>dane-9</b>")
+        creator_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(creator_label)
+
+        github_link = QLabel("<a style='color: #40b6e0; text-decoration: none;' href='https://github.com/dane-9/Streamline-Workshop-Downloader'>GitHub Repository</a>")
+        github_link.setOpenExternalLinks(True)
+        github_link.setAlignment(Qt.AlignCenter)
+        link_font = github_link.font()
+        link_font.setPointSize(link_font.pointSize() + 1)
+        github_link.setFont(link_font)
+        layout.addWidget(github_link)
+
+        layout.addStretch(1)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok)
+        button_box.accepted.connect(self.accept)
+        ok_button = button_box.button(QDialogButtonBox.Ok)
+        ok_button.setFixedWidth(100)
+        ok_button.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(button_box, alignment=Qt.AlignCenter)
+
 class ThemedMessageBox(QMessageBox):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2097,6 +2186,7 @@ class SteamWorkshopDownloader(QWidget):
         doc_action = QAction("Documentation", self)
         about_action = QAction("About", self)
         self.help_menu.addAction(doc_action)
+        about_action.triggered.connect(self.show_about_dialog)
         self.help_menu.addAction(about_action)
 
         top_layout = QHBoxLayout()
@@ -4041,6 +4131,10 @@ class SteamWorkshopDownloader(QWidget):
         else:
             self.caseButton.setIcon(QIcon("Files/case_disabled.png"))
         self.perform_search()
+        
+    def show_about_dialog(self):
+        dialog = AboutDialog(self)
+        dialog.exec()
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
