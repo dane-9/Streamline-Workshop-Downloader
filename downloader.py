@@ -31,15 +31,16 @@ from PySide6.QtWidgets import (
     QComboBox, QDialog, QSpinBox, QFormLayout, QDialogButtonBox,
     QMenu, QCheckBox, QFileDialog, QHeaderView, QAbstractItemView, 
     QStyledItemDelegate, QStyle, QToolButton, QRadioButton, 
-    QStackedWidget, QFrame, QSizePolicy, QMenuBar
+    QStackedWidget, QFrame, QSizePolicy, QMenuBar, QStyleOptionComboBox,
+    QStyleOptionViewItem,
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
-    QCoreApplication, Slot, 
+    QCoreApplication, Slot,
 )
 from PySide6.QtGui import (
     QTextCursor, QAction, QClipboard, QIcon, QCursor, QPainter,
-    QColor, QPixmap, QPolygon,
+    QColor, QPixmap, QPolygon, QFontMetrics,
 )
 
 DEFAULT_SETTINGS = {
@@ -237,6 +238,107 @@ def create_help_icon(self, tooltip_text: str, detailed_text: str, parent=None) -
     
     help_btn.clicked.connect(on_click)
     return help_btn
+    
+
+class ActiveDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        # Create a copy of the option to modify
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        
+        # Get the text and active account info
+        text = index.data(Qt.DisplayRole) or ""
+        active_suffix = "  (Active)"
+        
+        combo = self.parent()
+        active_account = ""
+        if combo and hasattr(combo, 'config'):
+            active_account = combo.config.get('active_account', "Anonymous")
+            
+        if text == active_account:
+            super().paint(painter, opt, index)
+            
+            style = QApplication.style()
+            text_rect = style.subElementRect(QStyle.SE_ItemViewItemText, opt, opt.widget)
+            if not text_rect.isValid():
+                text_rect = opt.rect.adjusted(4, 0, -4, 0)
+            
+            fm = painter.fontMetrics()
+            text_width = fm.horizontalAdvance(text)
+            
+            painter.save()
+            
+            smaller_font = painter.font()
+            smaller_font.setPointSize(max(6, smaller_font.pointSize() - 3))
+            painter.setFont(smaller_font)
+            
+            painter.setPen(QColor("#40b6e0"))
+            
+            suffix_rect = text_rect
+            suffix_rect.setLeft(text_rect.left() + text_width)
+            painter.drawText(suffix_rect, Qt.AlignVCenter | Qt.AlignLeft, active_suffix)
+            
+            painter.restore()
+        else:
+            super().paint(painter, opt, index)
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        text = index.data(Qt.DisplayRole) or ""
+        
+        combo = self.parent()
+        if combo and hasattr(combo, 'config'):
+            active_account = combo.config.get('active_account', "Anonymous")
+            if text == active_account:
+                fm = QFontMetrics(option.font)
+                suffix_width = fm.horizontalAdvance(" (Active)")
+                size.setWidth(size.width() + suffix_width)
+        
+        return size
+
+class ActiveComboBox(QComboBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.config = parent.config if parent and hasattr(parent, 'config') else {}
+        self.delegate = ActiveDelegate(self)
+        self.setItemDelegate(self.delegate)
+        
+    def showPopup(self):
+        self.view().setItemDelegate(self.delegate)
+        super().showPopup()
+        
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        option = QStyleOptionComboBox()
+        self.initStyleOption(option)
+        option.currentText = ""
+
+        self.style().drawComplexControl(QStyle.CC_ComboBox, option, painter, self)
+
+        arrow_size = self.style().pixelMetric(QStyle.PM_MenuButtonIndicator, option, self)
+        text_rect = option.rect.adjusted(4, 0, -arrow_size - 5, 0)
+
+        text = self.currentText()
+        active_account = self.config.get('active_account', "Anonymous")
+        active_suffix = " (Active)"
+        
+        painter.setPen(option.palette.text().color())
+        painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, text)
+
+        if text == active_account:
+            fm = painter.fontMetrics()
+            text_width = fm.horizontalAdvance(text)
+            suffix_rect = text_rect.adjusted(text_width, 0, 0, 0)
+            
+            painter.save()
+            smaller_font = painter.font()
+            smaller_font.setPointSize(max(6, smaller_font.pointSize() - 3))  # Match delegate size
+            painter.setFont(smaller_font)
+            painter.setPen(QColor("#40b6e0"))
+            painter.drawText(suffix_rect, Qt.AlignVCenter | Qt.AlignLeft, active_suffix)
+            painter.restore()
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -2020,11 +2122,10 @@ class SteamWorkshopDownloader(QWidget):
         top_layout.addWidget(self.update_appids_btn)
 
         account_layout = QHBoxLayout()
-        self.active_account_label = QLabel("Active Account:")
-        account_layout.addStretch() # Pushes the text closer to the dropdown
-        account_layout.addWidget(self.active_account_label)
+        account_layout.addStretch() # Pushes the dropdown to the right
 
-        self.steam_accounts_dropdown = QComboBox()
+        self.steam_accounts_dropdown = ActiveComboBox()
+        self.steam_accounts_dropdown.setItemDelegate(ActiveDelegate())
         self.steam_accounts_dropdown.addItem("Anonymous")
         self.steam_accounts_dropdown.setFixedWidth(186)
         self.steam_accounts_dropdown.currentIndexChanged.connect(self.change_active_account)
@@ -2625,19 +2726,29 @@ class SteamWorkshopDownloader(QWidget):
             self.log_signal.emit(f"Selected mod(s) changed to '{new_game_name}' / '{extracted_app_id}'.")
 
     def populate_steam_accounts(self):
-        self.steam_accounts_dropdown.blockSignals(True)  # Prevent signals while updating
+        self.steam_accounts_dropdown.blockSignals(True)
         self.steam_accounts_dropdown.clear()
+        
+        active_account = self.config.get('active_account', "Anonymous")
+        
+        self.steam_accounts_dropdown.config = self.config
+        
         self.steam_accounts_dropdown.addItem("Anonymous")
+        
         for account in self.config.get('steam_accounts', []):
-            self.steam_accounts_dropdown.addItem(account['username'])
- 
-        active = self.config.get('active_account', "Anonymous")
-        index = self.steam_accounts_dropdown.findText(active, Qt.MatchExactly)
+            username = account.get('username', '')
+            self.steam_accounts_dropdown.addItem(username)
+        
+        # Set the current index
+        index = self.steam_accounts_dropdown.findText(active_account, Qt.MatchFixedString)
         if index >= 0:
             self.steam_accounts_dropdown.setCurrentIndex(index)
         else:
             self.steam_accounts_dropdown.setCurrentIndex(0)
+        
         self.steam_accounts_dropdown.blockSignals(False)
+
+        self.steam_accounts_dropdown.repaint()
         
     def set_theme(self, theme_name):
         self.config["current_theme"] = theme_name
