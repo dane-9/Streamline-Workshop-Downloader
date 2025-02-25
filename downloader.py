@@ -2190,6 +2190,7 @@ class SteamWorkshopDownloader(QWidget):
         self.help_menu.addAction(report_issue_action)
         
         doc_action = QAction("Documentation", self)
+        doc_action.setEnabled(False)
         about_action = QAction("About", self)
         self.help_menu.addAction(doc_action)
         about_action.triggered.connect(self.show_about_dialog)
