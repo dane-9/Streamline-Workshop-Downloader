@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
     QMenu, QCheckBox, QFileDialog, QHeaderView, QAbstractItemView, 
     QStyledItemDelegate, QStyle, QToolButton, QRadioButton, 
     QStackedWidget, QFrame, QSizePolicy, QMenuBar, QStyleOptionComboBox,
-    QStyleOptionViewItem,
+    QStyleOptionViewItem, QWidgetAction
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
@@ -2352,6 +2352,8 @@ class SteamWorkshopDownloader(QWidget):
         self.main_layout.addLayout(button_layout)
 
         self.log_area = QTextEdit()
+        self.log_area.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.log_area.customContextMenuRequested.connect(self.showLogContextMenu)
         self.log_area.setReadOnly(True)
         self.log_area.setFixedHeight(150)
         self.log_area.setPlaceholderText("Logs")
@@ -4142,6 +4144,17 @@ class SteamWorkshopDownloader(QWidget):
     def show_about_dialog(self):
         dialog = AboutDialog(self)
         dialog.exec()
+        
+    def showLogContextMenu(self, pos):
+        menu = self.log_area.createStandardContextMenu()
+        
+        clear_logs_action = QAction("Clear Logs", self)
+        clear_logs_action.triggered.connect(self.clearLogs)
+        menu.addAction(clear_logs_action)
+        menu.exec(self.log_area.mapToGlobal(pos))
+
+    def clearLogs(self):
+        self.log_area.clear()
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
