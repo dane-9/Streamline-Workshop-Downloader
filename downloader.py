@@ -43,6 +43,8 @@ from PySide6.QtGui import (
     QColor, QPixmap, QPolygon, QFontMetrics,
 )
 
+current_version = "1.2.0"
+
 DEFAULT_SETTINGS = {
     "current_theme": "Dark",
     "logo_style": "Light",
@@ -72,6 +74,7 @@ DEFAULT_SETTINGS = {
     "queue_tree_default_widths": [115, 90, 230, 100, 95],
     "queue_tree_column_widths": None,
     "queue_tree_column_hidden": None,
+    "show_version": True
 }
 
 # Allows logo to be applied over pythonw.exe's own
@@ -453,6 +456,11 @@ class SettingsDialog(QDialog):
         
         layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Show", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
     
+        show_version_checkbox = QCheckBox("Show Version in Title")
+        show_version_checkbox.setChecked(self._config.get("show_version", True))
+        layout.addRow(show_version_checkbox)
+        self.show_version_checkbox = show_version_checkbox
+    
         self.show_menu_bar_checkbox = QCheckBox("Menu Bar")
         self.show_menu_bar_checkbox.setChecked(self._config.get('show_menu_bar', True))
         layout.addRow(self.show_menu_bar_checkbox)
@@ -620,7 +628,8 @@ class SettingsDialog(QDialog):
             'auto_detect_urls': auto_detect_urls,
             'auto_add_to_queue': auto_add_to_queue,
             'download_button': self.show_download_button_checkbox.isChecked(),
-            'show_menu_bar': self.show_menu_bar_checkbox.isChecked()
+            'show_menu_bar': self.show_menu_bar_checkbox.isChecked(),
+            'show_version': self.show_version_checkbox.isChecked()
         }
         super().accept()
 
@@ -646,7 +655,8 @@ class SettingsDialog(QDialog):
             'show_searchbar': self.show_searchbar_checkbox.isChecked(),
             'show_export_import_buttons': self.show_export_import_buttons_checkbox.isChecked(),
             'show_sort_indicator': self.show_sort_indicator_checkbox.isChecked(),
-            'show_menu_bar': self.show_menu_bar_checkbox.isChecked()
+            'show_menu_bar': self.show_menu_bar_checkbox.isChecked(),
+            'show_version': self.show_version_checkbox.isChecked()
         }
         
     def reset_defaults(self):
@@ -721,7 +731,7 @@ class AboutDialog(QDialog):
         title_label.setObjectName("about_title_label")
         layout.addWidget(title_label)
 
-        version_label = QLabel("Version 1.2.0")
+        version_label = QLabel(f"Version {current_version}")
         version_label.setAlignment(Qt.AlignCenter)
         version_font = version_label.font()
         version_font.setItalic(True)
@@ -2003,6 +2013,7 @@ class SteamWorkshopDownloader(QWidget):
         self.config = {}
         self.config_path = self.get_config_path()
         self.load_config()
+        self.updateWindowTitle()
         self.steamcmd_dir = os.path.join(self.files_dir, 'steamcmd')
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         self.current_process = None
@@ -2925,6 +2936,8 @@ class SteamWorkshopDownloader(QWidget):
             self.auto_add_to_queue_act.setChecked(False)
             self.save_config()
             
+        self.updateWindowTitle()
+            
     def update_menubar(self):
         self.show_download_button_act.setChecked(self.config["download_button"])
         self.show_searchbar_act.setChecked(self.config["show_searchbar"])
@@ -2961,6 +2974,7 @@ class SteamWorkshopDownloader(QWidget):
             apply_theme_titlebar(self, self.config)
             
             self.update_menubar()
+            self.updateWindowTitle()
     
             self.log_signal.emit("Settings updated successfully.")
 
@@ -4155,6 +4169,12 @@ class SteamWorkshopDownloader(QWidget):
 
     def clearLogs(self):
         self.log_area.clear()
+        
+    def updateWindowTitle(self):
+        base_title = "Streamline"
+        if self.config.get("show_version", True):
+            base_title += f" v{current_version}"
+        self.setWindowTitle(base_title)
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
