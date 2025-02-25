@@ -2182,7 +2182,13 @@ class SteamWorkshopDownloader(QWidget):
 
         self.tools_menu.addAction(self.auto_detect_urls_act)
         self.tools_menu.addAction(self.auto_add_to_queue_act)
-
+        
+        report_issue_action = QAction("Report Issue...", self)
+        report_issue_action.triggered.connect(
+            lambda: webbrowser.open("https://github.com/dane-9/Streamline-Workshop-Downloader/issues/new")
+        )
+        self.help_menu.addAction(report_issue_action)
+        
         doc_action = QAction("Documentation", self)
         about_action = QAction("About", self)
         self.help_menu.addAction(doc_action)
