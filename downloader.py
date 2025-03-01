@@ -1609,40 +1609,72 @@ class UpdateAppIDsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Update AppIDs")
         self.setModal(True)
-        self.setFixedSize(350, 125)
+        self.setFixedSize(400, 200)
         
         apply_theme_titlebar(self, self.parent().config)
         
         main_layout = QVBoxLayout(self)
-            
-        self.last_updated_label = QLabel()
-        main_layout.addWidget(self.last_updated_label)
-        self.total_appids_label = QLabel()
-        main_layout.addWidget(self.total_appids_label)
-
-        self.update_file_info()
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(10, 25, 10, 10)
         
-        types_layout = QHBoxLayout()
-        types_label = QLabel("Types:")
-        types_layout.addWidget(types_label)
+        info_frame = QFrame()
+        info_frame.setFrameShape(QFrame.StyledPanel)
+        info_frame.setStyleSheet("""QFrame { background-color: #3A3A3A; border-radius: 3px; } """)
+        
+        info_layout = QVBoxLayout(info_frame)
+        info_layout.setSpacing(8)
+        
+        self.last_updated_label = QLabel()
+        self.last_updated_label.setStyleSheet("font-weight: normal;")
+        
+        self.total_appids_label = QLabel()
+        self.total_appids_label.setStyleSheet("font-weight: normal;")
+        
+        info_layout.addWidget(self.last_updated_label)
+        info_layout.addWidget(self.total_appids_label)
+        
+        self.update_file_info()
+        main_layout.addWidget(info_frame)
+        
+        types_label = QLabel("Select Types to Update:")
+        font = types_label.font()
+        font.setBold(True)
+        types_label.setFont(font)
+        main_layout.addWidget(types_label)
+        
+        checkbox_layout = QHBoxLayout()
+        checkbox_layout.setSpacing(15)
         
         self.games_checkbox = QCheckBox("Games")
         self.games_checkbox.setChecked(True)
+        
         self.applications_checkbox = QCheckBox("Applications")
         self.applications_checkbox.setChecked(False)
+        
         self.tools_checkbox = QCheckBox("Tools")
         self.tools_checkbox.setChecked(False)
-        types_layout.addWidget(self.games_checkbox)
-        types_layout.addWidget(self.applications_checkbox)
-        types_layout.addWidget(self.tools_checkbox)
-        types_layout.addStretch()
-        main_layout.addLayout(types_layout)
         
+        checkbox_layout.addWidget(self.games_checkbox)
+        checkbox_layout.addWidget(self.applications_checkbox)
+        checkbox_layout.addWidget(self.tools_checkbox)
+        checkbox_layout.addStretch()
+        
+        main_layout.addLayout(checkbox_layout)
+        
+        # Button section
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
-        start_button = buttons.addButton("Start", QDialogButtonBox.AcceptRole)
+        start_button = buttons.addButton("Start Update", QDialogButtonBox.AcceptRole)
+        
+        start_button.setFixedWidth(100)
+        start_button.setStyleSheet("background-color: #4D8AC9; color: #FFFFFF; font-weight: bold;")
+        
+        cancel_button = buttons.button(QDialogButtonBox.Cancel)
+        cancel_button.setFixedWidth(100)
+        
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        main_layout.addWidget(buttons)
+        
+        main_layout.addWidget(buttons, alignment=Qt.AlignRight)
     
     def update_file_info(self):
         appids_path = os.path.join(self.parent().files_dir, 'AppIDs.txt')
@@ -1651,7 +1683,8 @@ class UpdateAppIDsDialog(QDialog):
             mtime = os.path.getmtime(appids_path)
             last_updated_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime))
             self.last_updated_label.setText(f"Last Updated: {last_updated_str}")
-            # Only Count non-empty lines
+            
+            # Count non-empty lines
             with open(appids_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
             total_count = len([line for line in lines if line.strip()])
@@ -2252,8 +2285,11 @@ class SteamWorkshopDownloader(QWidget):
         self.configure_steam_accounts_btn.clicked.connect(self.open_configure_steam_accounts)
         top_layout.addWidget(self.configure_steam_accounts_btn)
 
-        self.update_appids_btn = QPushButton('Update AppIDs')
-        self.update_appids_btn.setFixedWidth(100)
+        self.update_appids_btn = QPushButton(' AppIDs')
+        appids_icon = QIcon(resource_path('Files/update_appids.png'))
+        self.update_appids_btn.setIcon(QIcon(appids_icon))
+        self.update_appids_btn.setIconSize(QSize(20, 20))
+        self.update_appids_btn.setFixedWidth(80)
         self.update_appids_btn.clicked.connect(self.open_update_appids)
         top_layout.addWidget(self.update_appids_btn)
 
