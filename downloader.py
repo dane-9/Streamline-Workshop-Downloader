@@ -360,7 +360,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.setFixedSize(550, 450)
+        self.setFixedSize(650, 550)
 
         self._config = parent.config if parent else {}
         apply_theme_titlebar(self, self._config)
@@ -385,20 +385,31 @@ class SettingsDialog(QDialog):
         self.category_tree.setObjectName("settings_tree")
         self.category_tree.setHeaderHidden(True)
         self.category_tree.setMinimumWidth(125)
-        self.category_tree.setMaximumWidth(150)
+        self.category_tree.setMaximumWidth(190)
+        self.category_tree.setIconSize(QSize(16, 16))
+        
         appearance_item = QTreeWidgetItem(["Appearance"])
+        appearance_icon = QIcon(resource_path("Files/appearance_options.png"))
+        appearance_item.setIcon(0, appearance_icon)
+        
         download_item = QTreeWidgetItem(["Download Options"])
+        download_icon = QIcon(resource_path("Files/download_options.png"))
+        download_item.setIcon(0, download_icon)
+        
         utility_item = QTreeWidgetItem(["Tools"])
+        tool_icon = QIcon(resource_path("Files/tool_options.png"))
+        utility_item.setIcon(0, tool_icon)
+        
         self.category_tree.setRootIsDecorated(False)
         self.category_tree.addTopLevelItem(appearance_item)
         self.category_tree.addTopLevelItem(download_item)
         self.category_tree.addTopLevelItem(utility_item)
-        self.category_tree.setItemDelegate(NoFocusDelegate(self.category_tree))
+
+        self.category_tree.setItemDelegate(SettingsTreeDelegate(self.category_tree))
+        
         self.category_tree.expandAll()
         self.category_tree.setCurrentItem(appearance_item)  # Default selection
         main_layout.addWidget(self.category_tree)
-        
-        self.category_tree.setItemDelegate(SettingsTreeDelegate(self.category_tree))
 
         main_layout.addWidget(self.pages_widget)
 
@@ -414,6 +425,15 @@ class SettingsDialog(QDialog):
         self.button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
+        save_button = self.button_box.button(QDialogButtonBox.Save)
+        cancel_button = self.button_box.button(QDialogButtonBox.Cancel)
+        
+        if save_button:
+            save_button.setFixedWidth(100)
+            save_button.setStyleSheet("background-color: #4D8AC9; color: #FFFFFF; font-weight: bold")
+        if cancel_button:
+            cancel_button.setFixedWidth(100)
+            
         buttons_layout.addWidget(self.button_box)
 
         main_vbox = QVBoxLayout()
@@ -470,7 +490,7 @@ class SettingsDialog(QDialog):
         
         layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Show", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
     
-        show_version_checkbox = QCheckBox("Show Version in Title")
+        show_version_checkbox = QCheckBox("Version in Title")
         show_version_checkbox.setChecked(self._config.get("show_version", True))
         layout.addRow(show_version_checkbox)
         self.show_version_checkbox = show_version_checkbox
