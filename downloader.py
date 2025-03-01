@@ -243,6 +243,12 @@ def create_help_icon(self, tooltip_text: str, detailed_text: str, parent=None) -
     return help_btn
     
 
+class NoFocusDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        if option.state & QStyle.State_HasFocus:
+            option.state &= ~QStyle.State_HasFocus
+        super().paint(painter, option, index)
+
 class ActiveDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         # Create a copy of the option to modify
@@ -342,6 +348,12 @@ class ActiveComboBox(QComboBox):
             painter.setPen(QColor("#40b6e0"))
             painter.drawText(suffix_rect, Qt.AlignVCenter | Qt.AlignLeft, active_suffix)
             painter.restore()
+            
+class SettingsTreeDelegate(NoFocusDelegate):
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        size.setHeight(25)
+        return size
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -385,6 +397,8 @@ class SettingsDialog(QDialog):
         self.category_tree.expandAll()
         self.category_tree.setCurrentItem(appearance_item)  # Default selection
         main_layout.addWidget(self.category_tree)
+        
+        self.category_tree.setItemDelegate(SettingsTreeDelegate(self.category_tree))
 
         main_layout.addWidget(self.pages_widget)
 
@@ -1635,12 +1649,6 @@ class UpdateAppIDsDialog(QDialog):
         if self.tools_checkbox.isChecked():
             types.append("Tool")
         return types
-
-class NoFocusDelegate(QStyledItemDelegate):
-    def paint(self, painter, option, index):
-        if option.state & QStyle.State_HasFocus:
-            option.state &= ~QStyle.State_HasFocus
-        super().paint(painter, option, index)
 
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
