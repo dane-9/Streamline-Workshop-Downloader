@@ -112,6 +112,7 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
 }
 
 QMenu {
+	margin-left: 4px;
     background-color: #FEFEFE;
     color: #000000;
     border: 1px solid #999999;
