@@ -260,3 +260,7 @@ QMenuBar::item#menuBar {
 QMenuBar::item:selected#menuBar {
     color: #E0E0E0;
 }
+
+#appid_info_frame {
+	background-color: #3A3A3A; border-radius: 3px;
+}

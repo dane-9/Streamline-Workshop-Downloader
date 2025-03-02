@@ -1619,7 +1619,7 @@ class UpdateAppIDsDialog(QDialog):
         
         info_frame = QFrame()
         info_frame.setFrameShape(QFrame.StyledPanel)
-        info_frame.setStyleSheet("""QFrame { background-color: #3A3A3A; border-radius: 3px; } """)
+        info_frame.setObjectName("appid_info_frame")
         
         info_layout = QVBoxLayout(info_frame)
         info_layout.setSpacing(8)
