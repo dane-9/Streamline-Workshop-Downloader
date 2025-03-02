@@ -32,56 +32,6 @@ QPushButton:disabled {
 	border-style: solid;
 }
 
-QPushButton#ImportQueueBtn {
-    background-color: #333333;
-    color: #A0A0A0;
-    border: none;
-    padding: 2px;
-    border-radius: 3px;
-	font-size: 10px;
-}
-
-QPushButton#ImportQueueBtn:hover {
-    background-color: #555555;
-    color: #E0E0E0;
-    border-bottom: 1px solid #A0A0A0;
-}
-
-QPushButton#ImportQueueBtn:pressed {
-    background-color: #444444;
-}
-
-QPushButton#ImportQueueBtn:disabled {
-    background-color: #222222;
-	color: #444444;
-	border-style: solid;
-}
-
-QPushButton#ExportQueueBtn {
-    background-color: #333333;
-    color: #A0A0A0;
-    border: none;
-    padding: 2px;
-    border-radius: 3px;
-	font-size: 10px;
-}
-
-QPushButton#ExportQueueBtn:hover {
-    background-color: #555555;
-    color: #E0E0E0;
-    border-bottom: 1px solid #A0A0A0;
-}
-
-QPushButton#ExportQueueBtn:pressed {
-    background-color: #444444;
-}
-
-QPushButton#ExportQueueBtn:disabled {
-    background-color: #222222;
-	color: #444444;
-	border-style: solid;
-}
-
 QLineEdit {
     background-color: #2C2C2C;
     color: #A0A0A0;

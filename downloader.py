@@ -2348,26 +2348,37 @@ class SteamWorkshopDownloader(QWidget):
         self.regexButton.setStyleSheet("QToolButton { border: none; }")
         self.regexButton.toggled.connect(self.updateRegexIcon)
         queue_layout.addWidget(self.regexButton)
+        
+        import_export_spacer = QWidget()
+        import_export_spacer.setFixedWidth(14)
+        queue_layout.addWidget(import_export_spacer)
 
         buttonContainer = QWidget()
-        vbox = QVBoxLayout(buttonContainer)
-        vbox.setContentsMargins(0, 0, 0, 0)
-        vbox.setSpacing(1)
+        hbox = QHBoxLayout(buttonContainer)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(6)
 
-        self.import_queue_btn = QPushButton('Import Queue')
-        self.import_queue_btn.setObjectName("ImportQueueBtn")
+        self.import_queue_btn = QPushButton()
+        self.import_queue_btn.setIcon(QIcon(resource_path('Files/import.png')))
+        self.import_queue_btn.setIconSize(QSize(20, 20))
+        self.import_queue_btn.setToolTip('Import Queue')
         self.import_queue_btn.clicked.connect(self.import_queue)
-        self.export_queue_btn = QPushButton('Export Queue')
-        self.export_queue_btn.setObjectName("ExportQueueBtn")
+        self.import_queue_btn.setFixedSize(32, 32)
+
+        self.export_queue_btn = QPushButton()
+        self.export_queue_btn.setIcon(QIcon(resource_path('Files/export.png')))
+        self.export_queue_btn.setIconSize(QSize(20, 20))
+        self.export_queue_btn.setToolTip('Export Queue')
         self.export_queue_btn.clicked.connect(self.export_queue)
         self.export_queue_btn.setEnabled(False)
+        self.export_queue_btn.setFixedSize(32, 32)
 
-        vbox.addWidget(self.import_queue_btn)
-        vbox.addWidget(self.export_queue_btn)
-        buttonContainer.setFixedWidth(90)
+        hbox.addWidget(self.import_queue_btn)
+        hbox.addWidget(self.export_queue_btn)
         queue_layout.addWidget(buttonContainer)
         self.queue_layout = queue_layout
         self.import_export_container = buttonContainer
+        self.import_export_spacer = import_export_spacer
         self.main_layout.addLayout(queue_layout)
 
         self.reset_action = QAction("Reset", self)
@@ -2454,15 +2465,12 @@ class SteamWorkshopDownloader(QWidget):
         
     def adjust_widget_heights(self):
         button_height = 28
-        import_export_button_height = 14
         dropdown_height = 27
     
         for attr_name in dir(self):
             attr = getattr(self, attr_name)
             if isinstance(attr, QPushButton):
-                if "import_queue_btn" in attr_name.lower() or "export_queue_btn" in attr_name.lower():
-                    attr.setFixedHeight(import_export_button_height)
-                elif "_btn" in attr_name:
+                if "_btn" in attr_name:
                     attr.setFixedHeight(button_height)
             elif isinstance(attr, QComboBox) and "_dropdown" in attr_name:
                 attr.setFixedHeight(dropdown_height)
@@ -2965,6 +2973,7 @@ class SteamWorkshopDownloader(QWidget):
         self.regexButton.setVisible(self.config["show_regex_button"])
         self.caseButton.setVisible(self.config["show_case_button"])
         self.import_export_container.setVisible(self.config["show_export_import_buttons"])
+        self.import_export_spacer.setVisible(self.config["show_export_import_buttons"])
         self.log_area.setVisible(self.config["show_logs"])
         self.provider_label.setVisible(self.config["show_provider"])
         self.provider_dropdown.setVisible(self.config["show_provider"])
