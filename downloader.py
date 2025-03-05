@@ -961,6 +961,20 @@ class ItemFetcher(QThread):
 
     async def process_collection(self, tree, session):
         try:
+            # get the collection's game info to pass to age-restricted mods
+            collection_game_info = None
+            breadcrumb_tag = tree.xpath('//div[@class="breadcrumbs"]/a[contains(@href, "/app/")]')
+            if breadcrumb_tag:
+                href = breadcrumb_tag[0].get('href')
+                app_id_match = re.search(r'/app/(\d+)', href)
+                if app_id_match:
+                    app_id = app_id_match.group(1)
+                    game_name = breadcrumb_tag[0].text_content().strip()
+                    collection_game_info = {
+                        'app_id': app_id,
+                        'game_name': game_name
+                    }
+    
             # Fetch all the collection items in one go
             collection_items = tree.xpath('//div[contains(@class,"collectionChildren")]//div[contains(@class,"collectionItem")]')
             mod_ids = set()
@@ -970,11 +984,11 @@ class ItemFetcher(QThread):
                     mod_id = self.extract_id(a_tag[0].get('href'))
                     if mod_id and mod_id not in self.existing_mod_ids:
                         mod_ids.add(mod_id)
-
+    
             # Gather all mod info concurrently
-            tasks = [self.fetch_mod_info(session, mod_id) for mod_id in mod_ids]
+            tasks = [self.fetch_mod_info(session, mod_id, collection_game_info=collection_game_info) for mod_id in mod_ids]
             mods_info = await asyncio.gather(*tasks)
-
+    
             self.item_processed.emit({
                 'type': 'collection',
                 'mods_info': mods_info,
@@ -992,20 +1006,61 @@ class ItemFetcher(QThread):
         except Exception as e:
             self.error_occurred.emit(f"Error processing mod: {e}")
 
-    async def fetch_mod_info(self, session, mod_id, tree=None):
+    async def fetch_mod_info(self, session, mod_id, tree=None, collection_game_info=None):
         try:
             if tree is None:
                 url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={mod_id}"
                 async with session.get(url) as response:
                     if response.status != 200:
-                        return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None, 'game_name': 'Unknown Game'}
+                        if collection_game_info:
+                            return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': collection_game_info.get('app_id'), 'game_name': collection_game_info.get('game_name', 'Unknown Game')}
+                        else:
+                            return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None, 'game_name': 'Unknown Game'}
                     page_content = await response.text()
                     tree = html.fromstring(page_content)
+    
+            # Check if this is a login-required/age-restricted page
+            error_messages = tree.xpath('//div[@class="error_ctn"]//h3/text()')
+            login_required = False
+            for msg in error_messages:
+                if "You must be logged in to view this item" in msg:
+                    login_required = True
+                    break
+    
+            if login_required:
+                if collection_game_info:
+                    return {
+                        'mod_id': mod_id, 
+                        'mod_name': 'UNKNOWN - Age Restricted', 
+                        'app_id': collection_game_info.get('app_id'), 
+                        'game_name': collection_game_info.get('game_name', 'Unknown Game')
+                    }
 
-            # Gets both the game info and mod title
+                app_id = None
+                app_id_match = re.search(r'appid=(\d+)', tree.base_url) if hasattr(tree, 'base_url') else None
+                if app_id_match:
+                    app_id = app_id_match.group(1)
+                    game_name = 'Unknown Game'
+                    if hasattr(self, 'app_ids') and app_id in self.app_ids:
+                        game_name = self.app_ids[app_id]
+                    
+                    return {
+                        'mod_id': mod_id, 
+                        'mod_name': 'UNKNOWN - Age Restricted', 
+                        'app_id': app_id, 
+                        'game_name': game_name
+                    }
+                else:
+                    return {
+                        'mod_id': mod_id, 
+                        'mod_name': 'UNKNOWN - Age Restricted', 
+                        'app_id': None, 
+                        'game_name': 'Unknown Game'
+                    }
+                    
             breadcrumb_tag = tree.xpath('//div[@class="breadcrumbs"]/a[contains(@href, "/app/")]')
             title_tag = tree.xpath('//div[@class="workshopItemTitle"]')
-
+    
             # Fetch game info from breadcrumbs
             game_name, app_id = 'Unknown Game', None
             if breadcrumb_tag:
@@ -1014,11 +1069,11 @@ class ItemFetcher(QThread):
                 if app_id_match:
                     app_id = app_id_match.group(1)
                     game_name = breadcrumb_tag[0].text_content().strip()
-
+    
             mod_title = title_tag[0].text.strip() if title_tag else 'Unknown Title'
-
+    
             return {'mod_id': mod_id, 'mod_name': mod_title, 'app_id': app_id, 'game_name': game_name}
-
+    
         except Exception as e:
             return {'mod_id': mod_id, 'mod_name': 'Unknown Title', 'app_id': None, 'game_name': 'Unknown Game'}
 
@@ -3753,9 +3808,14 @@ class SteamWorkshopDownloader(QWidget):
                     folder_name = mod_id
                     if self.config.get('use_mod_name_for_folder', False):
                         safe_mod_name = self.downloaded_mods_info.get(mod_id, mod_id)
-                        # Remove characters that are illegal in file/folder names
-                        safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', safe_mod_name)
-                        folder_name = safe_mod_name
+
+                        # If the mod is age-restricted, always use mod_id
+                        if safe_mod_name == "UNKNOWN - Age Restricted":
+                            folder_name = mod_id
+                        else:
+                            # Remove characters that are illegal in file/folder names
+                            safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', safe_mod_name)
+                            folder_name = safe_mod_name
     
                     target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
                     try:
@@ -3768,7 +3828,7 @@ class SteamWorkshopDownloader(QWidget):
                         failed_count += 1
                         # Only log individual failures
                         self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
-
+    
         if moved_count > 0:
             if len(app_id_stats) == 1:
                 # Single app ID
@@ -3779,12 +3839,12 @@ class SteamWorkshopDownloader(QWidget):
                 app_details = []
                 for app_id, count in app_id_stats.items():
                     app_details.append(f"{count} to {app_id}")
-
+    
                 self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD: {', '.join(app_details)}")
-
+    
         if failed_count > 0:
             self.log_signal.emit(f"Failed to move {failed_count} mod(s)")
-
+        
     def open_context_menu(self, position: QPoint):
         if self.is_downloading:
             return
