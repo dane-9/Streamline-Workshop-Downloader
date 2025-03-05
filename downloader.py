@@ -82,13 +82,32 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def load_theme(app, theme_name, files_dir):
-    theme_path = os.path.join(files_dir, "Themes", theme_name + ".qss")
+    theme_path = resource_path(os.path.join("Files", "Themes", theme_name + ".qss"))
+
+    if not os.path.isfile(theme_path):
+        theme_path = os.path.join(files_dir, "Themes", theme_name + ".qss")
+
     if os.path.isfile(theme_path):
-        with open(theme_path, "r", encoding="utf-8") as f:
-            qss = f.read()
-        app.setStyleSheet(qss)
+        try:
+            with open(theme_path, "r", encoding="utf-8") as f:
+                qss = f.read()
+
+            checkmark_icon = resource_path("Files/checkmark.png").replace("\\", "/")
+            arrow_icon = resource_path("Files/arrow.png").replace("\\", "/")
+
+            qss = qss.replace("QMenu::indicator:checked {", f"QMenu::indicator:checked {{ image: url({checkmark_icon});")
+            qss = qss.replace("QComboBox::drop-down {", f"QComboBox::drop-down {{ image: url({arrow_icon});")
+
+            app.setStyleSheet(qss)
+            return True
+
+        except Exception as e:
+            print(f"Error loading theme {theme_name}: {e}")
+            app.setStyleSheet("")  # Revert to default if file not found
+            return False
     else:
-        app.setStyleSheet("")  # Revert to default if file not found
+        app.setStyleSheet("")
+        return False
         
 def set_windows_dark_titlebar(window_handle, enable_dark, color=None):
     if platform.system().lower() != 'windows':
@@ -147,7 +166,7 @@ def set_custom_clear_icon(line_edit: QLineEdit):
     line_edit.setClearButtonEnabled(True)
     clear_btn = line_edit.findChild(QToolButton)
     if clear_btn:
-        clear_btn.setStyleSheet(""" QToolButton { qproperty-icon: url(Files/clear.png); } """)
+        clear_btn.setIcon(QIcon(resource_path('Files/clear.png')))
         
 def create_separator(object_name, parent=None, width="", label="", label_alignment="center", size_policy=None, font_style="standard", margin=True):
     separator = QWidget(parent)
@@ -447,7 +466,7 @@ class SettingsDialog(QDialog):
         page = QWidget()
         layout = QFormLayout(page)
         layout.setVerticalSpacing(10)
-        
+
         theme_label = QLabel("Theme:")
         self.theme_dropdown = QComboBox()
         self.theme_dropdown.setMinimumHeight(25)
@@ -456,11 +475,24 @@ class SettingsDialog(QDialog):
             files_dir = self.parent().files_dir
             theme_files = glob.glob(os.path.join(files_dir, "Themes", "*.qss"))
             theme_names = [os.path.splitext(os.path.basename(t))[0] for t in theme_files]
+
             if 'Dark' not in theme_names:
                 theme_names.insert(0, 'Dark')
+            if 'Light' not in theme_names:
+                theme_names.append('Light')
+
+            if 'Dark' in theme_names:
+                theme_names.remove('Dark')
+                sorted_names = sorted(theme_names)
+                sorted_names.insert(0, 'Dark')
+                theme_names = sorted_names
+            else:
+                theme_names = sorted(theme_names)
+
             self.theme_dropdown.addItems(theme_names)
         else:
             self.theme_dropdown.addItems(["Dark", "Light"])
+
         if self._current_theme in [self.theme_dropdown.itemText(i) for i in range(self.theme_dropdown.count())]:
             self.theme_dropdown.setCurrentText(self._current_theme)
         layout.addRow(theme_label, self.theme_dropdown)
@@ -2261,7 +2293,7 @@ class SteamWorkshopDownloader(QWidget):
         self.caseButton = QToolButton()
         self.caseButton.setCheckable(True)
         self.caseButton.setToolTip("Case sensitivity")
-        self.caseButton.setIcon(QIcon("Files/case_disabled.png"))
+        self.caseButton.setIcon(QIcon(resource_path("Files/case_disabled.png")))
         self.caseButton.setIconSize(QSize(16, 16))
         self.caseButton.setStyleSheet("QToolButton { border: none; }")
         self.caseButton.toggled.connect(self.updateCaseIcon)
@@ -2270,7 +2302,7 @@ class SteamWorkshopDownloader(QWidget):
         self.regexButton = QToolButton()
         self.regexButton.setCheckable(True)
         self.regexButton.setToolTip("Regex")
-        self.regexButton.setIcon(QIcon("Files/regex_disabled.png"))
+        self.regexButton.setIcon(QIcon(resource_path("Files/regex_disabled.png")))
         self.regexButton.setIconSize(QSize(16, 16))
         self.regexButton.setStyleSheet("QToolButton { border: none; }")
         self.regexButton.toggled.connect(self.updateRegexIcon)
@@ -4246,16 +4278,16 @@ class SteamWorkshopDownloader(QWidget):
         
     def updateRegexIcon(self, checked: bool):
         if checked:
-            self.regexButton.setIcon(QIcon("Files/regex_enabled.png"))
+            self.regexButton.setIcon(QIcon(resource_path('Files/regex_enabled.png')))
         else:
-            self.regexButton.setIcon(QIcon("Files/regex_disabled.png"))
+            self.regexButton.setIcon(QIcon(resource_path('Files/regex_disabled.png')))
         self.perform_search()
     
     def updateCaseIcon(self, checked: bool):
         if checked:
-            self.caseButton.setIcon(QIcon("Files/case_enabled.png"))
+            self.caseButton.setIcon(QIcon(resource_path('Files/case_enabled.png')))
         else:
-            self.caseButton.setIcon(QIcon("Files/case_disabled.png"))
+            self.caseButton.setIcon(QIcon(resource_path('Files/case_disabled.png')))
         self.perform_search()
         
     def show_about_dialog(self):

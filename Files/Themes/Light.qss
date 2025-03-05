@@ -148,7 +148,6 @@ QMenu::item:hover {
 }
 
 QMenu::indicator:checked {
-    image: url(Files/checkmark.png);
 	padding-left: 5px;
     width: 12px;
     height: 12px;
@@ -252,7 +251,6 @@ QComboBox:hover {
 }
 
 QComboBox::drop-down {
-    image: url(Files/arrow.png);
     width: 15px;
     height: 15px;
     margin-right: 5px;
