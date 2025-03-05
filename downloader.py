@@ -946,7 +946,7 @@ class ItemFetcher(QThread):
                 tree = html.fromstring(page_content)
 
                 # Detects if it's a collection
-                collection_items = tree.xpath('//div[contains(@class, "collectionItem")]')
+                collection_items = tree.xpath('//div[contains(@class,"collectionChildren")]//div[contains(@class,"collectionItem")]')
 
                 if collection_items:
                     # collection
@@ -962,7 +962,7 @@ class ItemFetcher(QThread):
     async def process_collection(self, tree, session):
         try:
             # Fetch all the collection items in one go
-            collection_items = tree.xpath('//div[contains(@class, "collectionItem")]')
+            collection_items = tree.xpath('//div[contains(@class,"collectionChildren")]//div[contains(@class,"collectionItem")]')
             mod_ids = set()
             for item in collection_items:
                 a_tag = item.xpath('.//a[@href]')
