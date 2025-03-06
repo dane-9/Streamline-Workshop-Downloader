@@ -1,4 +1,4 @@
-![STREAMLINE BANNER](https://github.com/user-attachments/assets/37c2c9d6-a393-4ed2-be74-bfce03b4bef9)
+![STREAMLINE BANNER](https://github.com/user-attachments/assets/bd9cfce7-dde0-469a-8208-7caa8b9fb91a)
 
 **Streamline** is a user-friendly GUI application **built with PySide6** to help you effortlessly download Steam Workshop mods and collections. Leveraging SteamCMD and SteamWebAPI, this tool simplifies the process of managing multiple Steam accounts, configuring download settings, and queuing mods for efficient downloading. With a Realtime Overview of what's happening in the Download Queue interface, it's easy to find mods that have issues or outright failed, thanks to Status Indicators.
 
