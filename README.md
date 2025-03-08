@@ -7,6 +7,7 @@
 ## User Interface
 <img src="https://i.imgur.com/FnJNMBm.png" alt="gui" width="600"/>
 
+## Features
 | Feature                                               | Description                                                                                                                                                                                            |
 |-----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Robust Backend**                            | *<sub>Supports queues with **thousands of mods**.</sub>*                                                                                                                                              |
