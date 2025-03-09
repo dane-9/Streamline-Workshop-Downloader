@@ -2215,15 +2215,13 @@ class SteamWorkshopDownloader(QWidget):
         self.tools_menu.addAction(self.auto_add_to_queue_act)
         
         report_issue_action = QAction("Report Issue...", self)
-        report_issue_action.triggered.connect(
-            lambda: webbrowser.open("https://github.com/dane-9/Streamline-Workshop-Downloader/issues/new")
-        )
+        report_issue_action.triggered.connect(lambda: webbrowser.open("https://github.com/dane-9/Streamline-Workshop-Downloader/issues/new/choose"))
         self.help_menu.addAction(report_issue_action)
         
         doc_action = QAction("Documentation", self)
-        doc_action.setEnabled(False)
-        about_action = QAction("About", self)
+        doc_action.triggered.connect(lambda: webbrowser.open("https://github.com/dane-9/Streamline-Workshop-Downloader/wiki/Documentation"))
         self.help_menu.addAction(doc_action)
+        about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about_dialog)
         self.help_menu.addAction(about_action)
 
