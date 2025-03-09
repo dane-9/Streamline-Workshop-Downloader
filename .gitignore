@@ -5,3 +5,4 @@ Files/Streamline
 Files/config.json
 Files/AppIDs.txt
 Downloads/
+__pycache__/
