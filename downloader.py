@@ -34,7 +34,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QTextCursor, QAction, QClipboard, QIcon, QCursor, QPainter,
-    QColor, QPixmap, QPolygon, QFontMetrics,
+    QColor, QPixmap, QPolygon, QFontMetrics, QActionGroup
 )
 
 current_version = "1.2.0"
@@ -2130,6 +2130,8 @@ class SteamWorkshopDownloader(QWidget):
         else:
             self.main_layout.setContentsMargins(6, 6, 6, 6)
             self.main_layout.setSpacing(6)
+            
+        self.current_filter = "All"
 
         self.menu_bar = QMenuBar()
         self.menu_bar.setObjectName("menuBar")
@@ -2315,6 +2317,35 @@ class SteamWorkshopDownloader(QWidget):
         self.search_timer.timeout.connect(self.perform_search)
         self.search_input.textChanged.connect(self.on_search_text_changed)
         queue_layout.addWidget(self.search_input)
+        
+        self.filter_action = self.search_input.addAction(QIcon(resource_path("Files/filter_queue_status.png")), QLineEdit.LeadingPosition)
+        self.filter_action.setToolTip("Filter queue items")
+        self.filter_menu = QMenu()
+
+        self.show_all_action = QAction("All Mods", self)
+        self.show_all_action.setCheckable(True)
+        self.show_all_action.setChecked(True)
+        self.show_all_action.triggered.connect(lambda: self.filter_queue_by_status("All"))
+
+        self.show_queued_action = QAction("Mods Queued", self)
+        self.show_queued_action.setCheckable(True)
+        self.show_queued_action.triggered.connect(lambda: self.filter_queue_by_status("Queued"))
+
+        self.show_downloaded_action = QAction("Downloaded", self)
+        self.show_downloaded_action.setCheckable(True)
+        self.show_downloaded_action.triggered.connect(lambda: self.filter_queue_by_status("Downloaded"))
+
+        self.filter_action_group = QActionGroup(self)
+        self.filter_action_group.addAction(self.show_all_action)
+        self.filter_action_group.addAction(self.show_queued_action)
+        self.filter_action_group.addAction(self.show_downloaded_action)
+        self.filter_action_group.setExclusive(True)
+
+        self.filter_menu.addAction(self.show_all_action)
+        self.filter_menu.addAction(self.show_queued_action)
+        self.filter_menu.addAction(self.show_downloaded_action)
+
+        self.filter_action.triggered.connect(self.show_filter_menu)
 
         self.caseButton = QToolButton()
         self.caseButton.setCheckable(True)
@@ -2473,7 +2504,7 @@ class SteamWorkshopDownloader(QWidget):
         case_sensitive = self.caseButton.isChecked()
         
         # If regex is enabled, try to compile the pattern
-        if regex_enabled:
+        if regex_enabled and text:
             try:
                 flags = 0 if case_sensitive else re.IGNORECASE
                 pattern = re.compile(text, flags)
@@ -2483,29 +2514,53 @@ class SteamWorkshopDownloader(QWidget):
             # For non-regex searches, adjust the text if not case sensitive
             if not case_sensitive:
                 text = text.lower()
-    
+        
         for i in range(self.queue_tree.topLevelItemCount()):
             item = self.queue_tree.topLevelItem(i)
             mod_id = item.text(1)
             mod_name = item.text(2)
+            item_status = item.text(3)
             
-            if regex_enabled and pattern:
-                if pattern.search(mod_id) or pattern.search(mod_name):
-                    item.setHidden(False)
+            # First check if status matches the current filter
+            status_match = (self.current_filter == "All" or 
+                           (self.current_filter == "Queued" and item_status == "Queued") or
+                           (self.current_filter == "Downloaded" and item_status == "Downloaded"))
+            
+            # If status doesn't match, hide the item
+            if not status_match:
+                item.setHidden(True)
+                continue
+            
+            # Then check if text matches (if search text exists)
+            if text:
+                if regex_enabled and pattern:
+                    text_match = bool(pattern.search(mod_id) or pattern.search(mod_name))
                 else:
-                    item.setHidden(True)
+                    if not case_sensitive:
+                        mod_id_lower = mod_id.lower()
+                        mod_name_lower = mod_name.lower()
+                        text_match = text in mod_id_lower or text in mod_name_lower
+                    else:
+                        text_match = text in mod_id or text in mod_name
+                
+                item.setHidden(not text_match)
             else:
-                if not case_sensitive:
-                    mod_id = mod_id.lower()
-                    mod_name = mod_name.lower()
-                if text in mod_id or text in mod_name:
-                    item.setHidden(False)
-                else:
-                    item.setHidden(True)
+                # No search text, show all items that match the status filter
+                item.setHidden(False)
                 
     def update_queue_count(self):
         total_count = len(self.download_queue)
-        self.search_input.setPlaceholderText(f"Mods in Queue: {total_count}     /     Search by Mod ID or Name")
+        
+        if self.current_filter == "All":
+            placeholder = f"Mods in Queue: {total_count}     /     Search by Mod ID or Name"
+        elif self.current_filter == "Queued":
+            queued_count = sum(1 for mod in self.download_queue if mod['status'] == 'Queued')
+            placeholder = f"Queued Mods: {queued_count} / {total_count}     /     Search by Mod ID or Name"
+        elif self.current_filter == "Downloaded":
+            downloaded_count = sum(1 for mod in self.download_queue if mod['status'] == 'Downloaded')
+            placeholder = f"Downloaded Mods: {downloaded_count} / {total_count}     /     Search by Mod ID or Name"
+        
+        self.search_input.setPlaceholderText(placeholder)
                 
     def open_queue_entire_workshop_dialog(self):
         dialog = QueueEntireWorkshopDialog(self)
@@ -4342,6 +4397,14 @@ class SteamWorkshopDownloader(QWidget):
         if self.config.get("show_version", True):
             base_title += f" v{current_version}"
         self.setWindowTitle(base_title)
+        
+    def show_filter_menu(self):
+        self.filter_menu.exec(self.search_input.mapToGlobal(QPoint(0, self.search_input.height())))
+    
+    def filter_queue_by_status(self, status):
+        self.current_filter = status
+        self.update_queue_count()
+        self.perform_search()
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
