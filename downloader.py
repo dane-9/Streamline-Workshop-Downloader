@@ -2319,7 +2319,7 @@ class SteamWorkshopDownloader(QWidget):
         queue_layout.addWidget(self.search_input)
         
         self.filter_action = self.search_input.addAction(QIcon(resource_path("Files/filter_queue_status.png")), QLineEdit.LeadingPosition)
-        self.filter_action.setToolTip("Filter queue items")
+        self.update_filter_tooltip()
         self.filter_menu = QMenu()
 
         self.show_all_action = QAction("All Mods", self)
@@ -2551,7 +2551,7 @@ class SteamWorkshopDownloader(QWidget):
     def update_queue_count(self):
         total_count = len(self.download_queue)
         
-        if self.current_filter == "All":
+        if not hasattr(self, 'current_filter') or self.current_filter == "All":
             placeholder = f"Mods in Queue: {total_count}     /     Search by Mod ID or Name"
         elif self.current_filter == "Queued":
             queued_count = sum(1 for mod in self.download_queue if mod['status'] == 'Queued')
@@ -2561,6 +2561,9 @@ class SteamWorkshopDownloader(QWidget):
             placeholder = f"Downloaded Mods: {downloaded_count} / {total_count}     /     Search by Mod ID or Name"
         
         self.search_input.setPlaceholderText(placeholder)
+        
+        if hasattr(self, 'filter_action'):
+            self.update_filter_tooltip()
                 
     def open_queue_entire_workshop_dialog(self):
         dialog = QueueEntireWorkshopDialog(self)
@@ -3786,11 +3789,14 @@ class SteamWorkshopDownloader(QWidget):
             item = self.queue_tree.topLevelItem(index)
             if item.text(1) == mod_id:
                 item.setText(3, status)
-
+    
                 self.status_updates[status] += 1
-
+    
                 if not self.status_update_timer.isActive():
                     self.status_update_timer.start(300)
+
+                if hasattr(self, 'filter_action'):
+                    self.update_filter_tooltip()
                 break
 
     def log_status_updates(self):
@@ -4405,6 +4411,24 @@ class SteamWorkshopDownloader(QWidget):
         self.current_filter = status
         self.update_queue_count()
         self.perform_search()
+        
+    def update_filter_tooltip(self):
+        total_count = len(self.download_queue)
+        queued_count = sum(1 for mod in self.download_queue if mod['status'] == 'Queued')
+        downloaded_count = sum(1 for mod in self.download_queue if mod['status'] == 'Downloaded')
+        failed_count = sum(1 for mod in self.download_queue if 'Failed' in mod['status'])
+        downloading_count = sum(1 for mod in self.download_queue if mod['status'] == 'Downloading')
+
+        tooltip = f"All Mods: {total_count}\n" \
+                  f"Queued: {queued_count}\n" \
+                  f"Downloaded: {downloaded_count}"
+
+        if downloading_count > 0:
+            tooltip += f"\nDownloading: {downloading_count}"
+        if failed_count > 0:
+            tooltip += f"\nFailed: {failed_count}"
+
+        self.filter_action.setToolTip(tooltip)
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
