@@ -412,10 +412,15 @@ class SettingsDialog(QDialog):
         tool_icon = QIcon(resource_path("Files/tool_options.png"))
         utility_item.setIcon(0, tool_icon)
         
+        system_item = QTreeWidgetItem(["System"])
+        system_icon = QIcon(resource_path("Files/system_options.png"))
+        system_item.setIcon(0, system_icon)
+        
         self.category_tree.setRootIsDecorated(False)
         self.category_tree.addTopLevelItem(appearance_item)
         self.category_tree.addTopLevelItem(download_item)
         self.category_tree.addTopLevelItem(utility_item)
+        self.category_tree.addTopLevelItem(system_item)
 
         self.category_tree.setItemDelegate(SettingsTreeDelegate(self.category_tree))
         
@@ -457,10 +462,12 @@ class SettingsDialog(QDialog):
         self.appearance_page = self._build_appearance_page()
         self.download_page = self._build_download_options_page()
         self.utility_page = self._build_utility_page()
+        self.system_page = self._build_system_page()
             
         self.pages_widget.addWidget(self.appearance_page)  # index 0
         self.pages_widget.addWidget(self.download_page)    # index 1
         self.pages_widget.addWidget(self.utility_page)     # index 2
+        self.pages_widget.addWidget(self.system_page)    # index 3
 
     def _build_appearance_page(self):
         page = QWidget()
@@ -624,6 +631,13 @@ class SettingsDialog(QDialog):
         self.update_checkbox_style()
     
         layout.addStretch()
+        return page
+        
+    def _build_system_page(self):
+        page = QWidget()
+        layout = QFormLayout(page)
+        layout.setVerticalSpacing(10)
+
         return page
     
     def toggle_auto_add_checkbox(self):
