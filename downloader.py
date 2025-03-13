@@ -68,7 +68,9 @@ DEFAULT_SETTINGS = {
     "queue_tree_default_widths": [115, 90, 230, 100, 95],
     "queue_tree_column_widths": None,
     "queue_tree_column_hidden": None,
-    "show_version": True
+    "show_version": True,
+    "reset_provider_on_startup": False,
+    "download_provider": "Default"
 }
 
 # Allows logo to be applied over pythonw.exe's own
@@ -638,6 +640,11 @@ class SettingsDialog(QDialog):
         layout = QFormLayout(page)
         layout.setVerticalSpacing(10)
 
+        self.reset_provider_checkbox = QCheckBox("Reset Download Provider on Startup")
+        self.reset_provider_checkbox.setChecked(
+            self._config.get("reset_provider_on_startup", False))
+        layout.addRow(self.reset_provider_checkbox)
+
         return page
     
     def toggle_auto_add_checkbox(self):
@@ -702,7 +709,8 @@ class SettingsDialog(QDialog):
             'auto_add_to_queue': auto_add_to_queue,
             'download_button': self.show_download_button_checkbox.isChecked(),
             'show_menu_bar': self.show_menu_bar_checkbox.isChecked(),
-            'show_version': self.show_version_checkbox.isChecked()
+            'show_version': self.show_version_checkbox.isChecked(),
+            'download_provider': self.parent().provider_dropdown.currentText()
         }
         super().accept()
 
@@ -729,7 +737,8 @@ class SettingsDialog(QDialog):
             'show_export_import_buttons': self.show_export_import_buttons_checkbox.isChecked(),
             'show_sort_indicator': self.show_sort_indicator_checkbox.isChecked(),
             'show_menu_bar': self.show_menu_bar_checkbox.isChecked(),
-            'show_version': self.show_version_checkbox.isChecked()
+            'show_version': self.show_version_checkbox.isChecked(),
+            'reset_provider_on_startup': self.reset_provider_checkbox.isChecked()
         }
         
     def reset_defaults(self):
@@ -760,6 +769,8 @@ class SettingsDialog(QDialog):
         self.auto_detect_urls_checkbox.setChecked(DEFAULT_SETTINGS["auto_detect_urls"])
         self.auto_add_to_queue_checkbox.setChecked(DEFAULT_SETTINGS["auto_add_to_queue"])
         self.update_checkbox_style()
+        
+        self.reset_provider_checkbox.setChecked(DEFAULT_SETTINGS["reset_provider_on_startup"])
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
@@ -2045,6 +2056,9 @@ class SteamWorkshopDownloader(QWidget):
         self.config = {}
         self.config_path = self.get_config_path()
         self.load_config()
+        if self.config.get("reset_provider_on_startup", False):
+            self.config["download_provider"] = "Default"
+            self.save_config()
         self.updateWindowTitle()
         self.steamcmd_dir = os.path.join(self.files_dir, 'steamcmd')
         self.steamcmd_executable = self.get_steamcmd_executable_path()
@@ -2430,6 +2444,9 @@ class SteamWorkshopDownloader(QWidget):
         self.provider_dropdown.currentIndexChanged.connect(self.on_provider_changed)
         self.provider_layout.addWidget(self.provider_dropdown)
         self.main_layout.addLayout(self.provider_layout)
+
+        stored_provider = self.config.get("download_provider", "Default")
+        self.provider_dropdown.setCurrentText(stored_provider)
 
         apply_theme_titlebar(self, self.config)
         self.setLayout(self.main_layout)
@@ -3819,6 +3836,9 @@ class SteamWorkshopDownloader(QWidget):
                     previous_provider = 'SteamCMD' if mods_with_steamcmd else 'SteamWebAPI'
                     self.provider_dropdown.setCurrentText(previous_provider)
                     self.provider_dropdown.blockSignals(False)
+                    
+        self.config["download_provider"] = self.provider_dropdown.currentText()
+        self.save_config()
                     
     def reset_status_of_mods(self, selected_items):
         for item in selected_items:
