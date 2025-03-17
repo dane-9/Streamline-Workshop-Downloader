@@ -19,6 +19,7 @@ from lxml import html
 from collections import defaultdict
 import glob
 from initialize import ThemedSplashScreen, AppIDScraper
+from tooltip import Tooltip, TooltipPlacement, FilterTooltip, TooltipManager
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
@@ -26,7 +27,7 @@ from PySide6.QtWidgets import (
     QMenu, QCheckBox, QFileDialog, QHeaderView, QAbstractItemView, 
     QStyledItemDelegate, QStyle, QToolButton, QRadioButton, 
     QStackedWidget, QFrame, QSizePolicy, QMenuBar, QStyleOptionComboBox,
-    QStyleOptionViewItem, QWidgetAction,
+    QStyleOptionViewItem, QWidgetAction, QToolTip
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
@@ -2063,6 +2064,7 @@ class SteamWorkshopDownloader(QWidget):
         self.steamcmd_dir = os.path.join(self.files_dir, 'steamcmd')
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         self.current_process = None
+        self.tooltip_manager = TooltipManager.instance()
         
         self.status_updates = defaultdict(int)
         self.status_update_timer = QTimer()
@@ -2317,9 +2319,9 @@ class SteamWorkshopDownloader(QWidget):
         self.search_timer.timeout.connect(self.perform_search)
         self.search_input.textChanged.connect(self.on_search_text_changed)
         queue_layout.addWidget(self.search_input)
-        
+
         self.filter_action = self.search_input.addAction(QIcon(resource_path("Files/filter_queue_status.png")), QLineEdit.LeadingPosition)
-        self.update_filter_tooltip()
+
         self.filter_menu = QMenu()
 
         self.show_all_action = QAction("All Mods", self)
@@ -2345,11 +2347,20 @@ class SteamWorkshopDownloader(QWidget):
         self.filter_menu.addAction(self.show_queued_action)
         self.filter_menu.addAction(self.show_downloaded_action)
 
-        self.filter_action.triggered.connect(self.show_filter_menu)
+        self.filter_tooltip = FilterTooltip(self)
+        self.filter_tooltip.setup(self.filter_action, self.filter_menu)
+
+        self.filter_action.triggered.disconnect()
+        self.filter_action.triggered.connect(self.filter_tooltip.show_filter_menu)
+
+        self.update_filter_tooltip()
 
         self.caseButton = QToolButton()
         self.caseButton.setCheckable(True)
-        self.caseButton.setToolTip("Case sensitivity")
+        self.case_tooltip = Tooltip(self.caseButton, "Case sensitivity")
+        self.case_tooltip.setPlacement(TooltipPlacement.BOTTOM)
+        self.case_tooltip.setShowDelay(500)
+        self.case_tooltip.setHideDelay(100)
         self.caseButton.setIcon(QIcon(resource_path("Files/case_disabled.png")))
         self.caseButton.setIconSize(QSize(16, 16))
         self.caseButton.setStyleSheet("QToolButton { border: none; }")
@@ -2358,7 +2369,10 @@ class SteamWorkshopDownloader(QWidget):
 
         self.regexButton = QToolButton()
         self.regexButton.setCheckable(True)
-        self.regexButton.setToolTip("Regex")
+        self.regex_tooltip = Tooltip(self.regexButton, "Regex")
+        self.regex_tooltip.setPlacement(TooltipPlacement.BOTTOM)
+        self.regex_tooltip.setShowDelay(500)
+        self.regex_tooltip.setHideDelay(100)
         self.regexButton.setIcon(QIcon(resource_path("Files/regex_disabled.png")))
         self.regexButton.setIconSize(QSize(16, 16))
         self.regexButton.setStyleSheet("QToolButton { border: none; }")
@@ -2838,6 +2852,9 @@ class SteamWorkshopDownloader(QWidget):
             self.log_signal.emit(f"Error saving config.json: {e}")
              
     def closeEvent(self, event):
+        if hasattr(self, 'tooltip_manager'):
+            self.tooltip_manager.hide_all_tooltips()
+        
         if self.is_downloading:
             reply = ThemedMessageBox.question(
                 self,
@@ -2856,29 +2873,24 @@ class SteamWorkshopDownloader(QWidget):
                 return
         else:
             event.accept()
-    
-        # Save window size before closing
+
         self.config['window_size'] = {'width': self.width(), 'height': self.height()}
-    
-        # Safely retrieve or initialize column_widths as a list
+
         column_widths = self.config.get('queue_tree_column_widths')
         if not column_widths:
-            # If None (or empty), build a new list from current widths
             column_widths = [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())]
-    
-        # Only save widths for visible columns
+
         for i in range(self.queue_tree.columnCount()):
             if not self.queue_tree.isColumnHidden(i):
                 column_widths[i] = self.queue_tree.columnWidth(i)
-    
+
         self.config['queue_tree_column_widths'] = column_widths
-    
-        # Save column hidden states
+
         column_hidden = [self.queue_tree.isColumnHidden(i) for i in range(self.queue_tree.columnCount())]
         self.config['queue_tree_column_hidden'] = column_hidden
-    
+
         self.save_config()
-        
+
     async def fetch_game_name(self, app_id: str, log_signal=None):
         base_url = "https://steamcommunity.com/workshop/browse/"
         params = {"appid": str(app_id), "p": "1"}
@@ -4403,32 +4415,32 @@ class SteamWorkshopDownloader(QWidget):
         if self.config.get("show_version", True):
             base_title += f" v{current_version}"
         self.setWindowTitle(base_title)
-        
-    def show_filter_menu(self):
-        self.filter_menu.exec(self.search_input.mapToGlobal(QPoint(0, self.search_input.height())))
     
     def filter_queue_by_status(self, status):
         self.current_filter = status
         self.update_queue_count()
         self.perform_search()
-        
+
     def update_filter_tooltip(self):
+        if not hasattr(self, 'filter_tooltip'):
+            return
+            
         total_count = len(self.download_queue)
         queued_count = sum(1 for mod in self.download_queue if mod['status'] == 'Queued')
         downloaded_count = sum(1 for mod in self.download_queue if mod['status'] == 'Downloaded')
         failed_count = sum(1 for mod in self.download_queue if 'Failed' in mod['status'])
         downloading_count = sum(1 for mod in self.download_queue if mod['status'] == 'Downloading')
-
+    
         tooltip = f"All Mods: {total_count}\n" \
                   f"Queued: {queued_count}\n" \
                   f"Downloaded: {downloaded_count}"
-
+    
         if downloading_count > 0:
             tooltip += f"\nDownloading: {downloading_count}"
         if failed_count > 0:
             tooltip += f"\nFailed: {failed_count}"
-
-        self.filter_action.setToolTip(tooltip)
+    
+        self.filter_tooltip.update_tooltip_text(tooltip)
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
