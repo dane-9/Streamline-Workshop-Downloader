@@ -243,8 +243,12 @@ def create_help_icon(self, tooltip_text: str, detailed_text: str, parent=None) -
         help_btn.setText("?")
     
     help_btn.setIconSize(QSize(8, 8))
-    help_btn.setToolTip(tooltip_text)
     help_btn.setStyleSheet("QToolButton { border: none; padding: 0px; margin: 0px; }")
+
+    custom_tooltip = Tooltip(help_btn, tooltip_text)
+    custom_tooltip.setPlacement(TooltipPlacement.RIGHT)
+    custom_tooltip.setShowDelay(300)
+    custom_tooltip.setHideDelay(50)
     
     def on_click():
         msg_box = ThemedMessageBox(parent)
