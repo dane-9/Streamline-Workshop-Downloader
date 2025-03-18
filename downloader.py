@@ -49,7 +49,7 @@ DEFAULT_SETTINGS = {
     "show_provider": True,
     "show_queue_entire_workshop": True,
     "keep_downloaded_in_queue": False,
-    "use_mod_name_for_folder": True,
+    "folder_naming_format": "id",
     "auto_detect_urls": False,
     "auto_add_to_queue": False,
     "delete_downloads_on_cancel": False,
@@ -391,7 +391,7 @@ class SettingsDialog(QDialog):
         self._show_provider = self._config.get('show_provider', True)
         self._show_queue_entire_workshop = self._config.get('show_queue_entire_workshop', True)
         self._keep_downloaded_in_queue = self._config.get('keep_downloaded_in_queue', False)
-        self._use_mod_name_for_folder = self._config.get('use_mod_name_for_folder', True)
+        self._folder_naming_format = self._config.get('folder_naming_format', 'id')
         self._auto_detect_urls = self._config.get('auto_detect_urls', False)
         self._auto_add_to_queue = self._config.get('auto_add_to_queue', False)
 
@@ -617,12 +617,42 @@ class SettingsDialog(QDialog):
         help_layout.addWidget(help_btn)
         help_layout.addStretch()
         layout.addRow(help_layout)
-        
+
         layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Downloads", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
-    
-        self.use_mod_name_checkbox = QCheckBox("Use Mod Name instead of ID for Mod Folder")
-        self.use_mod_name_checkbox.setChecked(self._use_mod_name_for_folder)
-        layout.addRow(self.use_mod_name_checkbox)
+
+        folder_name_label = QLabel("Naming Scheme: ")
+        tooltip_text = "Downloaded Mods Naming Scheme"
+        detailed_text = ("Choose how the folder for downloaded mods should be named:\n"
+                         "• 'Mod ID': Uses the mod's numeric ID.\n"
+                         "• 'Mod Name': Uses the mod's title.\n"
+                         "• 'Mod ID + Mod Name': Combines both.")
+        help_icon = create_help_icon(self, tooltip_text, detailed_text)
+
+        folder_label_layout = QHBoxLayout()
+        folder_label_layout.addWidget(folder_name_label)
+        folder_label_layout.addWidget(help_icon)
+        folder_label_layout.addStretch()
+
+        folder_name_layout = QVBoxLayout()
+        folder_name_layout.setSpacing(5)
+
+        folder_format = self._config.get("folder_naming_format", "id")
+
+        self.id_folder_scheme = QRadioButton("Mod ID")
+        self.id_folder_scheme.setChecked(folder_format == "id")
+
+        self.name_folder_scheme = QRadioButton("Mod Name")
+        self.name_folder_scheme.setChecked(folder_format == "name")
+
+        self.combined_folder_scheme = QRadioButton("Mod ID + Mod Name")
+        self.combined_folder_scheme.setChecked(folder_format == "combined")
+        
+        folder_name_layout.addWidget(self.id_folder_scheme)
+        folder_name_layout.addWidget(self.name_folder_scheme)
+        folder_name_layout.addWidget(self.combined_folder_scheme)
+        
+        layout.addRow(folder_label_layout)
+        layout.addRow(folder_name_layout)
     
         return page
 
@@ -701,7 +731,7 @@ class SettingsDialog(QDialog):
         batch_size = self.batch_size_spinbox.value()
         keep_downloaded_in_queue = self.keep_downloaded_in_queue_checkbox.isChecked()
         delete_downloads_on_cancel = self.delete_downloads_on_cancel_checkbox.isChecked()
-        use_mod_name_for_folder = self.use_mod_name_checkbox.isChecked()
+        folder_naming_format = self.id_folder_scheme.isChecked()
 
         auto_detect_urls = self.auto_detect_urls_checkbox.isChecked()
         auto_add_to_queue = self.auto_add_to_queue_checkbox.isChecked()
@@ -719,7 +749,7 @@ class SettingsDialog(QDialog):
             'show_queue_entire_workshop': show_queue_entire_workshop,
             'keep_downloaded_in_queue': keep_downloaded_in_queue,
             'delete_downloads_on_cancel': delete_downloads_on_cancel,
-            'use_mod_name_for_folder': use_mod_name_for_folder,
+            'folder_naming_format': folder_naming_format,
             'auto_detect_urls': auto_detect_urls,
             'auto_add_to_queue': auto_add_to_queue,
             'download_button': self.show_download_button_checkbox.isChecked(),
@@ -730,6 +760,12 @@ class SettingsDialog(QDialog):
         super().accept()
 
     def get_settings(self):
+        folder_format = "id"
+        if self.name_folder_scheme.isChecked():
+            folder_format = "name"
+        elif self.combined_folder_scheme.isChecked():
+            folder_format = "combined"
+    
         return {
             'current_theme': self.theme_dropdown.currentText(),
             'logo_style': (
@@ -742,7 +778,7 @@ class SettingsDialog(QDialog):
             'show_provider': self.show_provider_checkbox.isChecked(),
             'show_queue_entire_workshop': self.show_queue_entire_workshop_checkbox.isChecked(),
             'keep_downloaded_in_queue': self.keep_downloaded_in_queue_checkbox.isChecked(),
-            'use_mod_name_for_folder': self.use_mod_name_checkbox.isChecked(),
+            'folder_naming_format': folder_format,
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
             'delete_downloads_on_cancel': self.delete_downloads_on_cancel_checkbox.isChecked(),
@@ -767,6 +803,8 @@ class SettingsDialog(QDialog):
             self.darker_logo_radio.setChecked(True)
         else:
             self.light_logo_radio.setChecked(True)
+            
+        self.id_folder_scheme.setChecked(True)
     
         self.show_download_button_checkbox.setChecked(DEFAULT_SETTINGS["download_button"])
         self.show_searchbar_checkbox.setChecked(DEFAULT_SETTINGS["show_searchbar"])
@@ -781,7 +819,6 @@ class SettingsDialog(QDialog):
         self.batch_size_spinbox.setValue(DEFAULT_SETTINGS["batch_size"])
         self.keep_downloaded_in_queue_checkbox.setChecked(DEFAULT_SETTINGS["keep_downloaded_in_queue"])
         self.delete_downloads_on_cancel_checkbox.setChecked(DEFAULT_SETTINGS["delete_downloads_on_cancel"])
-        self.use_mod_name_checkbox.setChecked(DEFAULT_SETTINGS["use_mod_name_for_folder"])
     
         self.auto_detect_urls_checkbox.setChecked(DEFAULT_SETTINGS["auto_detect_urls"])
         self.auto_add_to_queue_checkbox.setChecked(DEFAULT_SETTINGS["auto_add_to_queue"])
@@ -3846,27 +3883,37 @@ class SteamWorkshopDownloader(QWidget):
         mod_id = mod.get('mod_id')
         if not app_id or not mod_id:
             return False
-
+    
         original_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content', app_id, mod_id)
 
-        folder_name = mod_id  # default
-        if self.config.get('use_mod_name_for_folder', False):
+        folder_naming_format = self.config.get('folder_naming_format', 'id')
+
+        if folder_naming_format == 'id':
+            # Just use the mod ID
+            folder_name = mod_id
+        else:
             # Get mod name (or fallback to mod_id)
             mod_name = mod.get('mod_name', mod_id)
             # Convert to UTF-8, ignoring characters that can't be encoded
             mod_name_utf8 = mod_name.encode('utf-8', 'ignore').decode('utf-8')
             # Replace illegal filename characters with an underscore
             safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', mod_name_utf8)
-            folder_name = safe_mod_name
-    
+
+            if folder_naming_format == 'name':
+                # Use just the mod name
+                folder_name = safe_mod_name
+            elif folder_naming_format == 'combined':
+                # Use "AppID - Mod Name" format
+                folder_name = f"{app_id} - {safe_mod_name}"
+
         target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
-    
+
         if os.path.exists(original_path):
             try:
                 if not os.path.exists(os.path.dirname(target_path)):
                     os.makedirs(os.path.dirname(target_path))
                 shutil.move(original_path, target_path)
-
+    
                 return True
             except Exception as e:
                 self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
@@ -4052,21 +4099,31 @@ class SteamWorkshopDownloader(QWidget):
                         mod = next((m for m in self.download_queue if m['mod_id'] == mod_id), None)
                         if mod:
                             self.downloaded_mods_info[mod_id] = mod.get('mod_name', mod_id)
+
                             if 'Failed' in mod['status'] or mod['status'] == 'Downloading':
                                 mod['status'] = 'Downloaded'
                                 status_updates.append((mod_id, 'Downloaded'))
-    
-                    folder_name = mod_id
-                    if self.config.get('use_mod_name_for_folder', False):
+
+                    folder_naming_format = self.config.get('folder_naming_format', 'id')
+
+                    if folder_naming_format == 'id':
+                        folder_name = mod_id
+                    else:
                         safe_mod_name = self.downloaded_mods_info.get(mod_id, mod_id)
-    
+                        
                         # If the mod is age-restricted, always use mod_id
                         if safe_mod_name == "UNKNOWN - Age Restricted":
-                            folder_name = mod_id
+                            safe_mod_name = mod_id
                         else:
                             # Remove characters that are illegal in file/folder names
                             safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', safe_mod_name)
+                        
+                        if folder_naming_format == 'name':
+                            # Use just the mod name
                             folder_name = safe_mod_name
+                        elif folder_naming_format == 'combined':
+                            # Use "AppID - Mod Name" format
+                            folder_name = f"{app_id} - {safe_mod_name}"
         
                     target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
                     try:
@@ -4090,9 +4147,9 @@ class SteamWorkshopDownloader(QWidget):
                 app_details = []
                 for app_id, count in app_id_stats.items():
                     app_details.append(f"{count} to {app_id}")
-    
+
                 self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD: {', '.join(app_details)}")
-    
+
         if failed_count > 0:
             self.log_signal.emit(f"Failed to move {failed_count} mod(s)")
 
