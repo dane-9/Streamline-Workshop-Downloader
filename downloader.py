@@ -2389,16 +2389,22 @@ class SteamWorkshopDownloader(QWidget):
         self.show_downloaded_action = QAction("Downloaded", self)
         self.show_downloaded_action.setCheckable(True)
         self.show_downloaded_action.triggered.connect(lambda: self.filter_queue_by_status("Downloaded"))
+        
+        self.show_failed_action = QAction("Failed", self)
+        self.show_failed_action.setCheckable(True)
+        self.show_failed_action.triggered.connect(lambda: self.filter_queue_by_status("Failed"))
 
         self.filter_action_group = QActionGroup(self)
         self.filter_action_group.addAction(self.show_all_action)
         self.filter_action_group.addAction(self.show_queued_action)
         self.filter_action_group.addAction(self.show_downloaded_action)
+        self.filter_action_group.addAction(self.show_failed_action)
         self.filter_action_group.setExclusive(True)
 
         self.filter_menu.addAction(self.show_all_action)
         self.filter_menu.addAction(self.show_queued_action)
         self.filter_menu.addAction(self.show_downloaded_action)
+        self.filter_menu.addAction(self.show_failed_action)
 
         self.filter_tooltip = FilterTooltip(self)
         self.filter_tooltip.setup(self.filter_action, self.filter_menu)
@@ -2591,7 +2597,8 @@ class SteamWorkshopDownloader(QWidget):
             # First check if status matches the current filter
             status_match = (self.current_filter == "All" or 
                            (self.current_filter == "Queued" and item_status == "Queued") or
-                           (self.current_filter == "Downloaded" and item_status == "Downloaded"))
+                           (self.current_filter == "Downloaded" and item_status == "Downloaded") or
+                           (self.current_filter == "Failed" and "Failed" in item_status))
             
             # If status doesn't match, hide the item
             if not status_match:
@@ -2626,6 +2633,9 @@ class SteamWorkshopDownloader(QWidget):
         elif self.current_filter == "Downloaded":
             downloaded_count = sum(1 for mod in self.download_queue if mod['status'] == 'Downloaded')
             placeholder = f"Downloaded Mods: {downloaded_count} / {total_count}     /     Search by Mod ID or Name"
+        elif self.current_filter == "Failed":
+            failed_count = sum(1 for mod in self.download_queue if 'Failed' in mod['status'])
+            placeholder = f"Failed Mods: {failed_count} / {total_count}     /     Search by Mod ID or Name"
         
         self.search_input.setPlaceholderText(placeholder)
         
@@ -4607,7 +4617,8 @@ class SteamWorkshopDownloader(QWidget):
     
         tooltip = f"All Mods: {total_count}\n" \
                   f"Queued: {queued_count}\n" \
-                  f"Downloaded: {downloaded_count}"
+                  f"Downloaded: {downloaded_count}\n" \
+                  f"Failed: {failed_count}"
     
         if downloading_count > 0:
             tooltip += f"\nDownloading: {downloading_count}"
