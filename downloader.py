@@ -52,6 +52,7 @@ DEFAULT_SETTINGS = {
     "use_mod_name_for_folder": True,
     "auto_detect_urls": False,
     "auto_add_to_queue": False,
+    "delete_downloads_on_cancel": False,
     
     "download_button": True,
     "show_menu_bar": True, 
@@ -584,7 +585,7 @@ class SettingsDialog(QDialog):
         page = QWidget()
         layout = QFormLayout(page)
         layout.setVerticalSpacing(10)
-
+    
         batch_label = QLabel("Batch Size:")
         self.batch_size_spinbox = QSpinBox()
         self.batch_size_spinbox.setRange(1, 100)
@@ -606,12 +607,23 @@ class SettingsDialog(QDialog):
         self.keep_downloaded_in_queue_checkbox.setChecked(self._keep_downloaded_in_queue)
         layout.addRow(self.keep_downloaded_in_queue_checkbox)
         
+        self.delete_downloads_on_cancel_checkbox = QCheckBox("Delete Downloads When Canceling")
+        self.delete_downloads_on_cancel_checkbox.setChecked(self._config.get("delete_downloads_on_cancel", False))
+        tooltip_text = "When enabled, downloaded mods will be deleted when canceling."
+        detailed_text = "By default, when you cancel a download, any downloaded mods are kept and moved to the downloads folder. Enabling this option will delete any downloaded mods when canceling instead."
+        help_btn = create_help_icon(self, tooltip_text, detailed_text)
+        help_layout = QHBoxLayout()
+        help_layout.addWidget(self.delete_downloads_on_cancel_checkbox)
+        help_layout.addWidget(help_btn)
+        help_layout.addStretch()
+        layout.addRow(help_layout)
+        
         layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Downloads", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
-
+    
         self.use_mod_name_checkbox = QCheckBox("Use Mod Name instead of ID for Mod Folder")
         self.use_mod_name_checkbox.setChecked(self._use_mod_name_for_folder)
         layout.addRow(self.use_mod_name_checkbox)
-
+    
         return page
 
     def _build_utility_page(self):
@@ -688,6 +700,7 @@ class SettingsDialog(QDialog):
 
         batch_size = self.batch_size_spinbox.value()
         keep_downloaded_in_queue = self.keep_downloaded_in_queue_checkbox.isChecked()
+        delete_downloads_on_cancel = self.delete_downloads_on_cancel_checkbox.isChecked()
         use_mod_name_for_folder = self.use_mod_name_checkbox.isChecked()
 
         auto_detect_urls = self.auto_detect_urls_checkbox.isChecked()
@@ -705,6 +718,7 @@ class SettingsDialog(QDialog):
             'show_provider': show_provider,
             'show_queue_entire_workshop': show_queue_entire_workshop,
             'keep_downloaded_in_queue': keep_downloaded_in_queue,
+            'delete_downloads_on_cancel': delete_downloads_on_cancel,
             'use_mod_name_for_folder': use_mod_name_for_folder,
             'auto_detect_urls': auto_detect_urls,
             'auto_add_to_queue': auto_add_to_queue,
@@ -731,6 +745,7 @@ class SettingsDialog(QDialog):
             'use_mod_name_for_folder': self.use_mod_name_checkbox.isChecked(),
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
+            'delete_downloads_on_cancel': self.delete_downloads_on_cancel_checkbox.isChecked(),
             'download_button': self.show_download_button_checkbox.isChecked(),
             'show_regex_button': self.show_regex_checkbox.isChecked(),
             'show_case_button': self.show_case_checkbox.isChecked(),
@@ -765,6 +780,7 @@ class SettingsDialog(QDialog):
     
         self.batch_size_spinbox.setValue(DEFAULT_SETTINGS["batch_size"])
         self.keep_downloaded_in_queue_checkbox.setChecked(DEFAULT_SETTINGS["keep_downloaded_in_queue"])
+        self.delete_downloads_on_cancel_checkbox.setChecked(DEFAULT_SETTINGS["delete_downloads_on_cancel"])
         self.use_mod_name_checkbox.setChecked(DEFAULT_SETTINGS["use_mod_name_for_folder"])
     
         self.auto_detect_urls_checkbox.setChecked(DEFAULT_SETTINGS["auto_detect_urls"])
@@ -3407,54 +3423,80 @@ class SteamWorkshopDownloader(QWidget):
 
     def cancel_download(self):
         self.canceled = True
-        if self.current_process and self.current_process.poll() is None:
-            self.current_process.terminate()
-            self.log_signal.emit("Download process terminated by user.")
-    
-        for mod in self.download_queue:
-            if mod['status'] == 'Downloading' or mod['status'] == 'Downloaded':
-                mod['status'] = 'Queued'
-                self.update_queue_signal.emit(mod['mod_id'], 'Queued')
-    
-        # remove downloaded mods
-        self.remove_all_downloaded_mods()
-        
-        # Remove .acf files
-        self.remove_appworkshop_acf_files()
-    
+
+        delete_downloads = self.config.get("delete_downloads_on_cancel", False)
+
+        if delete_downloads:
+
+            if self.current_process and self.current_process.poll() is None:
+                self.current_process.terminate()
+                self.log_signal.emit("Download process terminated by user.")
+
+                self.log_signal.emit("Waiting for files to be released...")
+                time.sleep(2)
+
+            for mod in self.download_queue:
+                if mod['status'] in ['Downloading', 'Downloaded']:
+                    mod['status'] = 'Queued'
+                    self.update_queue_signal.emit(mod['mod_id'], 'Queued')
+
+            self.log_signal.emit("Removing downloaded mods due to cancellation...")
+            self.remove_all_downloaded_mods()
+
+            # Cleanup .acf files
+            self.remove_appworkshop_acf_files()
+
+            if not self.config.get("keep_downloaded_in_queue", False):
+                downloaded_mods = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
+                for mod in downloaded_mods:
+                    self.remove_mod_from_queue(mod['mod_id'])
+        else:
+            self.cancellation_pending = True
+            self.log_signal.emit("Cancellation requested. Waiting for current batch to complete...")
+
         self.is_downloading = False
         self.download_start_btn.setText('Start Download')
         self.download_start_btn.setEnabled(True)
+        
+        if delete_downloads:
+            self.log_signal.emit("Cancellation completed.")
+        else:
+            self.download_start_btn.setText('Canceling...')
+            self.download_start_btn.setEnabled(False)
 
     def download_worker(self):
         batch_size = self.config["batch_size"]
         keep_downloaded = self.config["keep_downloaded_in_queue"]
-    
+
+        self.cancellation_pending = False
+
         while self.is_downloading:
             queued_mods = [mod for mod in self.download_queue if mod['status'] == 'Queued']
             if not queued_mods:
                 break
 
-            if self.canceled:
-                return
+            if self.canceled and not self.cancellation_pending:
+                break
 
             # Separate mods by provider
             steamcmd_mods = [mod for mod in queued_mods if mod['provider'] == 'SteamCMD'][:batch_size]
             webapi_mods = [mod for mod in queued_mods if mod['provider'] == 'SteamWebAPI'][:batch_size]
 
             # Process SteamCMD mods
-            if steamcmd_mods:
+            if steamcmd_mods and not self.cancellation_pending:
                 self.log_signal.emit(f"Starting SteamCMD download of {len(steamcmd_mods)} mod(s).")
                 self.download_mods_steamcmd(steamcmd_mods)
-
-            # process SteamWebAPI mods
-            if webapi_mods:
+            # Process SteamWebAPI mods
+            if webapi_mods and not self.cancellation_pending:
                 self.log_signal.emit(f"Starting SteamWebAPI download of {len(webapi_mods)} mod(s).")
 
                 successful_count = 0
                 failed_count = 0
 
                 for mod in webapi_mods:
+                    if self.cancellation_pending:
+                        break
+
                     mod_id = mod['mod_id']
                     mod['status'] = 'Downloading'
                     self.update_queue_signal.emit(mod_id, 'Downloading')
@@ -3474,7 +3516,7 @@ class SteamWorkshopDownloader(QWidget):
                             mod['status'] = 'Failed'
                             self.update_queue_signal.emit(mod_id, 'Failed')
                             failed_count += 1
-
+    
                 summary_parts = []
                 if successful_count > 0:
                     summary_parts.append(f"{successful_count} mod(s) downloaded successfully")
@@ -3483,7 +3525,12 @@ class SteamWorkshopDownloader(QWidget):
                     
                 if summary_parts:
                     self.log_signal.emit(f"SteamWebAPI batch completed: {', '.join(summary_parts)}")
-    
+
+            if self.cancellation_pending:
+                self.log_signal.emit("Current batch completed. Processing cancellation...")
+                self.handle_cancellation()
+                break
+                
             # Remove all mods that have the status "Downloaded" if the setting is not enabled
             if not keep_downloaded:
                 mods_to_remove = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
@@ -3493,16 +3540,58 @@ class SteamWorkshopDownloader(QWidget):
         # Ensure all remaining mods are moved
         if not self.canceled:
             self.move_all_downloaded_mods()
-        
-        # Cleanup .acf files
-        self.remove_appworkshop_acf_files()
+            
+            # Cleanup .acf files 
+            self.remove_appworkshop_acf_files()
+
+            self.log_signal.emit("All downloads have been processed.")
+            self.is_downloading = False
+            self.download_start_btn.setText('Start Download')
+            self.download_start_btn.setEnabled(True)
+
+    def handle_cancellation(self):
+        delete_downloads = self.config.get("delete_downloads_on_cancel", False)
+        keep_downloaded_in_queue = self.config.get("keep_downloaded_in_queue", False)
+
+        workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
+        if os.path.exists(workshop_content_path):
+            for app_id in os.listdir(workshop_content_path):
+                app_path = os.path.join(workshop_content_path, app_id)
+                if os.path.isdir(app_path):
+                    for mod_id in os.listdir(app_path):
+                        mod_path = os.path.join(app_path, mod_id)
+                        if os.path.isdir(mod_path):
+                            mod = next((m for m in self.download_queue if m['mod_id'] == mod_id), None)
+                            if mod and (mod['status'] == 'Downloading' or 'Failed' in mod['status']):
+                                mod['status'] = 'Downloaded'
+                                self.update_queue_signal.emit(mod_id, 'Downloaded')
+                                self.downloaded_mods_info[mod_id] = mod.get('mod_name', mod_id)
+
+        for mod in self.download_queue:
+            if mod['status'] == 'Downloading':
+                mod['status'] = 'Queued'
+                self.update_queue_signal.emit(mod['mod_id'], 'Queued')
     
-        # End the download process
-        self.log_signal.emit("All downloads have been processed.")
-        self.is_downloading = False
+        if delete_downloads:
+            self.log_signal.emit("Removing downloaded mods due to cancellation...")
+            self.remove_all_downloaded_mods()
+        else:
+            self.log_signal.emit("Keeping downloaded mods and moving them to Downloads folder...")
+            self.move_all_downloaded_mods()
+    
+        if not keep_downloaded_in_queue:
+            downloaded_mods = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
+    
+            if downloaded_mods:
+                for mod in downloaded_mods:
+                    self.remove_mod_from_queue(mod['mod_id'])
+    
+        self.cancellation_pending = False
+    
         self.download_start_btn.setText('Start Download')
         self.download_start_btn.setEnabled(True)
-        
+        self.log_signal.emit("Cancellation completed.")
+
     def change_provider_for_mods(self, selected_items, new_provider):
         for item in selected_items:
             mod_id = item.text(1)
@@ -3638,7 +3727,6 @@ class SteamWorkshopDownloader(QWidget):
                 self.current_process.wait()
 
                 if self.canceled:
-                    self.log_signal.emit("Download canceled...")
                     return
 
                 summary_parts = []
@@ -3927,25 +4015,35 @@ class SteamWorkshopDownloader(QWidget):
         workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
         if not os.path.exists(workshop_content_path):
             return
-
+    
         moved_count = 0
         failed_count = 0
         app_id_stats = defaultdict(int)
-
+    
         # Iterate over each App ID folder
         for app_id in os.listdir(workshop_content_path):
             app_path = os.path.join(workshop_content_path, app_id)
             if not os.path.isdir(app_path):
                 continue
-
+    
             # Iterate over each mod folder within the App folder
             for mod_id in os.listdir(app_path):
                 mod_path = os.path.join(app_path, mod_id)
                 if os.path.isdir(mod_path):
+                    if mod_id not in self.downloaded_mods_info:
+                        mod = next((m for m in self.download_queue if m['mod_id'] == mod_id), None)
+                        if mod:
+                            # Store the mod name for renaming
+                            self.downloaded_mods_info[mod_id] = mod.get('mod_name', mod_id)
+
+                            if 'Failed' in mod['status'] or mod['status'] == 'Downloading':
+                                mod['status'] = 'Downloaded'
+                                self.update_queue_signal.emit(mod_id, 'Downloaded')
+    
                     folder_name = mod_id
                     if self.config.get('use_mod_name_for_folder', False):
                         safe_mod_name = self.downloaded_mods_info.get(mod_id, mod_id)
-
+    
                         # If the mod is age-restricted, always use mod_id
                         if safe_mod_name == "UNKNOWN - Age Restricted":
                             folder_name = mod_id
@@ -3953,7 +4051,7 @@ class SteamWorkshopDownloader(QWidget):
                             # Remove characters that are illegal in file/folder names
                             safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', safe_mod_name)
                             folder_name = safe_mod_name
-    
+        
                     target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
                     try:
                         if not os.path.exists(os.path.dirname(target_path)):
@@ -3965,22 +4063,22 @@ class SteamWorkshopDownloader(QWidget):
                         failed_count += 1
                         # Only log individual failures
                         self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
-    
-        if moved_count > 0:
-            if len(app_id_stats) == 1:
-                # Single app ID
-                app_id = next(iter(app_id_stats))
-                self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD/{app_id}")
-            else:
-                # Multiple app IDs
-                app_details = []
-                for app_id, count in app_id_stats.items():
-                    app_details.append(f"{count} to {app_id}")
-    
-                self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD: {', '.join(app_details)}")
-    
-        if failed_count > 0:
-            self.log_signal.emit(f"Failed to move {failed_count} mod(s)")
+        
+            if moved_count > 0:
+                if len(app_id_stats) == 1:
+                    # Single app ID
+                    app_id = next(iter(app_id_stats))
+                    self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD/{app_id}")
+                else:
+                    # Multiple app IDs
+                    app_details = []
+                    for app_id, count in app_id_stats.items():
+                        app_details.append(f"{count} to {app_id}")
+        
+                    self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD: {', '.join(app_details)}")
+        
+            if failed_count > 0:
+                self.log_signal.emit(f"Failed to move {failed_count} mod(s)")
         
     def open_context_menu(self, position: QPoint):
         if self.is_downloading:
