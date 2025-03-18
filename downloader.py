@@ -2082,7 +2082,7 @@ class SteamWorkshopDownloader(QWidget):
         self.current_process = None
         self.tooltip_manager = TooltipManager.instance()
         
-        self.status_updates = defaultdict(int)
+        self.status_updates = {}
         self.status_update_timer = QTimer()
         self.status_update_timer.setSingleShot(True)
         self.status_update_timer.timeout.connect(self.log_status_updates)
@@ -3553,6 +3553,8 @@ class SteamWorkshopDownloader(QWidget):
         delete_downloads = self.config.get("delete_downloads_on_cancel", False)
         keep_downloaded_in_queue = self.config.get("keep_downloaded_in_queue", False)
 
+        status_updates = []
+
         workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
         if os.path.exists(workshop_content_path):
             for app_id in os.listdir(workshop_content_path):
@@ -3564,30 +3566,33 @@ class SteamWorkshopDownloader(QWidget):
                             mod = next((m for m in self.download_queue if m['mod_id'] == mod_id), None)
                             if mod and (mod['status'] == 'Downloading' or 'Failed' in mod['status']):
                                 mod['status'] = 'Downloaded'
-                                self.update_queue_signal.emit(mod_id, 'Downloaded')
+                                status_updates.append((mod_id, 'Downloaded'))
                                 self.downloaded_mods_info[mod_id] = mod.get('mod_name', mod_id)
 
         for mod in self.download_queue:
             if mod['status'] == 'Downloading':
                 mod['status'] = 'Queued'
-                self.update_queue_signal.emit(mod['mod_id'], 'Queued')
-    
+                status_updates.append((mod['mod_id'], 'Queued'))
+
+        for mod_id, status in status_updates:
+            self.update_queue_signal.emit(mod_id, status)
+
         if delete_downloads:
             self.log_signal.emit("Removing downloaded mods due to cancellation...")
             self.remove_all_downloaded_mods()
         else:
             self.log_signal.emit("Keeping downloaded mods and moving them to Downloads folder...")
             self.move_all_downloaded_mods()
-    
+
         if not keep_downloaded_in_queue:
             downloaded_mods = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
-    
+
             if downloaded_mods:
                 for mod in downloaded_mods:
                     self.remove_mod_from_queue(mod['mod_id'])
-    
+
         self.cancellation_pending = False
-    
+
         self.download_start_btn.setText('Start Download')
         self.download_start_btn.setEnabled(True)
         self.log_signal.emit("Cancellation completed.")
@@ -3889,9 +3894,9 @@ class SteamWorkshopDownloader(QWidget):
             item = self.queue_tree.topLevelItem(index)
             if item.text(1) == mod_id:
                 item.setText(3, status)
-    
-                self.status_updates[status] += 1
-    
+
+                self.status_updates[mod_id] = status
+
                 if not self.status_update_timer.isActive():
                     self.status_update_timer.start(300)
 
@@ -3902,9 +3907,14 @@ class SteamWorkshopDownloader(QWidget):
     def log_status_updates(self):
         if not self.status_updates:
             return
+    
+        # Count each unique status
+        status_counts = defaultdict(int)
+        for mod_id, status in self.status_updates.items():
+            status_counts[status] += 1
 
         update_parts = []
-        for status, count in self.status_updates.items():
+        for status, count in status_counts.items():
             if count == 1:
                 update_parts.append(f"1 mod → {status}")
             else:
@@ -4019,6 +4029,7 @@ class SteamWorkshopDownloader(QWidget):
         moved_count = 0
         failed_count = 0
         app_id_stats = defaultdict(int)
+        status_updates = []
     
         # Iterate over each App ID folder
         for app_id in os.listdir(workshop_content_path):
@@ -4033,12 +4044,10 @@ class SteamWorkshopDownloader(QWidget):
                     if mod_id not in self.downloaded_mods_info:
                         mod = next((m for m in self.download_queue if m['mod_id'] == mod_id), None)
                         if mod:
-                            # Store the mod name for renaming
                             self.downloaded_mods_info[mod_id] = mod.get('mod_name', mod_id)
-
                             if 'Failed' in mod['status'] or mod['status'] == 'Downloading':
                                 mod['status'] = 'Downloaded'
-                                self.update_queue_signal.emit(mod_id, 'Downloaded')
+                                status_updates.append((mod_id, 'Downloaded'))
     
                     folder_name = mod_id
                     if self.config.get('use_mod_name_for_folder', False):
@@ -4063,23 +4072,26 @@ class SteamWorkshopDownloader(QWidget):
                         failed_count += 1
                         # Only log individual failures
                         self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
-        
-            if moved_count > 0:
-                if len(app_id_stats) == 1:
-                    # Single app ID
-                    app_id = next(iter(app_id_stats))
-                    self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD/{app_id}")
-                else:
-                    # Multiple app IDs
-                    app_details = []
-                    for app_id, count in app_id_stats.items():
-                        app_details.append(f"{count} to {app_id}")
-        
-                    self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD: {', '.join(app_details)}")
-        
-            if failed_count > 0:
-                self.log_signal.emit(f"Failed to move {failed_count} mod(s)")
-        
+
+        if moved_count > 0:
+            if len(app_id_stats) == 1:
+                # Single app ID
+                app_id = next(iter(app_id_stats))
+                self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD/{app_id}")
+            else:
+                # Multiple app IDs
+                app_details = []
+                for app_id, count in app_id_stats.items():
+                    app_details.append(f"{count} to {app_id}")
+    
+                self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD: {', '.join(app_details)}")
+    
+        if failed_count > 0:
+            self.log_signal.emit(f"Failed to move {failed_count} mod(s)")
+
+        for mod_id, status in status_updates:
+            self.update_queue_signal.emit(mod_id, status)
+
     def open_context_menu(self, position: QPoint):
         if self.is_downloading:
             return
