@@ -2629,6 +2629,7 @@ class SteamWorkshopDownloader(QWidget):
         self.log_signal.emit(f"Adding {len(mods)} mods from '{game_name}' (AppID: {appid}) to the queue...")
 
         self.queue_progress_last_update = 0  # To avoid too frequent updates
+        self.queue_insertion_finished = False
 
         self.queue_insertion_worker = QueueInsertionWorker(
             mods=mods,
@@ -2664,9 +2665,15 @@ class SteamWorkshopDownloader(QWidget):
 
     @Slot()
     def on_queue_insertion_finished(self):
+        if hasattr(self, 'queue_insertion_finished') and self.queue_insertion_finished:
+            return
+
+        self.queue_insertion_finished = True
+        
         # Called when the worker has finished inserting all batches
         total_count = len(self.download_queue)
         self.log_signal.emit(f"Workshop queuing complete: {total_count} total mods in queue")
+        
         # Reset progress tracking
         self.queue_progress_last_update = 0
 
