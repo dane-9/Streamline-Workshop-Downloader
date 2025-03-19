@@ -72,7 +72,8 @@ DEFAULT_SETTINGS = {
     "queue_tree_column_hidden": None,
     "show_version": True,
     "reset_provider_on_startup": False,
-    "download_provider": "Default"
+    "download_provider": "Default",
+    "reset_window_size_on_startup": True
 }
 
 # Allows logo to be applied over pythonw.exe's own
@@ -687,14 +688,35 @@ class SettingsDialog(QDialog):
         layout = QFormLayout(page)
         layout.setVerticalSpacing(10)
 
-        provider_reset_layout = QHBoxLayout()
+        layout.addRow(create_separator("settings_separator", parent=self, width=200, label="On Startup", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
 
-        self.reset_provider_checkbox = QCheckBox("Reset Download Provider on Startup")
+        window_size_layout = QHBoxLayout()
+        self.reset_window_size_checkbox = QCheckBox("Reset Window Size")
+        self.reset_window_size_checkbox.setChecked(
+            self._config.get("reset_window_size_on_startup", True))
+        window_size_layout.addWidget(self.reset_window_size_checkbox)
+
+        tooltip_text = "Reset the window to default size(670×750) when starting the application"
+        detailed_text = (
+            "When enabled, this option will reset the application window to its default size "
+            "each time you start Streamline, regardless of any size changes you made in the previous session.\n\n"
+            "Default window size: 670×750 pixels\n\n"
+            "If disabled, Streamline will remember your last window size and restore it on startup."
+        )
+
+        help_btn = create_help_icon(self, tooltip_text, detailed_text)
+        window_size_layout.addWidget(help_btn)
+        window_size_layout.addStretch()
+
+        layout.addRow(window_size_layout)
+
+        provider_reset_layout = QHBoxLayout()
+        self.reset_provider_checkbox = QCheckBox("Reset Download Provider")
         self.reset_provider_checkbox.setChecked(
             self._config.get("reset_provider_on_startup", False))
         provider_reset_layout.addWidget(self.reset_provider_checkbox)
 
-        tooltip_text = "Always resets to 'Default' provider when starting the application"
+        tooltip_text = "Reset to 'Default' provider when starting the application"
         detailed_text = (
             "When enabled, this option will reset the Download Provider dropdown to 'Default' "
             "every time you start the application, regardless of your previous selection.\n\n"
@@ -774,6 +796,7 @@ class SettingsDialog(QDialog):
             'show_sort_indicator': self.show_sort_indicator_checkbox.isChecked(),
             'show_menu_bar': self.show_menu_bar_checkbox.isChecked(),
             'show_version': self.show_version_checkbox.isChecked(),
+            'reset_window_size_on_startup': self.reset_window_size_checkbox.isChecked(),
             'reset_provider_on_startup': self.reset_provider_checkbox.isChecked()
         }
         
@@ -807,7 +830,8 @@ class SettingsDialog(QDialog):
         self.auto_detect_urls_checkbox.setChecked(DEFAULT_SETTINGS["auto_detect_urls"])
         self.auto_add_to_queue_checkbox.setChecked(DEFAULT_SETTINGS["auto_add_to_queue"])
         self.update_checkbox_style()
-        
+
+        self.reset_window_size_checkbox.setChecked(DEFAULT_SETTINGS["reset_window_size_on_startup"])
         self.reset_provider_checkbox.setChecked(DEFAULT_SETTINGS["reset_provider_on_startup"])
 
 class AboutDialog(QDialog):
@@ -2154,11 +2178,14 @@ class SteamWorkshopDownloader(QWidget):
         self.log_signal.connect(self.append_log)
         self.update_queue_signal.connect(self.update_queue_status)
 
-        window_size = self.config.get('window_size')
-        if window_size:
-            self.resize(window_size.get('width', 670), window_size.get('height', 750))
-        else:
+        if self.config.get('reset_window_size_on_startup', True):
             self.resize(670, 750)
+        else:
+            window_size = self.config.get('window_size')
+            if window_size:
+                self.resize(window_size.get('width', 670), window_size.get('height', 750))
+            else:
+                self.resize(670, 750)
 
     def initUI(self):
         self.setWindowTitle('Streamline')
@@ -2928,7 +2955,10 @@ class SteamWorkshopDownloader(QWidget):
         else:
             event.accept()
 
-        self.config['window_size'] = {'width': self.width(), 'height': self.height()}
+        if not self.config.get('reset_window_size_on_startup', True):
+            self.config['window_size'] = {'width': self.width(), 'height': self.height()}
+        elif 'window_size' in self.config:
+            del self.config['window_size']
 
         column_widths = self.config.get('queue_tree_column_widths')
         if not column_widths:
@@ -4626,7 +4656,6 @@ if __name__ == '__main__':
     def on_setup_complete(success):
         if success:
             downloader = SteamWorkshopDownloader()
-            downloader.resize(670, 750)
             downloader.show()
         else:
             app.quit()
