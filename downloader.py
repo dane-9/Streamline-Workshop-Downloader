@@ -687,10 +687,27 @@ class SettingsDialog(QDialog):
         layout = QFormLayout(page)
         layout.setVerticalSpacing(10)
 
+        provider_reset_layout = QHBoxLayout()
+
         self.reset_provider_checkbox = QCheckBox("Reset Download Provider on Startup")
         self.reset_provider_checkbox.setChecked(
             self._config.get("reset_provider_on_startup", False))
-        layout.addRow(self.reset_provider_checkbox)
+        provider_reset_layout.addWidget(self.reset_provider_checkbox)
+
+        tooltip_text = "Always resets to 'Default' provider when starting the application"
+        detailed_text = (
+            "When enabled, this option will reset the Download Provider dropdown to 'Default' "
+            "every time you start the application, regardless of your previous selection.\n\n"
+            "This is useful if you want to ensure that the application always uses the optimal "
+            "provider for each mod type based on Steam's database.\n\n"
+            "- Default: Uses SteamCMD for games in the AppIDs list, or SteamWebAPI otherwise"
+        )
+
+        help_btn = create_help_icon(self, tooltip_text, detailed_text)
+        provider_reset_layout.addWidget(help_btn)
+        provider_reset_layout.addStretch()
+
+        layout.addRow(provider_reset_layout)
 
         return page
     
