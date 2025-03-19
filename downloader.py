@@ -710,7 +710,7 @@ class SettingsDialog(QDialog):
         layout.addRow(provider_reset_layout)
 
         return page
-    
+
     def toggle_auto_add_checkbox(self):
         new_state = self.auto_detect_urls_checkbox.isChecked()
         self.auto_add_to_queue_checkbox.setEnabled(new_state)
@@ -741,43 +741,6 @@ class SettingsDialog(QDialog):
         self.pages_widget.setCurrentIndex(index)
 
     def accept(self):
-        selected_theme = self.theme_dropdown.currentText()
-        if self.light_logo_radio.isChecked():
-            logo_style = "Light"
-        elif self.dark_logo_radio.isChecked():
-            logo_style = "Dark"
-        else:
-            logo_style = "Darker"
-
-        batch_size = self.batch_size_spinbox.value()
-        keep_downloaded_in_queue = self.keep_downloaded_in_queue_checkbox.isChecked()
-        delete_downloads_on_cancel = self.delete_downloads_on_cancel_checkbox.isChecked()
-        folder_naming_format = self.id_folder_scheme.isChecked()
-
-        auto_detect_urls = self.auto_detect_urls_checkbox.isChecked()
-        auto_add_to_queue = self.auto_add_to_queue_checkbox.isChecked()
-
-        show_logs = self.show_logs_checkbox.isChecked()
-        show_provider = self.show_provider_checkbox.isChecked()
-        show_queue_entire_workshop = self.show_queue_entire_workshop_checkbox.isChecked()
-
-        new_settings = {
-            'current_theme': selected_theme,
-            'logo_style': logo_style,
-            'batch_size': batch_size,
-            'show_logs': show_logs,
-            'show_provider': show_provider,
-            'show_queue_entire_workshop': show_queue_entire_workshop,
-            'keep_downloaded_in_queue': keep_downloaded_in_queue,
-            'delete_downloads_on_cancel': delete_downloads_on_cancel,
-            'folder_naming_format': folder_naming_format,
-            'auto_detect_urls': auto_detect_urls,
-            'auto_add_to_queue': auto_add_to_queue,
-            'download_button': self.show_download_button_checkbox.isChecked(),
-            'show_menu_bar': self.show_menu_bar_checkbox.isChecked(),
-            'show_version': self.show_version_checkbox.isChecked(),
-            'download_provider': self.parent().provider_dropdown.currentText()
-        }
         super().accept()
 
     def get_settings(self):
@@ -836,11 +799,11 @@ class SettingsDialog(QDialog):
         self.show_logs_checkbox.setChecked(DEFAULT_SETTINGS["show_logs"])
         self.show_queue_entire_workshop_checkbox.setChecked(DEFAULT_SETTINGS["show_queue_entire_workshop"])
         self.show_provider_checkbox.setChecked(DEFAULT_SETTINGS["show_provider"])
-    
+
         self.batch_size_spinbox.setValue(DEFAULT_SETTINGS["batch_size"])
         self.keep_downloaded_in_queue_checkbox.setChecked(DEFAULT_SETTINGS["keep_downloaded_in_queue"])
         self.delete_downloads_on_cancel_checkbox.setChecked(DEFAULT_SETTINGS["delete_downloads_on_cancel"])
-    
+
         self.auto_detect_urls_checkbox.setChecked(DEFAULT_SETTINGS["auto_detect_urls"])
         self.auto_add_to_queue_checkbox.setChecked(DEFAULT_SETTINGS["auto_add_to_queue"])
         self.update_checkbox_style()
