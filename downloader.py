@@ -2623,7 +2623,7 @@ class SteamWorkshopDownloader(QWidget):
         
     def adjust_widget_heights(self):
         button_height = 28
-        dropdown_height = 27
+        dropdown_height = 28
     
         for attr_name in dir(self):
             attr = getattr(self, attr_name)
