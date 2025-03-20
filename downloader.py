@@ -4711,10 +4711,11 @@ class SteamWorkshopDownloader(QWidget):
         failed_count = sum(1 for mod in self.download_queue if 'Failed' in mod['status'])
         downloading_count = sum(1 for mod in self.download_queue if mod['status'] == 'Downloading')
     
-        tooltip = f"All Mods: {total_count}\n" \
-                  f"Queued: {queued_count}\n" \
-                  f"Downloaded: {downloaded_count}\n" \
-                  f"Failed: {failed_count}"
+        tooltip = f"Queue Statistics\n" \
+                  f" All Mods: {total_count}\n" \
+                  f" Queued: {queued_count}\n" \
+                  f" Downloaded: {downloaded_count}\n" \
+                  f" Failed: {failed_count}"
     
         if downloading_count > 0:
             tooltip += f"\nDownloading: {downloading_count}"
