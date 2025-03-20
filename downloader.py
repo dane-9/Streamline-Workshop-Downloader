@@ -2525,17 +2525,25 @@ class SteamWorkshopDownloader(QWidget):
         self.import_queue_btn = QPushButton()
         self.import_queue_btn.setIcon(QIcon(resource_path('Files/import.png')))
         self.import_queue_btn.setIconSize(QSize(20, 20))
-        self.import_queue_btn.setToolTip('Import Queue')
         self.import_queue_btn.clicked.connect(self.import_queue)
         self.import_queue_btn.setFixedSize(32, 32)
-
+        
         self.export_queue_btn = QPushButton()
         self.export_queue_btn.setIcon(QIcon(resource_path('Files/export.png')))
         self.export_queue_btn.setIconSize(QSize(20, 20))
-        self.export_queue_btn.setToolTip('Export Queue')
         self.export_queue_btn.clicked.connect(self.export_queue)
         self.export_queue_btn.setEnabled(True)
         self.export_queue_btn.setFixedSize(32, 32)
+
+        self.import_tooltip = Tooltip(self.import_queue_btn, "Import Queue")
+        self.import_tooltip.setPlacement(TooltipPlacement.BOTTOM)
+        self.import_tooltip.setShowDelay(300)
+        self.import_tooltip.setHideDelay(50)
+        
+        self.export_tooltip = Tooltip(self.export_queue_btn, "Export Queue")
+        self.export_tooltip.setPlacement(TooltipPlacement.BOTTOM)
+        self.export_tooltip.setShowDelay(300)
+        self.export_tooltip.setHideDelay(50)
 
         hbox.addWidget(self.import_queue_btn)
         hbox.addWidget(self.export_queue_btn)
