@@ -2589,13 +2589,15 @@ class SteamWorkshopDownloader(QWidget):
         self.main_layout.addWidget(self.queue_tree, stretch=3)
 
         button_layout = QHBoxLayout()
-        self.download_start_btn = QPushButton('Start Download')
-        self.download_start_btn.clicked.connect(self.start_download)
-        button_layout.addWidget(self.download_start_btn)
-
         self.open_folder_btn = QPushButton('Open Downloads Folder')
         self.open_folder_btn.clicked.connect(self.open_downloads_folder)
         button_layout.addWidget(self.open_folder_btn)
+
+        self.download_start_btn = QPushButton("Start Download")
+        self.download_start_btn.setStyleSheet("font-weight: bold;")
+        self.download_start_btn.clicked.connect(self.start_download)
+        self.download_start_btn.setFixedWidth(325)
+        button_layout.addWidget(self.download_start_btn)
         
         self.provider_dropdown = ProviderComboBox(prefix="Provider:")
         self.provider_dropdown.addItems(['Default', 'SteamCMD', 'SteamWebAPI'])
