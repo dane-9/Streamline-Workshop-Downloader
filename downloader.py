@@ -371,6 +371,59 @@ class ActiveComboBox(QComboBox):
             painter.drawText(suffix_rect, Qt.AlignVCenter | Qt.AlignLeft, active_suffix)
             painter.restore()
             
+class ProviderComboBox(QComboBox):
+    def __init__(self, prefix="", parent=None):
+        super().__init__(parent)
+        self.prefix = prefix
+        self.view().activated.connect(self.handleItemActivated)
+
+    def handleItemActivated(self, index):
+        self.setCurrentIndex(index)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        opt = QStyleOptionComboBox()
+        self.initStyleOption(opt)
+
+        if not self.prefix:
+            self.style().drawComplexControl(QStyle.CC_ComboBox, opt, painter, self)
+            return
+
+        current_text = self.currentText()
+        prefix_text = f"  {self.prefix} "
+        display_text = f"{prefix_text}{current_text}"
+        opt.currentText = display_text
+
+        self.style().drawComplexControl(QStyle.CC_ComboBox, opt, painter, self)
+
+        text_rect = self.style().subControlRect(QStyle.CC_ComboBox, opt, QStyle.SC_ComboBoxEditField, self)
+        painter.setPen(opt.palette.text().color())
+
+        painter.save()
+        normal_font = painter.font()
+        normal_font.setBold(False)
+        painter.setFont(normal_font)
+
+        prefix_width = painter.fontMetrics().horizontalAdvance(prefix_text)
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, prefix_text)
+        painter.restore()
+
+        bold_font = painter.font()
+        bold_font.setBold(True)
+        painter.setFont(bold_font)
+
+        provider_rect = text_rect.adjusted(prefix_width, 0, 0, 0)
+        painter.drawText(provider_rect, Qt.AlignLeft | Qt.AlignVCenter, current_text)
+        painter.end()
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        fm = self.fontMetrics()
+        width = max(hint.width(), fm.horizontalAdvance(f"{self.prefix} {self.currentText()}") + 30)
+        return QSize(width, hint.height())
+            
 class RowNumberDelegate(NoFocusDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -636,7 +689,7 @@ class SettingsDialog(QDialog):
         self.show_logs_checkbox.setChecked(self._show_logs)
         layout.addRow(self.show_logs_checkbox)
     
-        self.show_provider_checkbox = QCheckBox("Download Provider Dropdown")
+        self.show_provider_checkbox = QCheckBox("Download Provider")
         self.show_provider_checkbox.setChecked(self._show_provider)
         layout.addRow(self.show_provider_checkbox)
     
@@ -838,7 +891,6 @@ class SettingsDialog(QDialog):
             'batch_size': self.batch_size_spinbox.value(),
             'show_logs': self.show_logs_checkbox.isChecked(),
             'show_provider': self.show_provider_checkbox.isChecked(),
-            'show_queue_entire_workshop': self.show_queue_entire_workshop_checkbox.isChecked(),
             'keep_downloaded_in_queue': self.keep_downloaded_in_queue_checkbox.isChecked(),
             'folder_naming_format': folder_format,
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
@@ -876,7 +928,6 @@ class SettingsDialog(QDialog):
         self.show_export_import_buttons_checkbox.setChecked(DEFAULT_SETTINGS["show_export_import_buttons"])
         self.show_sort_indicator_checkbox.setChecked(DEFAULT_SETTINGS["show_sort_indicator"])
         self.show_logs_checkbox.setChecked(DEFAULT_SETTINGS["show_logs"])
-        self.show_queue_entire_workshop_checkbox.setChecked(DEFAULT_SETTINGS["show_queue_entire_workshop"])
         self.show_provider_checkbox.setChecked(DEFAULT_SETTINGS["show_provider"])
 
         self.batch_size_spinbox.setValue(DEFAULT_SETTINGS["batch_size"])
@@ -2545,6 +2596,13 @@ class SteamWorkshopDownloader(QWidget):
         self.open_folder_btn = QPushButton('Open Downloads Folder')
         self.open_folder_btn.clicked.connect(self.open_downloads_folder)
         button_layout.addWidget(self.open_folder_btn)
+        
+        self.provider_dropdown = ProviderComboBox(prefix="Provider:")
+        self.provider_dropdown.addItems(['Default', 'SteamCMD', 'SteamWebAPI'])
+        self.provider_dropdown.currentIndexChanged.connect(self.on_provider_changed)
+        self.provider_dropdown.setMinimumWidth(150)
+        button_layout.addWidget(self.provider_dropdown)
+        
         self.main_layout.addLayout(button_layout)
 
         self.log_area = QTextEdit()
@@ -2554,17 +2612,6 @@ class SteamWorkshopDownloader(QWidget):
         self.log_area.setFixedHeight(150)
         self.log_area.setPlaceholderText("Logs")
         self.main_layout.addWidget(self.log_area, stretch=1)
-
-        self.provider_layout = QHBoxLayout()
-
-        self.provider_layout.addStretch()
-        self.provider_label = QLabel('Download Provider:')
-        self.provider_layout.addWidget(self.provider_label)
-        self.provider_dropdown = QComboBox()
-        self.provider_dropdown.addItems(['Default', 'SteamCMD', 'SteamWebAPI'])
-        self.provider_dropdown.currentIndexChanged.connect(self.on_provider_changed)
-        self.provider_layout.addWidget(self.provider_dropdown)
-        self.main_layout.addLayout(self.provider_layout)
 
         stored_provider = self.config.get("download_provider", "Default")
         self.provider_dropdown.setCurrentText(stored_provider)
@@ -3124,7 +3171,6 @@ class SteamWorkshopDownloader(QWidget):
         self.import_export_container.setVisible(self.config["show_export_import_buttons"])
         self.import_export_spacer.setVisible(self.config["show_export_import_buttons"])
         self.log_area.setVisible(self.config["show_logs"])
-        self.provider_label.setVisible(self.config["show_provider"])
         self.provider_dropdown.setVisible(self.config["show_provider"])
         self.menu_bar.setVisible(self.config["show_menu_bar"])
         
@@ -4099,6 +4145,7 @@ class SteamWorkshopDownloader(QWidget):
         
     def on_provider_changed(self):
         selected_provider = self.provider_dropdown.currentText()
+        
         if selected_provider != 'Default' and self.download_queue:
             # Check if there are mods with different providers in the queue
             mods_with_different_providers = any(mod['provider'] != selected_provider for mod in self.download_queue)
@@ -4151,9 +4198,12 @@ class SteamWorkshopDownloader(QWidget):
                     previous_provider = 'SteamCMD' if mods_with_steamcmd else 'SteamWebAPI'
                     self.provider_dropdown.setCurrentText(previous_provider)
                     self.provider_dropdown.blockSignals(False)
-                    
-        self.config["download_provider"] = self.provider_dropdown.currentText()
+                        
+        self.config["download_provider"] = selected_provider
         self.save_config()
+
+        stored_provider = self.config.get("download_provider", "Default")
+        self.provider_dropdown.setCurrentText(stored_provider)
                     
     def reset_status_of_mods(self, selected_items):
         for item in selected_items:
