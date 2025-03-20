@@ -2530,7 +2530,7 @@ class SteamWorkshopDownloader(QWidget):
         self.export_queue_btn.setIconSize(QSize(20, 20))
         self.export_queue_btn.setToolTip('Export Queue')
         self.export_queue_btn.clicked.connect(self.export_queue)
-        self.export_queue_btn.setEnabled(False)
+        self.export_queue_btn.setEnabled(True)
         self.export_queue_btn.setFixedSize(32, 32)
 
         hbox.addWidget(self.import_queue_btn)
