@@ -31,11 +31,11 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
-    QCoreApplication, Slot,
+    QCoreApplication, Slot, QRect
 )
 from PySide6.QtGui import (
     QTextCursor, QAction, QClipboard, QIcon, QCursor, QPainter,
-    QColor, QPixmap, QPolygon, QFontMetrics, QActionGroup
+    QColor, QPixmap, QPolygon, QFontMetrics, QActionGroup, QPalette
 )
 
 current_version = "1.2.0"
@@ -61,6 +61,7 @@ DEFAULT_SETTINGS = {
     "show_case_button": True,
     "show_export_import_buttons": True,
     "show_sort_indicator": True,
+    "show_row_numbers": False,
     
     "header_locked": True,
     
@@ -369,6 +370,65 @@ class ActiveComboBox(QComboBox):
             painter.setPen(QColor("#40b6e0"))
             painter.drawText(suffix_rect, Qt.AlignVCenter | Qt.AlignLeft, active_suffix)
             painter.restore()
+            
+class RowNumberDelegate(NoFocusDelegate):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.base_padding = 10
+        self.char_width = None
+        self.max_digits = 1
+
+    def get_digit_width(self, painter):
+        if self.char_width is None:
+            self.char_width = painter.fontMetrics().averageCharWidth()
+        return self.char_width
+
+    def get_margin_for_number(self, number, painter):
+        digit_width = self.get_digit_width(painter)
+        num_digits = len(str(number))
+        if num_digits > self.max_digits:
+            self.max_digits = num_digits
+        return self.max_digits * digit_width + self.base_padding
+
+    def paint(self, painter, option, index):
+        if index.column() == 0:
+            painter.save()
+
+            style = option.widget.style() if option.widget else QApplication.style()
+            style.drawPrimitive(QStyle.PE_PanelItemViewItem, option, painter, option.widget)
+
+            row_number = index.row() + 1
+            margin = self.get_margin_for_number(row_number, painter)
+            line_number_rect = QRect(option.rect)
+            line_number_rect.setWidth(margin)
+
+            if option.state & QStyle.State_Selected:
+                painter.setPen(QColor("#40b6e0"))
+            else:
+                painter.setPen(option.palette.text().color())
+
+            painter.drawText(
+                line_number_rect,
+                Qt.AlignRight | Qt.AlignVCenter,
+                f"{row_number} "
+            )
+            painter.restore()
+
+            adjusted_option = QStyleOptionViewItem(option)
+            adjusted_option.rect.setLeft(option.rect.left() + margin)
+            super().paint(painter, adjusted_option, index)
+        else:
+            super().paint(painter, option, index)
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        if index.column() == 0:
+            if self.char_width is None:
+                initial_width = 30
+            else:
+                initial_width = self.max_digits * self.char_width + self.base_padding
+            size.setWidth(size.width() + initial_width)
+        return size
             
 class SettingsTreeDelegate(NoFocusDelegate):
     def sizeHint(self, option, index):
@@ -2488,7 +2548,10 @@ class SteamWorkshopDownloader(QWidget):
         self.queue_tree = CustomizableTreeWidgets()
         self.queue_tree.setSelectionBehavior(QTreeWidget.SelectRows)
         self.queue_tree.setEditTriggers(QTreeWidget.NoEditTriggers)
-        self.queue_tree.setItemDelegate(NoFocusDelegate(self.queue_tree))
+        if self.config.get("show_row_numbers", True):
+            self.queue_tree.setItemDelegate(RowNumberDelegate(self.queue_tree))
+        else:
+            self.queue_tree.setItemDelegate(NoFocusDelegate(self.queue_tree))
         self.queue_tree.setRootIsDecorated(False)
         self.queue_tree.setUniformRowHeights(True)
         self.queue_tree.setExpandsOnDoubleClick(False)
@@ -2760,9 +2823,15 @@ class SteamWorkshopDownloader(QWidget):
 
     def open_header_context_menu(self, position: QPoint):
         menu = QMenu()
-    
+        
+        row_numbers_action = QAction("Row Numbers", self)
+        row_numbers_action.setCheckable(True)
+        row_numbers_action.setChecked(not self.config.get("show_row_numbers", True))
+        row_numbers_action.toggled.connect(self.toggle_row_numbers)
+
         # Submenu for hiding columns
         hide_submenu = menu.addMenu("Hide")
+        hide_submenu.addAction(row_numbers_action)
         for column in range(self.queue_tree.columnCount()):
             column_name = self.queue_tree.headerItem().text(column)
             action = QAction(f"{column_name}", self)
@@ -2770,7 +2839,7 @@ class SteamWorkshopDownloader(QWidget):
             action.setChecked(self.queue_tree.header().isSectionHidden(column))
             action.toggled.connect(lambda checked, col=column: self.toggle_column_visibility(col, checked))
             hide_submenu.addAction(action)
-            
+
         self.reset_action = QAction("Reset", self)
         self.reset_action.setEnabled(not self.header_locked)
         self.reset_action.triggered.connect(self.reset_header_layout)
@@ -2785,6 +2854,19 @@ class SteamWorkshopDownloader(QWidget):
         menu.addAction(self.lock_action)
     
         menu.exec(self.queue_tree.header().viewport().mapToGlobal(position))
+        
+    def toggle_row_numbers(self, hide):
+        self.config["show_row_numbers"] = (not hide)
+        self.save_config()
+    
+        if hide:
+            # Hide them
+            self.queue_tree.setItemDelegate(NoFocusDelegate(self.queue_tree))
+        else:
+            # Show them
+            self.queue_tree.setItemDelegate(RowNumberDelegate(self.queue_tree))
+    
+        self.queue_tree.viewport().update()
         
     def reset_header_layout(self):
         default_widths = DEFAULT_SETTINGS["queue_tree_default_widths"]
