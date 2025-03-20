@@ -635,10 +635,6 @@ class SettingsDialog(QDialog):
         self.show_logs_checkbox = QCheckBox("Logs View")
         self.show_logs_checkbox.setChecked(self._show_logs)
         layout.addRow(self.show_logs_checkbox)
-        
-        self.show_queue_entire_workshop_checkbox = QCheckBox("Queue Entire Workshop Button")
-        self.show_queue_entire_workshop_checkbox.setChecked(self._show_queue_entire_workshop)
-        layout.addRow(self.show_queue_entire_workshop_checkbox)
     
         self.show_provider_checkbox = QCheckBox("Download Provider Dropdown")
         self.show_provider_checkbox.setChecked(self._show_provider)
@@ -1969,35 +1965,6 @@ class QueueInsertionWorker(QThread):
 
         self.finished.emit()
 
-class QueueEntireWorkshopDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Queue Entire Workshop")
-        self.setModal(True)
-        self.setFixedSize(350, 100)
-        
-        apply_theme_titlebar(self, self.parent().config)
-
-        layout = QVBoxLayout(self)
-
-        self.label = QLabel("Enter AppID:")
-        layout.addWidget(self.label)
-
-        self.input_line = QLineEdit()
-        set_custom_clear_icon(self.input_line)
-        self.input_line.setPlaceholderText("e.g., 108600 or a Steam URL with an AppID")
-        layout.addWidget(self.input_line)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=self)
-        self.start_button = QPushButton("Start")
-        buttons.addButton(self.start_button, QDialogButtonBox.AcceptRole)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def get_input(self):
-        return self.input_line.text().strip()
-
 async def fetch_page(session, url, params, log_signal=None):
     try:
         async with session.get(url, params=params) as response:
@@ -2037,22 +2004,17 @@ async def parse_page(page_content, page_number, log_signal=None):
             log_signal(f"Error parsing page {page_number}: {e}")
     return mods
 
-async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems", concurrency=100, log_signal=None, app_ids=None, queue_entire_workshop_btn=None):
+async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems", concurrency=100, log_signal=None, app_ids=None):
     base_url = "https://steamcommunity.com/workshop/browse/"
     params = {"appid": str(appid), "browsesort": sort, "section": section, "p": "1"}
     all_mods = []
     game_name = "Unknown Game"
-
-    if queue_entire_workshop_btn:
-        queue_entire_workshop_btn.setEnabled(False)
 
     async with aiohttp.ClientSession() as session:
         first_page_content = await fetch_page(session, base_url, params, log_signal=log_signal)
         if not first_page_content:
             if log_signal:
                 log_signal("Failed to fetch the first page.")
-            if queue_entire_workshop_btn:
-                queue_entire_workshop_btn.setEnabled(True)
             return game_name, []
 
         tree = html.fromstring(first_page_content)
@@ -2060,8 +2022,6 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
         if not paging_info:
             if log_signal:
                 log_signal("Could not find paging info on the first page. Possibly no results.")
-            if queue_entire_workshop_btn:
-                queue_entire_workshop_btn.setEnabled(True)
             return game_name, []
 
         # Determine game_name
@@ -2082,14 +2042,10 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
                 except (ValueError, IndexError):
                     if log_signal:
                         log_signal("Failed to parse total entries.")
-                    if queue_entire_workshop_btn:
-                        queue_entire_workshop_btn.setEnabled(True)
                     return game_name, []
         if total_entries == 0:
             if log_signal:
                 log_signal("No entries found for this workshop.")
-            if queue_entire_workshop_btn:
-                queue_entire_workshop_btn.setEnabled(True)
             return game_name, []
 
         mods_per_page = 30
@@ -2134,9 +2090,6 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
             # Final update for pages_fetched
             log_signal(f"Pages fetched: {pages_fetched} / {total_pages}")
 
-    if queue_entire_workshop_btn:
-        queue_entire_workshop_btn.setEnabled(True)
-
     return game_name, all_mods
 
 
@@ -2144,11 +2097,10 @@ class WorkshopScraperWorker(QThread):
     finished_scraping = Signal(str, list)  # Emit game_name and mods
     log_signal = Signal(str)
 
-    def __init__(self, appid, app_ids, queue_entire_workshop_btn=None):
+    def __init__(self, appid, app_ids):
         super().__init__()
         self.appid = appid
         self.app_ids = app_ids
-        self.queue_entire_workshop_btn = queue_entire_workshop_btn
 
     def run(self):
         loop = asyncio.new_event_loop()
@@ -2157,7 +2109,7 @@ class WorkshopScraperWorker(QThread):
         def log_message(msg):
             self.log_signal.emit(msg)
 
-        game_name, mods = loop.run_until_complete(scrape_workshop_data( appid=self.appid, log_signal=log_message, app_ids=self.app_ids, queue_entire_workshop_btn=self.queue_entire_workshop_btn ))
+        game_name, mods = loop.run_until_complete(scrape_workshop_data( appid=self.appid, log_signal=log_message, app_ids=self.app_ids ))
         self.finished_scraping.emit(game_name, mods)
 
 class SteamWorkshopDownloader(QWidget):
@@ -2330,10 +2282,6 @@ class SteamWorkshopDownloader(QWidget):
         self.show_logs_act.setChecked(self.config["show_logs"])
         self.show_logs_act.triggered.connect(lambda checked: self.toggle_config("show_logs", checked))
 
-        self.show_workshop_btn_act = QAction("Queue Entire Workshop Button", self, checkable=True)
-        self.show_workshop_btn_act.setChecked(self.config["show_queue_entire_workshop"])
-        self.show_workshop_btn_act.triggered.connect(lambda checked: self.toggle_config("show_queue_entire_workshop", checked))
-
         self.show_provider_act = QAction("Provider Dropdown", self, checkable=True)
         self.show_provider_act.setChecked(self.config["show_provider"])
         self.show_provider_act.triggered.connect(lambda checked: self.toggle_config("show_provider", checked))
@@ -2355,7 +2303,6 @@ class SteamWorkshopDownloader(QWidget):
         self.show_submenu.addAction(self.show_import_export_act)
         self.show_submenu.addAction(self.show_sort_act)
         self.show_submenu.addAction(self.show_logs_act)
-        self.show_submenu.addAction(self.show_workshop_btn_act)
         self.show_submenu.addAction(self.show_provider_act)
 
         self.auto_detect_urls_act = QAction("Auto-detect URLs from Clipboard", self, checkable=True)
@@ -2422,7 +2369,7 @@ class SteamWorkshopDownloader(QWidget):
         mod_layout = QHBoxLayout()
         self.workshop_input = QLineEdit()
         set_custom_clear_icon(self.workshop_input)
-        self.workshop_input.setPlaceholderText('Enter Workshop Mod or Collection URL / ID')
+        self.workshop_input.setPlaceholderText('Enter Game/Mod/Collection URL or ID')
         self.download_btn = QPushButton('Download')
         self.download_btn.setFixedWidth(90)
         self.download_btn.clicked.connect(self.download_workshop_immediately)
@@ -2609,10 +2556,6 @@ class SteamWorkshopDownloader(QWidget):
         self.main_layout.addWidget(self.log_area, stretch=1)
 
         self.provider_layout = QHBoxLayout()
-        self.queue_entire_workshop_btn = QPushButton("Queue Entire Workshop")
-        self.queue_entire_workshop_btn.setFixedWidth(145)
-        self.queue_entire_workshop_btn.clicked.connect(self.open_queue_entire_workshop_dialog)
-        self.provider_layout.addWidget(self.queue_entire_workshop_btn)
 
         self.provider_layout.addStretch()
         self.provider_label = QLabel('Download Provider:')
@@ -2715,43 +2658,27 @@ class SteamWorkshopDownloader(QWidget):
         
         if hasattr(self, 'filter_action'):
             self.update_filter_tooltip()
-                
-    def open_queue_entire_workshop_dialog(self):
-        dialog = QueueEntireWorkshopDialog(self)
-        if dialog.exec() == QDialog.Accepted:
-            user_input = dialog.get_input()
-            if not user_input:
-                ThemedMessageBox.warning(self, 'Input Error', 'Please enter an AppID or a related URL.')
-                return
-            appid = self.extract_appid(user_input)
-            if not appid:
-                ThemedMessageBox.warning(self, 'Input Error', 'Could not parse an AppID from the given input.')
-                return
-            self.log_signal.emit(f"Starting to queue entire workshop for AppID: '{appid}'")
-
-            self.queue_entire_workshop_btn.setEnabled(False)
-
-            self.workshop_scraper = WorkshopScraperWorker(appid, self.app_ids, queue_entire_workshop_btn=self.queue_entire_workshop_btn)
-
-            self.workshop_scraper.log_signal.connect(self.append_log)
-            self.workshop_scraper.finished_scraping.connect(self.on_entire_workshop_fetched)
-            self.workshop_scraper.start()
+            
+    def on_entire_workshop_fetched_with_download(self, game_name, mods):
+        self.on_entire_workshop_fetched(game_name, mods)
+        if mods:
+            QTimer.singleShot(500, self.start_download)
 
     def on_entire_workshop_fetched(self, game_name, mods):
         if not mods:
             self.log_signal.emit("No mods found or failed to scrape.")
             return
-    
+        
         appid = self.workshop_scraper.appid
         
         # Determine the provider once we know the app_id
         provider = self.get_provider_for_mod({'app_id': appid})
-
+    
         self.log_signal.emit(f"Adding {len(mods)} mods from '{game_name}' (AppID: {appid}) to the queue...")
-
+    
         self.queue_progress_last_update = 0  # To avoid too frequent updates
         self.queue_insertion_finished = False
-
+    
         self.queue_insertion_worker = QueueInsertionWorker(
             mods=mods,
             game_name=game_name,
@@ -3199,7 +3126,6 @@ class SteamWorkshopDownloader(QWidget):
         self.log_area.setVisible(self.config["show_logs"])
         self.provider_label.setVisible(self.config["show_provider"])
         self.provider_dropdown.setVisible(self.config["show_provider"])
-        self.queue_entire_workshop_btn.setVisible(self.config["show_queue_entire_workshop"])
         self.menu_bar.setVisible(self.config["show_menu_bar"])
         
         if self.config.get("show_menu_bar", True):
@@ -3241,7 +3167,6 @@ class SteamWorkshopDownloader(QWidget):
         self.show_import_export_act.setChecked(self.config["show_export_import_buttons"])
         self.show_sort_act.setChecked(self.config["show_sort_indicator"])
         self.show_logs_act.setChecked(self.config["show_logs"])
-        self.show_workshop_btn_act.setChecked(self.config["show_queue_entire_workshop"])
         self.show_provider_act.setChecked(self.config["show_provider"])
 
     def open_settings(self):
@@ -3344,30 +3269,74 @@ class SteamWorkshopDownloader(QWidget):
     def on_item_error(self, error_message):
         ThemedMessageBox.critical(self, 'Error', error_message)
         self.log_signal.emit(error_message)
+        
+    def detect_input_type(self, input_text):
+        # Check if it's a store.steampowered.com URL
+        if 'store.steampowered.com/app/' in input_text:
+            app_id = self.extract_appid(input_text)
+            if app_id:
+                return ('game', app_id)
+                
+        # Check if it's a workshop URL
+        if 'steamcommunity.com/sharedfiles/filedetails/' in input_text:
+            item_id = self.extract_id(input_text)
+            if item_id:
+                return ('workshop_item', item_id)
+                
+        # If it's just a number, check against known AppIDs
+        if input_text.isdigit():
+            if input_text in self.app_ids:
+                return ('game', input_text)
+            else:
+                # Assume it's a workshop item if not a known AppID
+                return ('workshop_item', input_text)
+                
+        # Try to extract an AppID or item ID from other formats
+        app_id = self.extract_appid(input_text)
+        if app_id and app_id in self.app_ids:
+            return ('game', app_id)
+            
+        item_id = self.extract_id(input_text)
+        if item_id:
+            return ('workshop_item', item_id)
+            
+        return (None, None)
 
     def add_workshop_to_queue(self):
         input_text = self.workshop_input.text().strip()
         if not input_text:
-            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL or ID.')
+            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL/ID or Game AppID.')
             return
     
-        workshop_id = self.extract_id(input_text)
-        if not workshop_id:
-            ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
+        input_type, item_id = self.detect_input_type(input_text)
+        
+        if input_type is None or item_id is None:
+            ThemedMessageBox.warning(self, 'Input Error', 'Invalid input. Please enter a valid Workshop URL/ID or Game AppID.')
             return
-    
-        # Disable the button while processing
+            
+        if input_type == 'game':
+            # Game AppID
+            game_name = self.app_ids.get(item_id, f"AppID {item_id}")
+            self.log_signal.emit(f"Starting to queue entire workshop for {game_name} (AppID: {item_id})")
+            self.workshop_scraper = WorkshopScraperWorker(item_id, self.app_ids)
+            self.workshop_scraper.log_signal.connect(self.append_log)
+            self.workshop_scraper.finished_scraping.connect(self.on_entire_workshop_fetched)
+            self.workshop_scraper.start()
+            self.workshop_input.clear()
+            return
+            
+        # If we get here, it's a mod or a collection
         self.add_to_queue_btn.setEnabled(False)
-    
+        
         existing_ids = [mod['mod_id'] for mod in self.download_queue]
-        item_fetcher = ItemFetcher(item_id=workshop_id, existing_mod_ids=existing_ids)
-        # Connect signals to a unified handler:
+        item_fetcher = ItemFetcher(item_id=item_id, existing_mod_ids=existing_ids)
+
         item_fetcher.mod_or_collection_detected.connect(self.on_workshop_item_detected)
         item_fetcher.item_processed.connect(self.on_item_processed)
         item_fetcher.error_occurred.connect(self.on_item_error)
         item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
         item_fetcher.start()
-        self.log_signal.emit(f"Processing input {workshop_id}...")
+        self.log_signal.emit(f"Processing workshop item {item_id}...")
         
     def on_workshop_item_detected(self, is_collection, item_id):
         if is_collection:
@@ -4094,14 +4063,29 @@ class SteamWorkshopDownloader(QWidget):
         if not self.validate_steamcmd():
             return
         if not input_text:
-            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL or ID.')
+            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL/ID or Game AppID.')
             return
-        workshop_id = self.extract_id(input_text)
-        if not workshop_id:
-            ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
+            
+        input_type, item_id = self.detect_input_type(input_text)
+        
+        if input_type is None or item_id is None:
+            ThemedMessageBox.warning(self, 'Input Error', 'Invalid input. Please enter a valid Workshop URL/ID or Game AppID.')
             return
+            
+        if input_type == 'game':
+            # Game AppID
+            game_name = self.app_ids.get(item_id, f"AppID {item_id}")
+            self.log_signal.emit(f"Starting to queue entire workshop for {game_name} (AppID: {item_id})")
+            self.workshop_scraper = WorkshopScraperWorker(item_id, self.app_ids)
+            self.workshop_scraper.log_signal.connect(self.append_log)
+            self.workshop_scraper.finished_scraping.connect(self.on_entire_workshop_fetched_with_download)
+            self.workshop_scraper.start()
+            self.workshop_input.clear()
+            return
+            
+        # If we get here, it's a mod or a collection
         existing_ids = [mod['mod_id'] for mod in self.download_queue]
-        item_fetcher = ItemFetcher(item_id=workshop_id, existing_mod_ids=existing_ids)
+        item_fetcher = ItemFetcher(item_id=item_id, existing_mod_ids=existing_ids)
         item_fetcher.mod_or_collection_detected.connect(self.on_workshop_item_detected)
         def immediate_processed(result):
             self.on_item_processed(result)
@@ -4111,7 +4095,7 @@ class SteamWorkshopDownloader(QWidget):
         item_fetcher.error_occurred.connect(self.on_item_error)
         item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
         item_fetcher.start()
-        self.log_signal.emit(f"Processing input {workshop_id}...")
+        self.log_signal.emit(f"Processing workshop item {item_id}...")
         
     def on_provider_changed(self):
         selected_provider = self.provider_dropdown.currentText()
