@@ -2420,13 +2420,19 @@ class SteamWorkshopDownloader(QWidget):
         mod_layout = QHBoxLayout()
         self.workshop_input = QLineEdit()
         set_custom_clear_icon(self.workshop_input)
-        self.workshop_input.setPlaceholderText('Enter Game/Mod/Collection URL or ID')
+        self.workshop_input.setPlaceholderText('Enter Game, Mod, Collection URL or ID')
         self.download_btn = QPushButton('Download')
         self.download_btn.setFixedWidth(90)
         self.download_btn.clicked.connect(self.download_workshop_immediately)
         self.add_to_queue_btn = QPushButton('Add to Queue')
         self.add_to_queue_btn.setFixedWidth(90)
         self.add_to_queue_btn.clicked.connect(self.add_workshop_to_queue)
+        self.help_action = self.workshop_input.addAction(QIcon(resource_path("Files/info.png")), QLineEdit.LeadingPosition)
+        self.workshop_help_tooltip = Tooltip()
+        QTimer.singleShot(0, lambda: self.setup_workshop_tooltip())
+
+        self.help_action.triggered.connect(self.show_workshop_help_tooltip)
+        
         mod_layout.addWidget(self.workshop_input)
         mod_layout.addWidget(self.download_btn)
         mod_layout.addWidget(self.add_to_queue_btn)
@@ -2632,6 +2638,33 @@ class SteamWorkshopDownloader(QWidget):
                     attr.setFixedHeight(button_height)
             elif isinstance(attr, QComboBox) and "_dropdown" in attr_name:
                 attr.setFixedHeight(dropdown_height)
+                
+    def show_workshop_help_tooltip(self, position=None):
+        msg_box = ThemedMessageBox(self)
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setWindowTitle("Workshop URL/ID Help")
+        msg_box.setText("Workshop Input Formats:\n\n" +
+                        "• Game AppID (e.g., 108600) or Store URL: Queue all mods for a game\n" +
+                        "• Mod URL/ID: Queue a specific workshop mod\n" +
+                        "• Collection URL/ID: Queue all mods in a collection\n\n" + 
+                        "You can paste Steam URLs directly from your browser.\n" +
+                        "URLs are auto-detected from clipboard if enabled in settings.")
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.setDefaultButton(QMessageBox.Ok)
+        apply_theme_titlebar(msg_box, self.config)
+        msg_box.exec()
+        
+    def setup_workshop_tooltip(self):
+        tooltip_text = ("• Game AppID or URL: Queue entire workshop\n" +
+                        "• Mod ID or URL: Queue specific mod\n" +
+                        "• Collection ID or URL: Queue entire collection")
+
+        success = self.workshop_help_tooltip.setup_for_action(self.help_action, tooltip_text)
+        
+        if success:
+            self.workshop_help_tooltip.setPlacement(TooltipPlacement.LEFT)
+            self.workshop_help_tooltip.setShowDelay(300)
+            self.workshop_help_tooltip.setHideDelay(50)
                 
     def sort_column_indicator(self, index):
         if self.config.get('show_sort_indicator', False):

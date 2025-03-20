@@ -41,7 +41,7 @@ class Tooltip(QObject):
         self.__text = text
         self.__placement = TooltipPlacement.BOTTOM
         self.__offsets = {
-            TooltipPlacement.LEFT:   QPoint(0, 0),
+            TooltipPlacement.LEFT:   QPoint(-14, 0),
             TooltipPlacement.RIGHT:  QPoint(0, -14),
             TooltipPlacement.TOP:    QPoint(0, 0),
             TooltipPlacement.BOTTOM: QPoint(0, -5)
@@ -314,6 +314,17 @@ class Tooltip(QObject):
             except:
                 pass
         self.__watched_widgets.clear()
+        
+    def setup_for_action(self, action, tooltip_text=""):
+        self.setText(tooltip_text)
+        
+        if action and action.parent():
+            for child in action.parent().children():
+                if isinstance(child, QToolButton) and child.defaultAction() == action:
+                    self.setWidget(child)
+                    return True
+        
+        return False
         
 class FilterTooltip(QObject):
     def __init__(self, parent=None):
