@@ -705,7 +705,7 @@ class SettingsDialog(QDialog):
         self.batch_size_spinbox.setRange(1, 100)
         self.batch_size_spinbox.setValue(self._batch_size)
         self.batch_size_spinbox.setMaximumWidth(125)
-        max_label = QLabel("Default: 20 | Max: 100")
+        max_label = QLabel("Default: 20 | Recommended: < 50 | Max: 100")
         max_label.setStyleSheet("font-size: 10px;")
         
         spin_layout = QHBoxLayout()
