@@ -2431,6 +2431,7 @@ class SteamWorkshopDownloader(QWidget):
         self.workshop_help_tooltip = Tooltip()
         QTimer.singleShot(0, lambda: self.setup_workshop_tooltip())
 
+        self.workshop_input.returnPressed.connect(self.add_workshop_to_queue)
         self.help_action.triggered.connect(self.show_workshop_help_tooltip)
         
         mod_layout.addWidget(self.workshop_input)
