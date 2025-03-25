@@ -20,6 +20,7 @@ from collections import defaultdict
 import glob
 from initialize import ThemedSplashScreen, AppIDScraper
 from tooltip import Tooltip, TooltipPlacement, FilterTooltip, TooltipManager
+from debug import DebugManager, global_exception_hook, debug_network_request
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
@@ -74,7 +75,13 @@ DEFAULT_SETTINGS = {
     "show_version": True,
     "reset_provider_on_startup": False,
     "download_provider": "Default",
-    "reset_window_size_on_startup": True
+    "reset_window_size_on_startup": True,
+    
+    "debug_enabled": False,
+    "write_debug_to_file": True,
+    "verbose_console_output": True,
+    "save_crash_reports": True,
+    "output_raw_steamcmd_logs": False
 }
 
 # Allows logo to be applied over pythonw.exe's own
@@ -839,7 +846,40 @@ class SettingsDialog(QDialog):
         provider_reset_layout.addStretch()
 
         layout.addRow(provider_reset_layout)
+        
+        layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Debug", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
 
+        self.debug_enabled_checkbox = QCheckBox("Enable Debug Mode")
+        self.debug_enabled_checkbox.setChecked(self._config.get("debug_enabled", False))
+        layout.addRow(self.debug_enabled_checkbox)
+
+        debug_indent_layout = QHBoxLayout()
+        debug_indent_layout.addSpacing(20)
+        self.debug_children_layout = QVBoxLayout()
+        self.debug_children_layout.setSpacing(3)
+
+        self.write_debug_file_checkbox = QCheckBox("Write Debug to File")
+        self.write_debug_file_checkbox.setChecked(self._config.get("write_debug_to_file", False))
+        self.debug_children_layout.addWidget(self.write_debug_file_checkbox)
+    
+        self.verbose_console_checkbox = QCheckBox("Verbose Console Output")
+        self.verbose_console_checkbox.setChecked(self._config.get("verbose_console_output", False))
+        self.debug_children_layout.addWidget(self.verbose_console_checkbox)
+    
+        self.save_crash_reports_checkbox = QCheckBox("Save Crash Reports")
+        self.save_crash_reports_checkbox.setChecked(self._config.get("save_crash_reports", False))
+        self.debug_children_layout.addWidget(self.save_crash_reports_checkbox)
+    
+        self.raw_steamcmd_logs_checkbox = QCheckBox("Output Raw SteamCMD Logs")
+        self.raw_steamcmd_logs_checkbox.setChecked(self._config.get("output_raw_steamcmd_logs", False))
+        self.debug_children_layout.addWidget(self.raw_steamcmd_logs_checkbox)
+    
+        debug_indent_layout.addLayout(self.debug_children_layout)
+        layout.addRow(debug_indent_layout)
+
+        self.debug_enabled_checkbox.stateChanged.connect(self.toggle_debug_options)
+        self.toggle_debug_options()
+    
         return page
 
     def toggle_auto_add_checkbox(self):
@@ -880,8 +920,8 @@ class SettingsDialog(QDialog):
             folder_format = "name"
         elif self.combined_folder_scheme.isChecked():
             folder_format = "combined"
-    
-        return {
+            
+        settings = {
             'current_theme': self.theme_dropdown.currentText(),
             'logo_style': (
                 "Light" if self.light_logo_radio.isChecked()
@@ -905,8 +945,15 @@ class SettingsDialog(QDialog):
             'show_menu_bar': self.show_menu_bar_checkbox.isChecked(),
             'show_version': self.show_version_checkbox.isChecked(),
             'reset_window_size_on_startup': self.reset_window_size_checkbox.isChecked(),
-            'reset_provider_on_startup': self.reset_provider_checkbox.isChecked()
+            'reset_provider_on_startup': self.reset_provider_checkbox.isChecked(),
+            "debug_enabled": self.debug_enabled_checkbox.isChecked(),
+            "write_debug_to_file": self.write_debug_file_checkbox.isChecked(),
+            "verbose_console_output": self.verbose_console_checkbox.isChecked(),
+            "save_crash_reports": self.save_crash_reports_checkbox.isChecked(),
+            "output_raw_steamcmd_logs": self.raw_steamcmd_logs_checkbox.isChecked()
         }
+
+        return settings
         
     def reset_defaults(self):
         self.theme_dropdown.setCurrentText(DEFAULT_SETTINGS["current_theme"])
@@ -940,6 +987,26 @@ class SettingsDialog(QDialog):
 
         self.reset_window_size_checkbox.setChecked(DEFAULT_SETTINGS["reset_window_size_on_startup"])
         self.reset_provider_checkbox.setChecked(DEFAULT_SETTINGS["reset_provider_on_startup"])
+        
+        self.debug_enabled_checkbox.setChecked(DEFAULT_SETTINGS["debug_enabled"])
+        self.write_debug_file_checkbox.setChecked(DEFAULT_SETTINGS["write_debug_to_file"])
+        self.verbose_console_checkbox.setChecked(DEFAULT_SETTINGS["verbose_console_output"])
+        self.save_crash_reports_checkbox.setChecked(DEFAULT_SETTINGS["save_crash_reports"])
+        self.raw_steamcmd_logs_checkbox.setChecked(DEFAULT_SETTINGS["output_raw_steamcmd_logs"])
+        
+    def toggle_debug_options(self):
+        is_enabled = self.debug_enabled_checkbox.isChecked()
+
+        self.write_debug_file_checkbox.setEnabled(is_enabled)
+        self.verbose_console_checkbox.setEnabled(is_enabled)
+        self.save_crash_reports_checkbox.setEnabled(is_enabled)
+        self.raw_steamcmd_logs_checkbox.setEnabled(is_enabled)
+
+        grey_style = "color: grey;" if not is_enabled else ""
+        self.write_debug_file_checkbox.setStyleSheet(grey_style)
+        self.verbose_console_checkbox.setStyleSheet(grey_style)
+        self.save_crash_reports_checkbox.setStyleSheet(grey_style)
+        self.raw_steamcmd_logs_checkbox.setStyleSheet(grey_style)
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
@@ -1143,7 +1210,6 @@ class OverrideAppIDDialog(QDialog):
         return self.appid_input.text().strip()
 
 class ItemFetcher(QThread):
-    # Outputs messages
     item_processed = Signal(dict)
     error_occurred = Signal(str)
     mod_or_collection_detected = Signal(bool, str)
@@ -1159,10 +1225,27 @@ class ItemFetcher(QThread):
         loop.run_until_complete(self.process_item())
 
     async def process_item(self):
+        debug_manager = DebugManager.instance()
+        
         try:
+            debug_manager.debug(f"Processing workshop item {self.item_id}")
             async with aiohttp.ClientSession() as session:
                 item_url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={self.item_id}"
+                
+                debug_manager.debug(f"Fetching item details from {item_url}")
+                start_time = time.time()
+                
                 async with session.get(item_url) as response:
+                    elapsed = time.time() - start_time
+                    
+                    debug_manager.log_network_request(
+                        method="GET",
+                        url=item_url,
+                        response=response
+                    )
+                    
+                    debug_manager.debug(f"Item details fetch completed in {elapsed:.2f}s")
+                    
                     if response.status != 200:
                         self.error_occurred.emit(f"Failed to fetch item page. HTTP status: {response.status}")
                         return
@@ -1371,7 +1454,7 @@ class ConfigureSteamAccountsDialog(QDialog):
         self.steamcmd_dir = steamcmd_dir
         self.token_monitor_worker = None
         self.steamcmd_process = None
-        
+
         apply_theme_titlebar(self, self.parent().config)
 
         layout = QVBoxLayout(self)
@@ -2017,42 +2100,117 @@ class QueueInsertionWorker(QThread):
         self.finished.emit()
 
 async def fetch_page(session, url, params, log_signal=None):
+    debug_manager = DebugManager.instance()
+    
     try:
+        debug_manager.debug(f"Fetching page {params['p']} from {url}")
+        start_time = time.time()
+        
         async with session.get(url, params=params) as response:
+            elapsed = time.time() - start_time
+            
+            # Log basic response info
+            debug_manager.log_network_request(
+                method="GET",
+                url=url,
+                params=params,
+                response=response
+            )
+            
+            debug_manager.debug(f"Page fetch completed in {elapsed:.2f}s")
+            
             if response.status != 200:
                 if log_signal:
                     log_signal.emit(f"Failed to fetch page {params['p']}: HTTP {response.status}")
                 return None
-            return await response.text()
+                
+            # Get the response content as text
+            content = await response.text()
+            
+            # Log some content stats and preview
+            content_length = len(content)
+            debug_manager.debug(f"Retrieved {content_length} bytes from page {params['p']}")
+            
+            # Log a preview of the content (first 200 chars) - Add option later...
+            if debug_manager.verbose_output:
+                preview = content[:200].replace('\n', ' ').strip()
+                if len(content) > 200:
+                    preview += "..."
+                debug_manager.debug(f"Content preview: {preview}")
+            
+            return content
     except Exception as e:
+        debug_manager.log_network_request(
+            method="GET",
+            url=url,
+            params=params,
+            error=e
+        )
+        
         if log_signal:
             log_signal.emit(f"Error fetching page {params['p']}: {e}")
         return None
 
 async def parse_page(page_content, page_number, log_signal=None):
+    debug_manager = DebugManager.instance()
     mods = []
     try:
+        debug_manager.debug(f"Parsing workshop page {page_number}")
+        parse_start_time = time.time()
+        
         tree = html.fromstring(page_content)
+        
+        # Find all workshop items
         workshop_items = tree.xpath("//div[@class='workshopItem']")
+        item_count = len(workshop_items)
+        debug_manager.debug(f"Found {item_count} workshop items on page {page_number}")
+        
+        successful_items = 0
+        skipped_items = 0
+        
         for item in workshop_items:
             link = item.xpath(".//a[contains(@href, 'sharedfiles/filedetails')]")
             if not link:
+                skipped_items += 1
                 if log_signal:
                     log_signal(f"Page {page_number}: Skipped item, no link found.")
                 continue
+                
             mod_id = link[0].get("data-publishedfileid")
             if not mod_id:
                 mod_id = link[0].get("href").split("?id=")[-1]
+                
             title_div = item.xpath(".//div[contains(@class,'workshopItemTitle')]")
             if not title_div:
+                skipped_items += 1
                 if log_signal:
                     log_signal(f"Page {page_number}: Skipped item, no title found.")
                 continue
+                
             mod_name = title_div[0].text_content().strip()
             mods.append((mod_id, mod_name))
+            successful_items += 1
+            
+            # Log every 10th item if verbose
+            if debug_manager.verbose_output and successful_items % 10 == 0:
+                debug_manager.debug(f"Parsed {successful_items}/{item_count} items on page {page_number}")
+        
+        parse_elapsed = time.time() - parse_start_time
+        debug_manager.debug(f"Page {page_number} parsing completed in {parse_elapsed:.2f}s: {successful_items} items added, {skipped_items} items skipped")
+        
+        # If verbose, log some sample items
+        if debug_manager.verbose_output and mods:
+            sample_size = min(3, len(mods))
+            samples = mods[:sample_size]
+            debug_manager.debug(f"Sample items from page {page_number}:")
+            for i, (mod_id, mod_name) in enumerate(samples):
+                debug_manager.debug(f"  {i+1}. ID: {mod_id}, Name: {mod_name}")
+                
     except Exception as e:
+        debug_manager.exception(f"Error parsing page {page_number}: {e}")
         if log_signal:
             log_signal(f"Error parsing page {page_number}: {e}")
+            
     return mods
 
 async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems", concurrency=100, log_signal=None, app_ids=None):
@@ -2178,6 +2336,8 @@ class SteamWorkshopDownloader(QWidget):
         os.makedirs(self.files_dir, exist_ok=True)
         self.themes_dir = os.path.join(self.files_dir, 'Themes')
         os.makedirs(self.themes_dir, exist_ok=True)
+        self.debug_manager = DebugManager.instance(self.files_dir, self.log_signal)
+
         self.config = {}
         self.config_path = self.get_config_path()
         self.load_config()
@@ -2249,6 +2409,8 @@ class SteamWorkshopDownloader(QWidget):
                 self.resize(window_size.get('width', 670), window_size.get('height', 750))
             else:
                 self.resize(670, 750)
+                
+        self.debug_manager.update_settings(self.config)
 
     def initUI(self):
         self.setWindowTitle('Streamline')
@@ -3266,6 +3428,9 @@ class SteamWorkshopDownloader(QWidget):
     
             self.config.update(new_settings)
             self.save_config()
+            
+            if hasattr(self, 'debug_manager'):
+                self.debug_manager.update_settings(self.config)
     
             selected_theme = new_settings.get('current_theme', 'Dark')
             load_theme(QApplication.instance(), selected_theme, self.files_dir)
@@ -3883,6 +4048,8 @@ class SteamWorkshopDownloader(QWidget):
 
                 important_messages = []
                 current_downloads = set()
+                
+                self.debug_manager.log_steamcmd(steamcmd_commands, None)
 
                 # Process SteamCMD output line-by-line
                 for line in self.current_process.stdout:
@@ -3971,50 +4138,178 @@ class SteamWorkshopDownloader(QWidget):
 
     def download_mod_webapi(self, mod):
         mod_id = mod['mod_id']
-        mod_details = self.get_published_file_details(mod_id)
-        # Extracting file URL and details from the JSON response
+        mod_name = mod.get('mod_name', 'Unknown')
+        debug_manager = DebugManager.instance()
+
+        debug_manager.debug(f"Starting WebAPI download for mod {mod_id} ({mod_name})")
+        debug_manager.debug(f"Mod details: {mod}")
+
         try:
+            debug_manager.debug(f"Fetching published file details for mod {mod_id}")
+            mod_details = self.get_published_file_details(mod_id)
+
+            debug_manager.debug(f"Published file details response structure: {list(mod_details.keys())}")
+
+            if 'response' not in mod_details or 'publishedfiledetails' not in mod_details['response']:
+                debug_manager.error(f"Invalid response structure for mod {mod_id}: {mod_details}")
+                self.log_signal.emit(f"Error: Invalid response structure while fetching details for mod {mod_id}.")
+                return False
+
             file_details = mod_details['response']['publishedfiledetails'][0]
+            debug_manager.debug(f"File details: {list(file_details.keys())}")
+
+            # Check file URL availability
             if 'file_url' not in file_details or not file_details['file_url']:
-                raise ValueError(f"Error: File URL not available for mod {mod_id}. The file might not be downloadable or doesn't exist.")
-    
+                error_msg = f"Error: File URL not available for mod {mod_id}. The file might not be downloadable or doesn't exist."
+                debug_manager.error(error_msg)
+                debug_manager.debug(f"Available fields: {list(file_details.keys())}")
+                self.log_signal.emit(error_msg)
+                return False
+
             file_url = file_details['file_url']
+            debug_manager.debug(f"File URL: {file_url}")
+
             filename = file_details.get('filename', None)
             title = file_details.get('title', 'Unnamed Mod')
-    
+
+            debug_manager.debug(f"Original filename: {filename}, title: {title}")
+
             if filename and filename.strip():
                 filename = filename.strip()
             else:
                 # If filename is not available, use title with appropriate extension based on URL
+                debug_manager.debug(f"No valid filename provided, using title with extension")
                 filename = f"{title}.zip" if file_url.endswith('.zip') else f"{title}"
 
             # Remove illegal characters from filename
+            orig_filename = filename
             filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
 
+            if orig_filename != filename:
+                debug_manager.debug(f"Sanitized filename from '{orig_filename}' to '{filename}'")
+
+            # Get download path and prepare directories
             download_path = self.get_download_path(mod)
             file_path = os.path.join(download_path, filename)
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-            self.log_signal.emit(f"Downloading mod {mod_id} via SteamWebAPI...")
-            response = requests.get(file_url, stream=True)
-            if response.status_code == 200:
-                with open(file_path, 'wb') as file:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        file.write(chunk)
-                return True
-            else:
-                self.log_signal.emit(f"Failed to download mod {mod_id} via SteamWebAPI. HTTP Status Code: {response.status_code}")
+            debug_manager.debug(f"Download path: {download_path}")
+            debug_manager.debug(f"Full file path: {file_path}")
+            
+            # Ensure directory exists
+            try:
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                debug_manager.debug(f"Download directory confirmed: {os.path.dirname(file_path)}")
+            except Exception as e:
+                debug_manager.error(f"Failed to create download directory: {e}")
+                self.log_signal.emit(f"Failed to create download directory for mod {mod_id}: {e}")
                 return False
-        except KeyError:
-            self.log_signal.emit(f"Error: Invalid response structure while fetching details for mod {mod_id}.")
+    
+            # Start download
+            self.log_signal.emit(f"Downloading mod {mod_id} via SteamWebAPI...")
+            debug_manager.debug(f"Starting file download from {file_url}")
+            
+            try:
+                start_time = time.time()
+                response = requests.get(file_url, stream=True)
+                
+                # Log network request
+                debug_manager.log_network_request(
+                    method="GET",
+                    url=file_url,
+                    response=response
+                )
+                
+                if response.status_code == 200:
+                    debug_manager.debug(f"Download stream established successfully (status 200)")
+                    
+                    # Get content length if available
+                    content_length = response.headers.get('content-length')
+                    if content_length:
+                        debug_manager.debug(f"Content length: {content_length} bytes ({int(content_length) / 1024 / 1024:.2f} MB)")
+                    
+                    # Download the file in chunks
+                    bytes_downloaded = 0
+                    last_log_time = time.time()
+                    progress_interval = 2.0  # Log progress every 2 seconds
+                    
+                    with open(file_path, 'wb') as file:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            file.write(chunk)
+                            bytes_downloaded += len(chunk)
+                            
+                            # Log progress periodically if in verbose mode
+                            current_time = time.time()
+                            if debug_manager.verbose_output and (current_time - last_log_time) > progress_interval:
+                                if content_length:
+                                    progress = bytes_downloaded / int(content_length) * 100
+                                    debug_manager.debug(f"Download progress: {bytes_downloaded / 1024 / 1024:.2f} MB / {int(content_length) / 1024 / 1024:.2f} MB ({progress:.1f}%)")
+                                else:
+                                    debug_manager.debug(f"Download progress: {bytes_downloaded / 1024 / 1024:.2f} MB")
+                                last_log_time = current_time
+                    
+                    # Calculate and log download time and speed
+                    download_time = time.time() - start_time
+                    download_speed = bytes_downloaded / download_time if download_time > 0 else 0
+                    
+                    debug_manager.debug(f"Download completed in {download_time:.2f} seconds")
+                    debug_manager.debug(f"Total downloaded: {bytes_downloaded / 1024 / 1024:.2f} MB")
+                    debug_manager.debug(f"Average download speed: {download_speed / 1024 / 1024:.2f} MB/s")
+                    debug_manager.debug(f"File saved to: {file_path}")
+                    
+                    self.log_signal.emit(f"Successfully downloaded mod {mod_id} ({bytes_downloaded / 1024 / 1024:.1f} MB)")
+                    return True
+                else:
+                    error_msg = f"Failed to download mod {mod_id} via SteamWebAPI. HTTP Status Code: {response.status_code}"
+                    debug_manager.error(error_msg)
+                    debug_manager.debug(f"Response headers: {dict(response.headers)}")
+                    
+                    # Try to get error details from response
+                    try:
+                        error_content = response.text[:1000]  # Limit to avoid huge logs
+                        debug_manager.debug(f"Error response content: {error_content}")
+                    except:
+                        debug_manager.debug("Could not retrieve error response content")
+                    
+                    self.log_signal.emit(error_msg)
+                    return False
+                    
+            except requests.exceptions.ConnectionError as ce:
+                error_msg = f"Connection error downloading mod {mod_id}: {ce}"
+                debug_manager.error(error_msg)
+                self.log_signal.emit(error_msg)
+                return False
+                
+            except requests.exceptions.Timeout as te:
+                error_msg = f"Timeout error downloading mod {mod_id}: {te}"
+                debug_manager.error(error_msg)
+                self.log_signal.emit(error_msg)
+                return False
+                
+            except requests.exceptions.RequestException as re:
+                error_msg = f"Request error downloading mod {mod_id}: {re}"
+                debug_manager.error(error_msg)
+                self.log_signal.emit(error_msg)
+                return False
+                
+        except KeyError as ke:
+            error_msg = f"Error: Invalid response structure while fetching details for mod {mod_id}."
+            debug_manager.error(error_msg)
+            debug_manager.debug(f"KeyError details: {ke}")
+            self.log_signal.emit(error_msg)
             return False
+            
         except ValueError as ve:
-            self.log_signal.emit(str(ve))
+            error_msg = str(ve)
+            debug_manager.error(f"ValueError for mod {mod_id}: {error_msg}")
+            self.log_signal.emit(error_msg)
             return False
+            
         except Exception as e:
-            self.log_signal.emit(f"An error occurred while downloading mod {mod_id}: {e}")
+            error_msg = f"An error occurred while downloading mod {mod_id}: {e}"
+            debug_manager.exception(error_msg)
+            self.log_signal.emit(error_msg)
             return False
 
+    @debug_network_request(method="POST")
     def get_published_file_details(self, file_id):
         url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
         payload = {
@@ -4805,6 +5100,8 @@ class SteamWorkshopDownloader(QWidget):
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
+    
+    global_exception_hook()
 
     app_icon = QIcon(resource_path('Files/logo.png'))
     app.setWindowIcon(app_icon)
