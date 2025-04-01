@@ -20,7 +20,7 @@ from collections import defaultdict
 import glob
 from initialize import ThemedSplashScreen, AppIDScraper
 from tooltip import Tooltip, TooltipPlacement, FilterTooltip, TooltipManager
-from debug import DebugManager, global_exception_hook, debug_network_request
+from debug import DebugManager, _global_exception_handler, debug_network_request, LogViewerDialog
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
@@ -2431,6 +2431,8 @@ class SteamWorkshopDownloader(QWidget):
         self.appearance_menu = self.menu_bar.addMenu("Appearance")
         self.tools_menu = self.menu_bar.addMenu("Tools")
         self.help_menu = self.menu_bar.addMenu("Help")
+        
+        self.create_debug_menu()
 
         self.theme_submenu = QMenu("Theme", self)
         self.appearance_menu.addMenu(self.theme_submenu)
@@ -3195,6 +3197,9 @@ class SteamWorkshopDownloader(QWidget):
             self.log_signal.emit(f"Error saving config.json: {e}")
              
     def closeEvent(self, event):
+        if hasattr(self, 'log_viewer') and self.log_viewer:
+            self.log_viewer.close()
+    
         if hasattr(self, 'tooltip_manager'):
             self.tooltip_manager.hide_all_tooltips()
         
@@ -3379,6 +3384,9 @@ class SteamWorkshopDownloader(QWidget):
         self.log_area.setVisible(self.config["show_logs"])
         self.provider_dropdown.setVisible(self.config["show_provider"])
         self.menu_bar.setVisible(self.config["show_menu_bar"])
+        
+        if hasattr(self, 'debug_menu_action') and self.debug_menu_action:
+            self.debug_menu_action.setVisible(self.config.get("debug_enabled", False))
         
         if self.config.get("show_menu_bar", True):
             self.main_layout.setContentsMargins(6, 0, 6, 6)
@@ -5097,11 +5105,72 @@ class SteamWorkshopDownloader(QWidget):
     
         self.filter_tooltip.update_tooltip_text(tooltip)
 
+    def create_debug_menu(self):
+        self.debug_menu = self.menu_bar.addMenu("Debug")
+
+        self.open_log_viewer_action = QAction("Open Log Viewer", self)
+        self.open_log_viewer_action.triggered.connect(self.open_log_viewer)
+        self.debug_menu.addAction(self.open_log_viewer_action)
+
+        self.export_log_action = QAction("Export Debug Log", self)
+        self.export_log_action.triggered.connect(self.export_debug_log)
+        self.debug_menu.addAction(self.export_log_action)
+
+        self.open_logs_folder_action = QAction("Open Logs Folder", self)
+        self.open_logs_folder_action.triggered.connect(self.open_logs_folder)
+        self.debug_menu.addAction(self.open_logs_folder_action)
+
+        self.debug_menu.addSeparator()
+
+        self.view_crashes_action = QAction("View Crash Reports", self)
+        self.view_crashes_action.triggered.connect(self.view_crash_reports)
+        self.debug_menu.addAction(self.view_crashes_action)
+        
+        self.debug_menu_action = self.debug_menu.menuAction()
+        if self.debug_menu_action:
+            self.debug_menu_action.setVisible(self.config.get("debug_enabled", False))
+        
+    def open_log_viewer(self):
+        if not hasattr(self, 'log_viewer') or not self.log_viewer:
+            self.log_viewer = LogViewerDialog(self, self.debug_manager)
+            self.log_viewer.setWindowTitle(f"Debug Log Viewer - Streamline v{current_version}")
+        self.log_viewer.show()
+        self.log_viewer.activateWindow()
+    
+    def export_debug_log(self):
+        if not self.debug_manager.current_log_file:
+            ThemedMessageBox.information(self, "No Log File", "No active debug log file found.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Debug Log", "", 
+            "Log Files (*.log);;Text Files (*.txt);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                shutil.copy2(self.debug_manager.current_log_file, file_path)
+                self.log_signal.emit(f"Debug log exported to: {file_path}")
+            except Exception as e:
+                self.log_signal.emit(f"Error exporting debug log: {e}")
+    
+    def open_logs_folder(self):
+        logs_dir = self.debug_manager.logs_dir
+        if os.path.exists(logs_dir):
+            os.startfile(logs_dir)
+        else:
+            ThemedMessageBox.information(self, "Folder Not Found", "Debug logs folder does not exist.")
+    
+    def view_crash_reports(self):
+        crash_dir = self.debug_manager.crash_dir
+        if os.path.exists(crash_dir):
+            os.startfile(crash_dir)
+        else:
+            ThemedMessageBox.information(self, "Folder Not Found", "Crash reports folder does not exist.")
+
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
-    
-    global_exception_hook()
 
     app_icon = QIcon(resource_path('Files/logo.png'))
     app.setWindowIcon(app_icon)
