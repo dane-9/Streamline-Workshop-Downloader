@@ -77,6 +77,7 @@ DEFAULT_SETTINGS = {
     "reset_provider_on_startup": False,
     "download_provider": "Default",
     "reset_window_size_on_startup": True,
+    "show_tutorial_on_startup": True,
     
     "debug_enabled": False,
     "write_debug_to_file": True,
@@ -848,6 +849,24 @@ class SettingsDialog(QDialog):
 
         layout.addRow(provider_reset_layout)
         
+        tutorial_on_startup_layout = QHBoxLayout()
+        self.show_tutorial_on_startup_checkbox = QCheckBox("Show Tutorial Dialog")
+        self.show_tutorial_on_startup_checkbox.setChecked(
+            self._config.get("show_tutorial_on_startup", True))
+        tutorial_on_startup_layout.addWidget(self.show_tutorial_on_startup_checkbox)
+        
+        tooltip_text = "Show the welcome dialog on application startup"
+        detailed_text = (
+            "When enabled, the tutorial welcome dialog will be shown each time you start Streamline.\n\n"
+            "You can always access the tutorial manually from the Help menu."
+        )
+        
+        help_btn = create_help_icon(self, tooltip_text, detailed_text)
+        tutorial_on_startup_layout.addWidget(help_btn)
+        tutorial_on_startup_layout.addStretch()
+        
+        layout.addRow(tutorial_on_startup_layout)
+        
         layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Debug", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
 
         self.debug_enabled_checkbox = QCheckBox("Enable Debug Mode")
@@ -947,6 +966,7 @@ class SettingsDialog(QDialog):
             'show_version': self.show_version_checkbox.isChecked(),
             'reset_window_size_on_startup': self.reset_window_size_checkbox.isChecked(),
             'reset_provider_on_startup': self.reset_provider_checkbox.isChecked(),
+            'show_tutorial_on_startup': self.show_tutorial_on_startup_checkbox.isChecked(),
             "debug_enabled": self.debug_enabled_checkbox.isChecked(),
             "write_debug_to_file": self.write_debug_file_checkbox.isChecked(),
             "verbose_console_output": self.verbose_console_checkbox.isChecked(),
@@ -988,6 +1008,7 @@ class SettingsDialog(QDialog):
 
         self.reset_window_size_checkbox.setChecked(DEFAULT_SETTINGS["reset_window_size_on_startup"])
         self.reset_provider_checkbox.setChecked(DEFAULT_SETTINGS["reset_provider_on_startup"])
+        self.reset_provider_checkbox.setChecked(DEFAULT_SETTINGS["show_tutorial_on_startup"])
         
         self.debug_enabled_checkbox.setChecked(DEFAULT_SETTINGS["debug_enabled"])
         self.write_debug_file_checkbox.setChecked(DEFAULT_SETTINGS["write_debug_to_file"])

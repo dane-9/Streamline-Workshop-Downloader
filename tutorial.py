@@ -2,7 +2,7 @@ import os
 from initialize import apply_theme_titlebar
 from PySide6.QtWidgets import (
     QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout, 
-    QDialog, QFrame, QApplication
+    QDialog, QFrame, QApplication, QCheckBox
 )
 from PySide6.QtCore import (
     Qt, QRect, QPoint, QTimer, QObject, QPropertyAnimation,
@@ -316,6 +316,12 @@ class WelcomeDialog(QDialog):
         note_label.setStyleSheet("font-size: 12px; color: #797979;")
         layout.addWidget(note_label)
         
+        self.show_on_startup_checkbox = QCheckBox("Show on Startup")
+        self.show_on_startup_checkbox.setChecked(True)
+        if self.parent and hasattr(self.parent, 'config'):
+            self.show_on_startup_checkbox.setChecked(parent.config.get('show_tutorial_on_startup', True))
+        layout.addWidget(self.show_on_startup_checkbox)
+        
         button_layout = QHBoxLayout()
         
         skip_button = QPushButton("Skip")
@@ -557,14 +563,24 @@ def check_first_run(app):
     tutorial = Tutorial(app)
     app._tutorial_instance = tutorial
 
-    if not config.get('tutorial_shown', False):
-        print("First run detected, showing welcome dialog")
+    show_tutorial = not config.get('tutorial_shown', False) or config.get('show_tutorial_on_startup', True)
+
+    if show_tutorial:
+        print("Showing welcome dialog")
         tutorial.save_visibility_states()
-        tutorial.show_welcome_dialog()
+
+        dialog = WelcomeDialog(app)
+        dialog_result = dialog.exec()
+
+        if hasattr(dialog, 'show_on_startup_checkbox'):
+            config['show_tutorial_on_startup'] = dialog.show_on_startup_checkbox.isChecked()
+
         config['tutorial_shown'] = True
+
         save_config = getattr(app, 'save_config', None)
         if save_config and callable(save_config):
             save_config()
+
         return True
 
     return False
