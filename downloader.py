@@ -21,6 +21,7 @@ import glob
 from initialize import ThemedSplashScreen, AppIDScraper
 from tooltip import Tooltip, TooltipPlacement, FilterTooltip, TooltipManager
 from debug import DebugManager, _global_exception_handler, debug_network_request, LogViewerDialog
+from tutorial import check_first_run, show_tutorial, Tutorial
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
@@ -2542,6 +2543,11 @@ class SteamWorkshopDownloader(QWidget):
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about_dialog)
         self.help_menu.addAction(about_action)
+        
+        self.help_menu.addSeparator()
+        self.show_tutorial_action = QAction("Show Tutorial", self)
+        self.show_tutorial_action.triggered.connect(self.show_tutorial)
+        self.help_menu.addAction(self.show_tutorial_action)
 
         top_layout = QHBoxLayout()
         settings_icon = QIcon(resource_path('Files/settings.png'))
@@ -5167,6 +5173,12 @@ class SteamWorkshopDownloader(QWidget):
             os.startfile(crash_dir)
         else:
             ThemedMessageBox.information(self, "Folder Not Found", "Crash reports folder does not exist.")
+            
+    def show_tutorial(self):
+        if not hasattr(self, '_tutorial_instance') or self._tutorial_instance is None:
+            self._tutorial_instance = Tutorial(self)
+
+        self._tutorial_instance.start_tutorial()
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
@@ -5184,6 +5196,7 @@ if __name__ == '__main__':
         if success:
             downloader = SteamWorkshopDownloader()
             downloader.show()
+            check_first_run(downloader)
         else:
             app.quit()
 
