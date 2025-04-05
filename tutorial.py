@@ -357,8 +357,6 @@ class Tutorial(QObject):
         self.current_step = 0
         self.current_dialog = None
         self.original_visibility_states = {}
-        
-        print("Tutorial initialized")
     
     def save_visibility_states(self):
         app = self.main_app
@@ -374,8 +372,6 @@ class Tutorial(QObject):
         }
         if hasattr(app, 'import_export_spacer'):
             self.original_visibility_states['import_export_spacer'] = app.import_export_spacer.isVisible()
-            
-        print("Original visibility states saved:", self.original_visibility_states)
         
     def show_all_ui_elements(self):
         app = self.main_app
@@ -389,12 +385,9 @@ class Tutorial(QObject):
         app.menu_bar.setVisible(True)
         if hasattr(app, 'import_export_spacer'):
             app.import_export_spacer.setVisible(True)
-            
-        print("All UI elements temporarily shown for tutorial")
         
     def restore_visibility_states(self):
         if not self.original_visibility_states:
-            print("No visibility states to restore")
             return
             
         app = self.main_app
@@ -410,8 +403,6 @@ class Tutorial(QObject):
             app.import_export_spacer.setVisible(self.original_visibility_states.get('import_export_spacer', True))
         if hasattr(app, 'apply_settings'):
             app.apply_settings()
-            
-        print("Original visibility states restored")
         
     def start_tutorial(self):
         self.current_step = 0
@@ -428,7 +419,6 @@ class Tutorial(QObject):
         
     def show_current_step(self):
         if self.current_step >= len(self.get_tutorial_steps()):
-            print("Tutorial complete - no more steps")
             return
             
         step = self.get_tutorial_steps()[self.current_step]
@@ -437,7 +427,6 @@ class Tutorial(QObject):
         position = step.get('position', 'bottom')
         
         if not widget or not hasattr(widget, 'isVisible') or not widget.isVisible():
-            print(f"Widget for step {self.current_step + 1} not visible, skipping")
             self.current_step += 1
             QTimer.singleShot(100, self.show_current_step)
             return
@@ -465,8 +454,6 @@ class Tutorial(QObject):
         dialog.show_with_highlight()
         self.current_dialog = dialog
         
-        print(f"Showing tutorial step {self.current_step + 1}/{len(self.get_tutorial_steps())}")
-        
     def next_step(self):
         self.current_step += 1
         if self.current_step < len(self.get_tutorial_steps()):
@@ -485,7 +472,6 @@ class Tutorial(QObject):
             self.overlay = None
             
         QTimer.singleShot(200, self.restore_visibility_states)
-        print("Tutorial finished")
         
     def get_tutorial_steps(self):
         return [
@@ -550,10 +536,8 @@ class Tutorial(QObject):
         dialog = WelcomeDialog(self.main_app)
         result = dialog.exec()
         if result == QDialog.Accepted:
-            print("Welcome dialog accepted, starting tutorial shortly")
             QTimer.singleShot(300, self.start_tutorial)
         else:
-            print("Welcome dialog rejected, not starting tutorial")
             QTimer.singleShot(200, self.restore_visibility_states)
 
 
@@ -566,7 +550,6 @@ def check_first_run(app):
     show_tutorial = not config.get('tutorial_shown', False) or config.get('show_tutorial_on_startup', True)
 
     if show_tutorial:
-        print("Showing welcome dialog")
         tutorial.save_visibility_states()
 
         dialog = WelcomeDialog(app)
@@ -586,7 +569,6 @@ def check_first_run(app):
     return False
 
 def show_tutorial(app):
-    print("Manually showing tutorial")
     if hasattr(app, '_tutorial_instance') and app._tutorial_instance:
         tutorial = app._tutorial_instance
         if tutorial.current_dialog:
