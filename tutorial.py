@@ -227,14 +227,21 @@ class TutorialDialog(QDialog):
             menu_bar = self.parent().menu_bar
             action = self.target_widget.menuAction()
             action_rect = menu_bar.actionGeometry(action)
+
             highlight_widget = QWidget(menu_bar)
             highlight_widget.setGeometry(action_rect)
+            highlight_widget.setStyleSheet("background-color: rgba(0,0,0,0);")
+            highlight_widget.setAttribute(Qt.WA_TransparentForMouseEvents)
             highlight_widget.lower()
             highlight_widget.show()
+
             self.highlight = WidgetHighlighter(menu_bar, highlight_widget)
+
+            self._highlighted_menu_action = action
+            self._highlighted_menu_bar = menu_bar
         elif self.target_widget:
             self.highlight = WidgetHighlighter(None, self.target_widget)
-        
+
         if self.highlight:
             self.highlight.show()
             self.highlight.raise_()
@@ -418,19 +425,21 @@ class Tutorial(QObject):
         QTimer.singleShot(100, self.show_current_step)
         
     def show_current_step(self):
+        if self.current_dialog:
+            try:
+                self.current_dialog.close()
+            except:
+                self.current_dialog.hide()
+            self.current_dialog = None
+
         if self.current_step >= len(self.get_tutorial_steps()):
             return
-            
+
         step = self.get_tutorial_steps()[self.current_step]
         widget = step['widget']
         message = step['message']
         position = step.get('position', 'bottom')
-        
-        if not widget or not hasattr(widget, 'isVisible') or not widget.isVisible():
-            self.current_step += 1
-            QTimer.singleShot(100, self.show_current_step)
-            return
-            
+
         arrow_map = {
             'top': 'down',
             'bottom': 'up',
@@ -439,38 +448,41 @@ class Tutorial(QObject):
         }
         arrow_direction = arrow_map.get(position, 'down')
 
-        if self.current_dialog:
-            self.current_dialog.close()
-            self.current_dialog = None
-            
         dialog = TutorialDialog(self.main_app, widget, message, arrow_direction)
-        
         if self.current_step == len(self.get_tutorial_steps()) - 1:
             dialog.next_button.setText("Finish")
-            
+
         dialog.next_button.clicked.connect(self.next_step)
         dialog.skip_button.clicked.connect(self.finish_tutorial)
-        
+
         dialog.show_with_highlight()
         self.current_dialog = dialog
-        
+
     def next_step(self):
+        if self.current_dialog:
+            try:
+                self.current_dialog.close()
+            except:
+                self.current_dialog.hide()
+            self.current_dialog = None
+
         self.current_step += 1
         if self.current_step < len(self.get_tutorial_steps()):
-            self.show_current_step()
+            QTimer.singleShot(0, self.show_current_step)
         else:
             self.finish_tutorial()
-            
+
     def finish_tutorial(self):
         if self.current_dialog:
-            self.current_dialog.close()
+            try:
+                self.current_dialog.close()
+            except:
+                self.current_dialog.hide()
             self.current_dialog = None
-            
         if hasattr(self, 'overlay') and self.overlay:
             self.overlay.close()
             self.overlay.deleteLater()
             self.overlay = None
-            
         QTimer.singleShot(200, self.restore_visibility_states)
         
     def get_tutorial_steps(self):
@@ -527,7 +539,12 @@ class Tutorial(QObject):
             },
             {
                 'widget': self.main_app.update_appids_btn,
-                'message': "Finally, this button updates Streamline's database of Steam AppIDs. This is important as it helps identify which games support anonymous downloads, ensuring the optimal download method is used.",
+                'message': "This button updates Streamline's database of Steam AppIDs. This is important as it helps identify which games support anonymous downloads, ensuring the optimal download method is used.",
+                'position': 'right'
+            },
+            {
+                'widget': self.main_app.help_menu,
+                'message': "That's it! You can show the tutorial again by accessing this menu",
                 'position': 'right'
             },
         ]
