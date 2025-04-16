@@ -243,24 +243,28 @@ def create_separator(object_name, parent=None, width="", label="", label_alignme
             layout.addWidget(lbl)
             layout.addWidget(create_sep())
     return separator
-    
+
 def create_help_icon(self, tooltip_text: str, detailed_text: str, parent=None) -> QToolButton:
     help_btn = QToolButton(parent)
-    
+
     icon_path = resource_path("Files/questionmark.png")
     if os.path.exists(icon_path):
         help_btn.setIcon(QIcon(icon_path))
     else:
         help_btn.setText("?")
-    
+
     help_btn.setIconSize(QSize(8, 8))
     help_btn.setStyleSheet("QToolButton { border: none; padding: 0px; margin: 0px; }")
 
-    custom_tooltip = Tooltip(help_btn, tooltip_text)
+    full_tooltip_text = tooltip_text
+    if detailed_text and detailed_text.strip():
+        full_tooltip_text += ("<br><span style='font-size:9px; color:gray;'>click to show more</span>")
+
+    custom_tooltip = Tooltip(help_btn, full_tooltip_text)
     custom_tooltip.setPlacement(TooltipPlacement.RIGHT)
     custom_tooltip.setShowDelay(300)
     custom_tooltip.setHideDelay(50)
-    
+
     def on_click():
         msg_box = ThemedMessageBox(parent)
         msg_box.setIcon(QMessageBox.Information)
@@ -270,7 +274,7 @@ def create_help_icon(self, tooltip_text: str, detailed_text: str, parent=None) -
         msg_box.setDefaultButton(QMessageBox.Ok)
         apply_theme_titlebar(msg_box, parent.config if parent and hasattr(parent, 'config') else {})
         msg_box.exec()
-    
+
     help_btn.clicked.connect(on_click)
     return help_btn
 
