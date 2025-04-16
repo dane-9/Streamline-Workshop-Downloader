@@ -578,7 +578,7 @@ class SettingsDialog(QDialog):
         
         if save_button:
             save_button.setFixedWidth(100)
-            save_button.setStyleSheet("background-color: #4D8AC9; color: #FFFFFF; font-weight: bold")
+            save_button.setStyleSheet("QPushButton { background-color: #4D8AC9; color: #FFFFFF; font-weight: bold; } QPushButton:hover { background-color: #5A9AD9; }")
         if cancel_button:
             cancel_button.setFixedWidth(100)
             
@@ -1913,7 +1913,7 @@ class UpdateAppIDsDialog(QDialog):
         start_button = buttons.addButton("Start Update", QDialogButtonBox.AcceptRole)
         
         start_button.setFixedWidth(100)
-        start_button.setStyleSheet("background-color: #4D8AC9; color: #FFFFFF; font-weight: bold;")
+        start_button.setStyleSheet("QPushButton { background-color: #4D8AC9; color: #FFFFFF; font-weight: bold; } QPushButton:hover { background-color: #5A9AD9; }")
         
         cancel_button = buttons.button(QDialogButtonBox.Cancel)
         cancel_button.setFixedWidth(100)
