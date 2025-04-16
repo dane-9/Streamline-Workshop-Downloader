@@ -87,14 +87,16 @@ class WidgetHighlighter(QWidget):
 
 class TutorialDialog(QDialog):
     # Frameless dialog used to display tutorial messages
-    def __init__(self, parent, target_widget, message, arrow_direction="down"):
+    def __init__(self, parent, target_widget, message, arrow_direction="down", is_last_step=False):
         super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.target_widget = target_widget
         self.arrow_direction = arrow_direction
+        self.is_last_step = is_last_step
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
 
         self.highlight = None
+        self.highlight_widget = None
         self.setup_ui(message)
 
     def setup_ui(self, message):
@@ -142,7 +144,7 @@ class TutorialDialog(QDialog):
 
         button_layout = QHBoxLayout()
 
-        self.next_button = QPushButton("Next")
+        self.next_button = QPushButton("Next" if not self.is_last_step else "Finish")
         self.next_button.setObjectName("nextButton")
         self.next_button.setFixedWidth(100)
         self.next_button.setCursor(Qt.PointingHandCursor)
@@ -151,9 +153,15 @@ class TutorialDialog(QDialog):
         self.skip_button.setFixedWidth(100)
         self.skip_button.setCursor(Qt.PointingHandCursor)
         
-        button_layout.addWidget(self.skip_button)
-        button_layout.addStretch()
-        button_layout.addWidget(self.next_button)
+        if self.is_last_step:
+            self.skip_button.hide()
+            button_layout.addStretch()
+            button_layout.addWidget(self.next_button)
+            button_layout.addStretch()
+        else:
+            button_layout.addWidget(self.skip_button)
+            button_layout.addStretch()
+            button_layout.addWidget(self.next_button)
         
         content_layout.addLayout(button_layout)
         layout.addWidget(content_frame)
@@ -236,6 +244,7 @@ class TutorialDialog(QDialog):
             highlight_widget.show()
 
             self.highlight = WidgetHighlighter(menu_bar, highlight_widget)
+            self.highlight_widget = highlight_widget
 
             self._highlighted_menu_action = action
             self._highlighted_menu_bar = menu_bar
@@ -431,15 +440,15 @@ class Tutorial(QObject):
             except:
                 self.current_dialog.hide()
             self.current_dialog = None
-
+    
         if self.current_step >= len(self.get_tutorial_steps()):
             return
-
+    
         step = self.get_tutorial_steps()[self.current_step]
         widget = step['widget']
         message = step['message']
         position = step.get('position', 'bottom')
-
+    
         arrow_map = {
             'top': 'down',
             'bottom': 'up',
@@ -448,9 +457,9 @@ class Tutorial(QObject):
         }
         arrow_direction = arrow_map.get(position, 'down')
 
-        dialog = TutorialDialog(self.main_app, widget, message, arrow_direction)
-        if self.current_step == len(self.get_tutorial_steps()) - 1:
-            dialog.next_button.setText("Finish")
+        is_last_step = (self.current_step == len(self.get_tutorial_steps()) - 1)
+
+        dialog = TutorialDialog(self.main_app, widget, message, arrow_direction, is_last_step)
 
         dialog.next_button.clicked.connect(self.next_step)
         dialog.skip_button.clicked.connect(self.finish_tutorial)
