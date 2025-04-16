@@ -4011,13 +4011,22 @@ class SteamWorkshopDownloader(QWidget):
         self.log_signal.emit("Cancellation completed.")
 
     def change_provider_for_mods(self, selected_items, new_provider):
+        changed = 0
         for item in selected_items:
             mod_id = item.text(1)
-            mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
-            if mod:
+            mod = next((m for m in self.download_queue
+                            if m['mod_id'] == mod_id), None)
+            if mod and mod['provider'] != new_provider:
                 mod['provider'] = new_provider
                 item.setText(4, new_provider)
-                self.log_signal.emit(f"Mod {mod_id} provider changed to {new_provider}.")
+                changed += 1
+    
+        if changed == 0:
+            return
+    
+        msg = (f"Provider changed to {new_provider} for "
+               f"{changed} mod{'s' if changed != 1 else ''}.")
+        self.log_signal.emit(msg)
         
     def download_mods_steamcmd(self, steamcmd_mods):
         # Group mods by app_id
