@@ -19,6 +19,9 @@ from lxml import html
 from collections import defaultdict
 import glob
 from initialize import ThemedSplashScreen, AppIDScraper
+from tooltip import Tooltip, TooltipPlacement, FilterTooltip, TooltipManager
+from debug import DebugManager, _global_exception_handler, debug_network_request, LogViewerDialog
+from tutorial import check_first_run, show_tutorial, Tutorial
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QTextEdit,
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QMessageBox,
@@ -26,18 +29,18 @@ from PySide6.QtWidgets import (
     QMenu, QCheckBox, QFileDialog, QHeaderView, QAbstractItemView, 
     QStyledItemDelegate, QStyle, QToolButton, QRadioButton, 
     QStackedWidget, QFrame, QSizePolicy, QMenuBar, QStyleOptionComboBox,
-    QStyleOptionViewItem, QWidgetAction,
+    QStyleOptionViewItem, QWidgetAction, QToolTip
 )
 from PySide6.QtCore import (
     Qt, Signal, QPoint, QThread, QSize, QTimer, QObject, QEvent, 
-    QCoreApplication, Slot,
+    QCoreApplication, Slot, QRect
 )
 from PySide6.QtGui import (
     QTextCursor, QAction, QClipboard, QIcon, QCursor, QPainter,
-    QColor, QPixmap, QPolygon, QFontMetrics,
+    QColor, QPixmap, QPolygon, QFontMetrics, QActionGroup, QPalette
 )
 
-current_version = "1.2.0"
+current_version = "1.3.0"
 
 DEFAULT_SETTINGS = {
     "current_theme": "Dark",
@@ -48,9 +51,10 @@ DEFAULT_SETTINGS = {
     "show_provider": True,
     "show_queue_entire_workshop": True,
     "keep_downloaded_in_queue": False,
-    "use_mod_name_for_folder": True,
+    "folder_naming_format": "id",
     "auto_detect_urls": False,
     "auto_add_to_queue": False,
+    "delete_downloads_on_cancel": False,
     
     "download_button": True,
     "show_menu_bar": True, 
@@ -59,6 +63,7 @@ DEFAULT_SETTINGS = {
     "show_case_button": True,
     "show_export_import_buttons": True,
     "show_sort_indicator": True,
+    "show_row_numbers": False,
     
     "header_locked": True,
     
@@ -68,7 +73,17 @@ DEFAULT_SETTINGS = {
     "queue_tree_default_widths": [115, 90, 230, 100, 95],
     "queue_tree_column_widths": None,
     "queue_tree_column_hidden": None,
-    "show_version": True
+    "show_version": True,
+    "reset_provider_on_startup": False,
+    "download_provider": "Default",
+    "reset_window_size_on_startup": True,
+    "show_tutorial_on_startup": True,
+    
+    "debug_enabled": False,
+    "write_debug_to_file": True,
+    "verbose_console_output": True,
+    "save_crash_reports": True,
+    "output_raw_steamcmd_logs": False
 }
 
 # Allows logo to be applied over pythonw.exe's own
@@ -228,20 +243,28 @@ def create_separator(object_name, parent=None, width="", label="", label_alignme
             layout.addWidget(lbl)
             layout.addWidget(create_sep())
     return separator
-    
+
 def create_help_icon(self, tooltip_text: str, detailed_text: str, parent=None) -> QToolButton:
     help_btn = QToolButton(parent)
-    
+
     icon_path = resource_path("Files/questionmark.png")
     if os.path.exists(icon_path):
         help_btn.setIcon(QIcon(icon_path))
     else:
         help_btn.setText("?")
-    
+
     help_btn.setIconSize(QSize(8, 8))
-    help_btn.setToolTip(tooltip_text)
     help_btn.setStyleSheet("QToolButton { border: none; padding: 0px; margin: 0px; }")
-    
+
+    full_tooltip_text = tooltip_text
+    if detailed_text and detailed_text.strip():
+        full_tooltip_text += ("<br><span style='font-size:9px; color:gray;'>click to show more</span>")
+
+    custom_tooltip = Tooltip(help_btn, full_tooltip_text)
+    custom_tooltip.setPlacement(TooltipPlacement.RIGHT)
+    custom_tooltip.setShowDelay(300)
+    custom_tooltip.setHideDelay(50)
+
     def on_click():
         msg_box = ThemedMessageBox(parent)
         msg_box.setIcon(QMessageBox.Information)
@@ -251,7 +274,7 @@ def create_help_icon(self, tooltip_text: str, detailed_text: str, parent=None) -
         msg_box.setDefaultButton(QMessageBox.Ok)
         apply_theme_titlebar(msg_box, parent.config if parent and hasattr(parent, 'config') else {})
         msg_box.exec()
-    
+
     help_btn.clicked.connect(on_click)
     return help_btn
 
@@ -361,6 +384,118 @@ class ActiveComboBox(QComboBox):
             painter.drawText(suffix_rect, Qt.AlignVCenter | Qt.AlignLeft, active_suffix)
             painter.restore()
             
+class ProviderComboBox(QComboBox):
+    def __init__(self, prefix="", parent=None):
+        super().__init__(parent)
+        self.prefix = prefix
+        self.view().activated.connect(self.handleItemActivated)
+
+    def handleItemActivated(self, index):
+        self.setCurrentIndex(index)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        opt = QStyleOptionComboBox()
+        self.initStyleOption(opt)
+
+        if not self.prefix:
+            self.style().drawComplexControl(QStyle.CC_ComboBox, opt, painter, self)
+            return
+
+        current_text = self.currentText()
+        prefix_text = f"  {self.prefix} "
+        display_text = f"{prefix_text}{current_text}"
+        opt.currentText = display_text
+
+        self.style().drawComplexControl(QStyle.CC_ComboBox, opt, painter, self)
+
+        text_rect = self.style().subControlRect(QStyle.CC_ComboBox, opt, QStyle.SC_ComboBoxEditField, self)
+        painter.setPen(opt.palette.text().color())
+
+        painter.save()
+        normal_font = painter.font()
+        normal_font.setBold(False)
+        painter.setFont(normal_font)
+
+        prefix_width = painter.fontMetrics().horizontalAdvance(prefix_text)
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, prefix_text)
+        painter.restore()
+
+        bold_font = painter.font()
+        bold_font.setBold(True)
+        painter.setFont(bold_font)
+
+        provider_rect = text_rect.adjusted(prefix_width, 0, 0, 0)
+        painter.drawText(provider_rect, Qt.AlignLeft | Qt.AlignVCenter, current_text)
+        painter.end()
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        fm = self.fontMetrics()
+        width = max(hint.width(), fm.horizontalAdvance(f"{self.prefix} {self.currentText()}") + 30)
+        return QSize(width, hint.height())
+            
+class RowNumberDelegate(NoFocusDelegate):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.base_padding = 10
+        self.char_width = None
+        self.max_digits = 1
+
+    def get_digit_width(self, painter):
+        if self.char_width is None:
+            self.char_width = painter.fontMetrics().averageCharWidth()
+        return self.char_width
+
+    def get_margin_for_number(self, number, painter):
+        digit_width = self.get_digit_width(painter)
+        num_digits = len(str(number))
+        if num_digits > self.max_digits:
+            self.max_digits = num_digits
+        return self.max_digits * digit_width + self.base_padding
+
+    def paint(self, painter, option, index):
+        if index.column() == 0:
+            painter.save()
+
+            style = option.widget.style() if option.widget else QApplication.style()
+            style.drawPrimitive(QStyle.PE_PanelItemViewItem, option, painter, option.widget)
+
+            row_number = index.row() + 1
+            margin = self.get_margin_for_number(row_number, painter)
+            line_number_rect = QRect(option.rect)
+            line_number_rect.setWidth(margin)
+
+            if option.state & QStyle.State_Selected:
+                painter.setPen(QColor("#40b6e0"))
+            else:
+                painter.setPen(option.palette.text().color())
+
+            painter.drawText(
+                line_number_rect,
+                Qt.AlignRight | Qt.AlignVCenter,
+                f"{row_number} "
+            )
+            painter.restore()
+
+            adjusted_option = QStyleOptionViewItem(option)
+            adjusted_option.rect.setLeft(option.rect.left() + margin)
+            super().paint(painter, adjusted_option, index)
+        else:
+            super().paint(painter, option, index)
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        if index.column() == 0:
+            if self.char_width is None:
+                initial_width = 30
+            else:
+                initial_width = self.max_digits * self.char_width + self.base_padding
+            size.setWidth(size.width() + initial_width)
+        return size
+            
 class SettingsTreeDelegate(NoFocusDelegate):
     def sizeHint(self, option, index):
         size = super().sizeHint(option, index)
@@ -387,7 +522,7 @@ class SettingsDialog(QDialog):
         self._show_provider = self._config.get('show_provider', True)
         self._show_queue_entire_workshop = self._config.get('show_queue_entire_workshop', True)
         self._keep_downloaded_in_queue = self._config.get('keep_downloaded_in_queue', False)
-        self._use_mod_name_for_folder = self._config.get('use_mod_name_for_folder', True)
+        self._folder_naming_format = self._config.get('folder_naming_format', 'id')
         self._auto_detect_urls = self._config.get('auto_detect_urls', False)
         self._auto_add_to_queue = self._config.get('auto_add_to_queue', False)
 
@@ -412,10 +547,15 @@ class SettingsDialog(QDialog):
         tool_icon = QIcon(resource_path("Files/tool_options.png"))
         utility_item.setIcon(0, tool_icon)
         
+        system_item = QTreeWidgetItem(["System"])
+        system_icon = QIcon(resource_path("Files/system_options.png"))
+        system_item.setIcon(0, system_icon)
+        
         self.category_tree.setRootIsDecorated(False)
         self.category_tree.addTopLevelItem(appearance_item)
         self.category_tree.addTopLevelItem(download_item)
         self.category_tree.addTopLevelItem(utility_item)
+        self.category_tree.addTopLevelItem(system_item)
 
         self.category_tree.setItemDelegate(SettingsTreeDelegate(self.category_tree))
         
@@ -442,7 +582,7 @@ class SettingsDialog(QDialog):
         
         if save_button:
             save_button.setFixedWidth(100)
-            save_button.setStyleSheet("background-color: #4D8AC9; color: #FFFFFF; font-weight: bold")
+            save_button.setStyleSheet("QPushButton { background-color: #4D8AC9; color: #FFFFFF; font-weight: bold; } QPushButton:hover { background-color: #5A9AD9; }")
         if cancel_button:
             cancel_button.setFixedWidth(100)
             
@@ -457,10 +597,12 @@ class SettingsDialog(QDialog):
         self.appearance_page = self._build_appearance_page()
         self.download_page = self._build_download_options_page()
         self.utility_page = self._build_utility_page()
+        self.system_page = self._build_system_page()
             
         self.pages_widget.addWidget(self.appearance_page)  # index 0
         self.pages_widget.addWidget(self.download_page)    # index 1
         self.pages_widget.addWidget(self.utility_page)     # index 2
+        self.pages_widget.addWidget(self.system_page)    # index 3
 
     def _build_appearance_page(self):
         page = QWidget()
@@ -559,12 +701,8 @@ class SettingsDialog(QDialog):
         self.show_logs_checkbox = QCheckBox("Logs View")
         self.show_logs_checkbox.setChecked(self._show_logs)
         layout.addRow(self.show_logs_checkbox)
-        
-        self.show_queue_entire_workshop_checkbox = QCheckBox("Queue Entire Workshop Button")
-        self.show_queue_entire_workshop_checkbox.setChecked(self._show_queue_entire_workshop)
-        layout.addRow(self.show_queue_entire_workshop_checkbox)
     
-        self.show_provider_checkbox = QCheckBox("Download Provider Dropdown")
+        self.show_provider_checkbox = QCheckBox("Download Provider")
         self.show_provider_checkbox.setChecked(self._show_provider)
         layout.addRow(self.show_provider_checkbox)
     
@@ -574,13 +712,13 @@ class SettingsDialog(QDialog):
         page = QWidget()
         layout = QFormLayout(page)
         layout.setVerticalSpacing(10)
-
+    
         batch_label = QLabel("Batch Size:")
         self.batch_size_spinbox = QSpinBox()
         self.batch_size_spinbox.setRange(1, 100)
         self.batch_size_spinbox.setValue(self._batch_size)
         self.batch_size_spinbox.setMaximumWidth(125)
-        max_label = QLabel("Default: 20 | Max: 100")
+        max_label = QLabel("Default: 20 | Recommended: < 50 | Max: 100")
         max_label.setStyleSheet("font-size: 10px;")
         
         spin_layout = QHBoxLayout()
@@ -596,12 +734,53 @@ class SettingsDialog(QDialog):
         self.keep_downloaded_in_queue_checkbox.setChecked(self._keep_downloaded_in_queue)
         layout.addRow(self.keep_downloaded_in_queue_checkbox)
         
+        self.delete_downloads_on_cancel_checkbox = QCheckBox("Delete Downloads When Canceling")
+        self.delete_downloads_on_cancel_checkbox.setChecked(self._config.get("delete_downloads_on_cancel", False))
+        tooltip_text = "When enabled, downloaded mods will be deleted when canceling."
+        detailed_text = "By default, when you cancel a download, any downloaded mods are kept and moved to the downloads folder. Enabling this option will delete any downloaded mods when canceling instead."
+        help_btn = create_help_icon(self, tooltip_text, detailed_text)
+        help_layout = QHBoxLayout()
+        help_layout.addWidget(self.delete_downloads_on_cancel_checkbox)
+        help_layout.addWidget(help_btn)
+        help_layout.addStretch()
+        layout.addRow(help_layout)
+
         layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Downloads", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
 
-        self.use_mod_name_checkbox = QCheckBox("Use Mod Name instead of ID for Mod Folder")
-        self.use_mod_name_checkbox.setChecked(self._use_mod_name_for_folder)
-        layout.addRow(self.use_mod_name_checkbox)
+        folder_name_label = QLabel("Naming Scheme: ")
+        tooltip_text = "Downloaded Mods Naming Scheme"
+        detailed_text = ("Choose how the folder for downloaded mods should be named:\n"
+                         "• 'Mod ID': Uses the mod's numeric ID.\n"
+                         "• 'Mod Name': Uses the mod's title.\n"
+                         "• 'Mod ID + Mod Name': Combines both.")
+        help_icon = create_help_icon(self, tooltip_text, detailed_text)
 
+        folder_label_layout = QHBoxLayout()
+        folder_label_layout.addWidget(folder_name_label)
+        folder_label_layout.addWidget(help_icon)
+        folder_label_layout.addStretch()
+
+        folder_name_layout = QVBoxLayout()
+        folder_name_layout.setSpacing(5)
+
+        folder_format = self._config.get("folder_naming_format", "id")
+
+        self.id_folder_scheme = QRadioButton("Mod ID")
+        self.id_folder_scheme.setChecked(folder_format == "id")
+
+        self.name_folder_scheme = QRadioButton("Mod Name")
+        self.name_folder_scheme.setChecked(folder_format == "name")
+
+        self.combined_folder_scheme = QRadioButton("Mod ID + Mod Name")
+        self.combined_folder_scheme.setChecked(folder_format == "combined")
+        
+        folder_name_layout.addWidget(self.id_folder_scheme)
+        folder_name_layout.addWidget(self.name_folder_scheme)
+        folder_name_layout.addWidget(self.combined_folder_scheme)
+        
+        layout.addRow(folder_label_layout)
+        layout.addRow(folder_name_layout)
+    
         return page
 
     def _build_utility_page(self):
@@ -625,7 +804,108 @@ class SettingsDialog(QDialog):
     
         layout.addStretch()
         return page
+        
+    def _build_system_page(self):
+        page = QWidget()
+        layout = QFormLayout(page)
+        layout.setVerticalSpacing(10)
+
+        layout.addRow(create_separator("settings_separator", parent=self, width=200, label="On Startup", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
+
+        window_size_layout = QHBoxLayout()
+        self.reset_window_size_checkbox = QCheckBox("Reset Window Size")
+        self.reset_window_size_checkbox.setChecked(
+            self._config.get("reset_window_size_on_startup", True))
+        window_size_layout.addWidget(self.reset_window_size_checkbox)
+
+        tooltip_text = "Reset the window to default size(670×750) when starting the application"
+        detailed_text = (
+            "When enabled, this option will reset the application window to its default size "
+            "each time you start Streamline, regardless of any size changes you made in the previous session.\n\n"
+            "Default window size: 670×750 pixels\n\n"
+            "If disabled, Streamline will remember your last window size and restore it on startup."
+        )
+
+        help_btn = create_help_icon(self, tooltip_text, detailed_text)
+        window_size_layout.addWidget(help_btn)
+        window_size_layout.addStretch()
+
+        layout.addRow(window_size_layout)
+
+        provider_reset_layout = QHBoxLayout()
+        self.reset_provider_checkbox = QCheckBox("Reset Download Provider")
+        self.reset_provider_checkbox.setChecked(
+            self._config.get("reset_provider_on_startup", False))
+        provider_reset_layout.addWidget(self.reset_provider_checkbox)
+
+        tooltip_text = "Reset to 'Default' provider when starting the application"
+        detailed_text = (
+            "When enabled, this option will reset the Download Provider dropdown to 'Default' "
+            "every time you start the application, regardless of your previous selection.\n\n"
+            "This is useful if you want to ensure that the application always uses the optimal "
+            "provider for each mod type based on Steam's database.\n\n"
+            "- Default: Uses SteamCMD for games in the AppIDs list, or SteamWebAPI otherwise"
+        )
+
+        help_btn = create_help_icon(self, tooltip_text, detailed_text)
+        provider_reset_layout.addWidget(help_btn)
+        provider_reset_layout.addStretch()
+
+        layout.addRow(provider_reset_layout)
+        
+        tutorial_on_startup_layout = QHBoxLayout()
+        self.show_tutorial_on_startup_checkbox = QCheckBox("Show Tutorial Dialog")
+        self.show_tutorial_on_startup_checkbox.setChecked(
+            self._config.get("show_tutorial_on_startup", True))
+        tutorial_on_startup_layout.addWidget(self.show_tutorial_on_startup_checkbox)
+        
+        tooltip_text = "Show the welcome dialog on application startup"
+        detailed_text = (
+            "When enabled, the tutorial welcome dialog will be shown each time you start Streamline.\n\n"
+            "You can always access the tutorial manually from the Help menu."
+        )
+        
+        help_btn = create_help_icon(self, tooltip_text, detailed_text)
+        tutorial_on_startup_layout.addWidget(help_btn)
+        tutorial_on_startup_layout.addStretch()
+        
+        layout.addRow(tutorial_on_startup_layout)
+        
+        layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Debug", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
+
+        self.debug_enabled_checkbox = QCheckBox("Enable Debug Mode")
+        self.debug_enabled_checkbox.setChecked(self._config.get("debug_enabled", False))
+        layout.addRow(self.debug_enabled_checkbox)
+
+        debug_indent_layout = QHBoxLayout()
+        debug_indent_layout.addSpacing(20)
+        self.debug_children_layout = QVBoxLayout()
+        self.debug_children_layout.setSpacing(3)
+
+        self.write_debug_file_checkbox = QCheckBox("Write Debug to File")
+        self.write_debug_file_checkbox.setChecked(self._config.get("write_debug_to_file", False))
+        self.debug_children_layout.addWidget(self.write_debug_file_checkbox)
     
+        self.verbose_console_checkbox = QCheckBox("Verbose Console Output")
+        self.verbose_console_checkbox.setChecked(self._config.get("verbose_console_output", False))
+        self.debug_children_layout.addWidget(self.verbose_console_checkbox)
+    
+        self.save_crash_reports_checkbox = QCheckBox("Save Crash Reports")
+        self.save_crash_reports_checkbox.setChecked(self._config.get("save_crash_reports", False))
+        self.debug_children_layout.addWidget(self.save_crash_reports_checkbox)
+    
+        self.raw_steamcmd_logs_checkbox = QCheckBox("Output Raw SteamCMD Logs")
+        self.raw_steamcmd_logs_checkbox.setChecked(self._config.get("output_raw_steamcmd_logs", False))
+        self.debug_children_layout.addWidget(self.raw_steamcmd_logs_checkbox)
+    
+        debug_indent_layout.addLayout(self.debug_children_layout)
+        layout.addRow(debug_indent_layout)
+
+        self.debug_enabled_checkbox.stateChanged.connect(self.toggle_debug_options)
+        self.toggle_debug_options()
+    
+        return page
+
     def toggle_auto_add_checkbox(self):
         new_state = self.auto_detect_urls_checkbox.isChecked()
         self.auto_add_to_queue_checkbox.setEnabled(new_state)
@@ -656,44 +936,16 @@ class SettingsDialog(QDialog):
         self.pages_widget.setCurrentIndex(index)
 
     def accept(self):
-        selected_theme = self.theme_dropdown.currentText()
-        if self.light_logo_radio.isChecked():
-            logo_style = "Light"
-        elif self.dark_logo_radio.isChecked():
-            logo_style = "Dark"
-        else:
-            logo_style = "Darker"
-
-        batch_size = self.batch_size_spinbox.value()
-        keep_downloaded_in_queue = self.keep_downloaded_in_queue_checkbox.isChecked()
-        use_mod_name_for_folder = self.use_mod_name_checkbox.isChecked()
-
-        auto_detect_urls = self.auto_detect_urls_checkbox.isChecked()
-        auto_add_to_queue = self.auto_add_to_queue_checkbox.isChecked()
-
-        show_logs = self.show_logs_checkbox.isChecked()
-        show_provider = self.show_provider_checkbox.isChecked()
-        show_queue_entire_workshop = self.show_queue_entire_workshop_checkbox.isChecked()
-
-        new_settings = {
-            'current_theme': selected_theme,
-            'logo_style': logo_style,
-            'batch_size': batch_size,
-            'show_logs': show_logs,
-            'show_provider': show_provider,
-            'show_queue_entire_workshop': show_queue_entire_workshop,
-            'keep_downloaded_in_queue': keep_downloaded_in_queue,
-            'use_mod_name_for_folder': use_mod_name_for_folder,
-            'auto_detect_urls': auto_detect_urls,
-            'auto_add_to_queue': auto_add_to_queue,
-            'download_button': self.show_download_button_checkbox.isChecked(),
-            'show_menu_bar': self.show_menu_bar_checkbox.isChecked(),
-            'show_version': self.show_version_checkbox.isChecked()
-        }
         super().accept()
 
     def get_settings(self):
-        return {
+        folder_format = "id"
+        if self.name_folder_scheme.isChecked():
+            folder_format = "name"
+        elif self.combined_folder_scheme.isChecked():
+            folder_format = "combined"
+            
+        settings = {
             'current_theme': self.theme_dropdown.currentText(),
             'logo_style': (
                 "Light" if self.light_logo_radio.isChecked()
@@ -703,11 +955,11 @@ class SettingsDialog(QDialog):
             'batch_size': self.batch_size_spinbox.value(),
             'show_logs': self.show_logs_checkbox.isChecked(),
             'show_provider': self.show_provider_checkbox.isChecked(),
-            'show_queue_entire_workshop': self.show_queue_entire_workshop_checkbox.isChecked(),
             'keep_downloaded_in_queue': self.keep_downloaded_in_queue_checkbox.isChecked(),
-            'use_mod_name_for_folder': self.use_mod_name_checkbox.isChecked(),
+            'folder_naming_format': folder_format,
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
+            'delete_downloads_on_cancel': self.delete_downloads_on_cancel_checkbox.isChecked(),
             'download_button': self.show_download_button_checkbox.isChecked(),
             'show_regex_button': self.show_regex_checkbox.isChecked(),
             'show_case_button': self.show_case_checkbox.isChecked(),
@@ -715,8 +967,18 @@ class SettingsDialog(QDialog):
             'show_export_import_buttons': self.show_export_import_buttons_checkbox.isChecked(),
             'show_sort_indicator': self.show_sort_indicator_checkbox.isChecked(),
             'show_menu_bar': self.show_menu_bar_checkbox.isChecked(),
-            'show_version': self.show_version_checkbox.isChecked()
+            'show_version': self.show_version_checkbox.isChecked(),
+            'reset_window_size_on_startup': self.reset_window_size_checkbox.isChecked(),
+            'reset_provider_on_startup': self.reset_provider_checkbox.isChecked(),
+            'show_tutorial_on_startup': self.show_tutorial_on_startup_checkbox.isChecked(),
+            "debug_enabled": self.debug_enabled_checkbox.isChecked(),
+            "write_debug_to_file": self.write_debug_file_checkbox.isChecked(),
+            "verbose_console_output": self.verbose_console_checkbox.isChecked(),
+            "save_crash_reports": self.save_crash_reports_checkbox.isChecked(),
+            "output_raw_steamcmd_logs": self.raw_steamcmd_logs_checkbox.isChecked()
         }
+
+        return settings
         
     def reset_defaults(self):
         self.theme_dropdown.setCurrentText(DEFAULT_SETTINGS["current_theme"])
@@ -728,6 +990,8 @@ class SettingsDialog(QDialog):
             self.darker_logo_radio.setChecked(True)
         else:
             self.light_logo_radio.setChecked(True)
+            
+        self.id_folder_scheme.setChecked(True)
     
         self.show_download_button_checkbox.setChecked(DEFAULT_SETTINGS["download_button"])
         self.show_searchbar_checkbox.setChecked(DEFAULT_SETTINGS["show_searchbar"])
@@ -736,16 +1000,39 @@ class SettingsDialog(QDialog):
         self.show_export_import_buttons_checkbox.setChecked(DEFAULT_SETTINGS["show_export_import_buttons"])
         self.show_sort_indicator_checkbox.setChecked(DEFAULT_SETTINGS["show_sort_indicator"])
         self.show_logs_checkbox.setChecked(DEFAULT_SETTINGS["show_logs"])
-        self.show_queue_entire_workshop_checkbox.setChecked(DEFAULT_SETTINGS["show_queue_entire_workshop"])
         self.show_provider_checkbox.setChecked(DEFAULT_SETTINGS["show_provider"])
-    
+
         self.batch_size_spinbox.setValue(DEFAULT_SETTINGS["batch_size"])
         self.keep_downloaded_in_queue_checkbox.setChecked(DEFAULT_SETTINGS["keep_downloaded_in_queue"])
-        self.use_mod_name_checkbox.setChecked(DEFAULT_SETTINGS["use_mod_name_for_folder"])
-    
+        self.delete_downloads_on_cancel_checkbox.setChecked(DEFAULT_SETTINGS["delete_downloads_on_cancel"])
+
         self.auto_detect_urls_checkbox.setChecked(DEFAULT_SETTINGS["auto_detect_urls"])
         self.auto_add_to_queue_checkbox.setChecked(DEFAULT_SETTINGS["auto_add_to_queue"])
         self.update_checkbox_style()
+
+        self.reset_window_size_checkbox.setChecked(DEFAULT_SETTINGS["reset_window_size_on_startup"])
+        self.reset_provider_checkbox.setChecked(DEFAULT_SETTINGS["reset_provider_on_startup"])
+        self.reset_provider_checkbox.setChecked(DEFAULT_SETTINGS["show_tutorial_on_startup"])
+        
+        self.debug_enabled_checkbox.setChecked(DEFAULT_SETTINGS["debug_enabled"])
+        self.write_debug_file_checkbox.setChecked(DEFAULT_SETTINGS["write_debug_to_file"])
+        self.verbose_console_checkbox.setChecked(DEFAULT_SETTINGS["verbose_console_output"])
+        self.save_crash_reports_checkbox.setChecked(DEFAULT_SETTINGS["save_crash_reports"])
+        self.raw_steamcmd_logs_checkbox.setChecked(DEFAULT_SETTINGS["output_raw_steamcmd_logs"])
+        
+    def toggle_debug_options(self):
+        is_enabled = self.debug_enabled_checkbox.isChecked()
+
+        self.write_debug_file_checkbox.setEnabled(is_enabled)
+        self.verbose_console_checkbox.setEnabled(is_enabled)
+        self.save_crash_reports_checkbox.setEnabled(is_enabled)
+        self.raw_steamcmd_logs_checkbox.setEnabled(is_enabled)
+
+        grey_style = "color: grey;" if not is_enabled else ""
+        self.write_debug_file_checkbox.setStyleSheet(grey_style)
+        self.verbose_console_checkbox.setStyleSheet(grey_style)
+        self.save_crash_reports_checkbox.setStyleSheet(grey_style)
+        self.raw_steamcmd_logs_checkbox.setStyleSheet(grey_style)
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
@@ -949,7 +1236,6 @@ class OverrideAppIDDialog(QDialog):
         return self.appid_input.text().strip()
 
 class ItemFetcher(QThread):
-    # Outputs messages
     item_processed = Signal(dict)
     error_occurred = Signal(str)
     mod_or_collection_detected = Signal(bool, str)
@@ -965,10 +1251,27 @@ class ItemFetcher(QThread):
         loop.run_until_complete(self.process_item())
 
     async def process_item(self):
+        debug_manager = DebugManager.instance()
+        
         try:
+            debug_manager.debug(f"Processing workshop item {self.item_id}")
             async with aiohttp.ClientSession() as session:
                 item_url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={self.item_id}"
+                
+                debug_manager.debug(f"Fetching item details from {item_url}")
+                start_time = time.time()
+                
                 async with session.get(item_url) as response:
+                    elapsed = time.time() - start_time
+                    
+                    debug_manager.log_network_request(
+                        method="GET",
+                        url=item_url,
+                        response=response
+                    )
+                    
+                    debug_manager.debug(f"Item details fetch completed in {elapsed:.2f}s")
+                    
                     if response.status != 200:
                         self.error_occurred.emit(f"Failed to fetch item page. HTTP status: {response.status}")
                         return
@@ -1177,7 +1480,7 @@ class ConfigureSteamAccountsDialog(QDialog):
         self.steamcmd_dir = steamcmd_dir
         self.token_monitor_worker = None
         self.steamcmd_process = None
-        
+
         apply_theme_titlebar(self, self.parent().config)
 
         layout = QVBoxLayout(self)
@@ -1614,7 +1917,7 @@ class UpdateAppIDsDialog(QDialog):
         start_button = buttons.addButton("Start Update", QDialogButtonBox.AcceptRole)
         
         start_button.setFixedWidth(100)
-        start_button.setStyleSheet("background-color: #4D8AC9; color: #FFFFFF; font-weight: bold;")
+        start_button.setStyleSheet("QPushButton { background-color: #4D8AC9; color: #FFFFFF; font-weight: bold; } QPushButton:hover { background-color: #5A9AD9; }")
         
         cancel_button = buttons.button(QDialogButtonBox.Cancel)
         cancel_button.setFixedWidth(100)
@@ -1822,90 +2125,131 @@ class QueueInsertionWorker(QThread):
 
         self.finished.emit()
 
-class QueueEntireWorkshopDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Queue Entire Workshop")
-        self.setModal(True)
-        self.setFixedSize(350, 100)
-        
-        apply_theme_titlebar(self, self.parent().config)
-
-        layout = QVBoxLayout(self)
-
-        self.label = QLabel("Enter AppID:")
-        layout.addWidget(self.label)
-
-        self.input_line = QLineEdit()
-        set_custom_clear_icon(self.input_line)
-        self.input_line.setPlaceholderText("e.g., 108600 or a Steam URL with an AppID")
-        layout.addWidget(self.input_line)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel, parent=self)
-        self.start_button = QPushButton("Start")
-        buttons.addButton(self.start_button, QDialogButtonBox.AcceptRole)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def get_input(self):
-        return self.input_line.text().strip()
-
 async def fetch_page(session, url, params, log_signal=None):
+    debug_manager = DebugManager.instance()
+    
     try:
+        debug_manager.debug(f"Fetching page {params['p']} from {url}")
+        start_time = time.time()
+        
         async with session.get(url, params=params) as response:
+            elapsed = time.time() - start_time
+            
+            # Log basic response info
+            debug_manager.log_network_request(
+                method="GET",
+                url=url,
+                params=params,
+                response=response
+            )
+            
+            debug_manager.debug(f"Page fetch completed in {elapsed:.2f}s")
+            
             if response.status != 200:
                 if log_signal:
                     log_signal.emit(f"Failed to fetch page {params['p']}: HTTP {response.status}")
                 return None
-            return await response.text()
+                
+            # Get the response content as text
+            content = await response.text()
+            
+            # Log some content stats and preview
+            content_length = len(content)
+            debug_manager.debug(f"Retrieved {content_length} bytes from page {params['p']}")
+            
+            # Log a preview of the content (first 200 chars) - Add option later...
+            if debug_manager.verbose_output:
+                preview = content[:200].replace('\n', ' ').strip()
+                if len(content) > 200:
+                    preview += "..."
+                debug_manager.debug(f"Content preview: {preview}")
+            
+            return content
     except Exception as e:
+        debug_manager.log_network_request(
+            method="GET",
+            url=url,
+            params=params,
+            error=e
+        )
+        
         if log_signal:
             log_signal.emit(f"Error fetching page {params['p']}: {e}")
         return None
 
 async def parse_page(page_content, page_number, log_signal=None):
+    debug_manager = DebugManager.instance()
     mods = []
     try:
+        debug_manager.debug(f"Parsing workshop page {page_number}")
+        parse_start_time = time.time()
+        
         tree = html.fromstring(page_content)
+        
+        # Find all workshop items
         workshop_items = tree.xpath("//div[@class='workshopItem']")
+        item_count = len(workshop_items)
+        debug_manager.debug(f"Found {item_count} workshop items on page {page_number}")
+        
+        successful_items = 0
+        skipped_items = 0
+        
         for item in workshop_items:
             link = item.xpath(".//a[contains(@href, 'sharedfiles/filedetails')]")
             if not link:
+                skipped_items += 1
                 if log_signal:
                     log_signal(f"Page {page_number}: Skipped item, no link found.")
                 continue
+                
             mod_id = link[0].get("data-publishedfileid")
             if not mod_id:
                 mod_id = link[0].get("href").split("?id=")[-1]
+                
             title_div = item.xpath(".//div[contains(@class,'workshopItemTitle')]")
             if not title_div:
+                skipped_items += 1
                 if log_signal:
                     log_signal(f"Page {page_number}: Skipped item, no title found.")
                 continue
+                
             mod_name = title_div[0].text_content().strip()
             mods.append((mod_id, mod_name))
+            successful_items += 1
+            
+            # Log every 10th item if verbose
+            if debug_manager.verbose_output and successful_items % 10 == 0:
+                debug_manager.debug(f"Parsed {successful_items}/{item_count} items on page {page_number}")
+        
+        parse_elapsed = time.time() - parse_start_time
+        debug_manager.debug(f"Page {page_number} parsing completed in {parse_elapsed:.2f}s: {successful_items} items added, {skipped_items} items skipped")
+        
+        # If verbose, log some sample items
+        if debug_manager.verbose_output and mods:
+            sample_size = min(3, len(mods))
+            samples = mods[:sample_size]
+            debug_manager.debug(f"Sample items from page {page_number}:")
+            for i, (mod_id, mod_name) in enumerate(samples):
+                debug_manager.debug(f"  {i+1}. ID: {mod_id}, Name: {mod_name}")
+                
     except Exception as e:
+        debug_manager.exception(f"Error parsing page {page_number}: {e}")
         if log_signal:
             log_signal(f"Error parsing page {page_number}: {e}")
+            
     return mods
 
-async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems", concurrency=100, log_signal=None, app_ids=None, queue_entire_workshop_btn=None):
+async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems", concurrency=100, log_signal=None, app_ids=None):
     base_url = "https://steamcommunity.com/workshop/browse/"
     params = {"appid": str(appid), "browsesort": sort, "section": section, "p": "1"}
     all_mods = []
     game_name = "Unknown Game"
-
-    if queue_entire_workshop_btn:
-        queue_entire_workshop_btn.setEnabled(False)
 
     async with aiohttp.ClientSession() as session:
         first_page_content = await fetch_page(session, base_url, params, log_signal=log_signal)
         if not first_page_content:
             if log_signal:
                 log_signal("Failed to fetch the first page.")
-            if queue_entire_workshop_btn:
-                queue_entire_workshop_btn.setEnabled(True)
             return game_name, []
 
         tree = html.fromstring(first_page_content)
@@ -1913,8 +2257,6 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
         if not paging_info:
             if log_signal:
                 log_signal("Could not find paging info on the first page. Possibly no results.")
-            if queue_entire_workshop_btn:
-                queue_entire_workshop_btn.setEnabled(True)
             return game_name, []
 
         # Determine game_name
@@ -1935,14 +2277,10 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
                 except (ValueError, IndexError):
                     if log_signal:
                         log_signal("Failed to parse total entries.")
-                    if queue_entire_workshop_btn:
-                        queue_entire_workshop_btn.setEnabled(True)
                     return game_name, []
         if total_entries == 0:
             if log_signal:
                 log_signal("No entries found for this workshop.")
-            if queue_entire_workshop_btn:
-                queue_entire_workshop_btn.setEnabled(True)
             return game_name, []
 
         mods_per_page = 30
@@ -1987,9 +2325,6 @@ async def scrape_workshop_data(appid, sort="toprated", section="readytouseitems"
             # Final update for pages_fetched
             log_signal(f"Pages fetched: {pages_fetched} / {total_pages}")
 
-    if queue_entire_workshop_btn:
-        queue_entire_workshop_btn.setEnabled(True)
-
     return game_name, all_mods
 
 
@@ -1997,11 +2332,10 @@ class WorkshopScraperWorker(QThread):
     finished_scraping = Signal(str, list)  # Emit game_name and mods
     log_signal = Signal(str)
 
-    def __init__(self, appid, app_ids, queue_entire_workshop_btn=None):
+    def __init__(self, appid, app_ids):
         super().__init__()
         self.appid = appid
         self.app_ids = app_ids
-        self.queue_entire_workshop_btn = queue_entire_workshop_btn
 
     def run(self):
         loop = asyncio.new_event_loop()
@@ -2010,7 +2344,7 @@ class WorkshopScraperWorker(QThread):
         def log_message(msg):
             self.log_signal.emit(msg)
 
-        game_name, mods = loop.run_until_complete(scrape_workshop_data( appid=self.appid, log_signal=log_message, app_ids=self.app_ids, queue_entire_workshop_btn=self.queue_entire_workshop_btn ))
+        game_name, mods = loop.run_until_complete(scrape_workshop_data( appid=self.appid, log_signal=log_message, app_ids=self.app_ids ))
         self.finished_scraping.emit(game_name, mods)
 
 class SteamWorkshopDownloader(QWidget):
@@ -2028,15 +2362,21 @@ class SteamWorkshopDownloader(QWidget):
         os.makedirs(self.files_dir, exist_ok=True)
         self.themes_dir = os.path.join(self.files_dir, 'Themes')
         os.makedirs(self.themes_dir, exist_ok=True)
+        self.debug_manager = DebugManager.instance(self.files_dir, self.log_signal)
+
         self.config = {}
         self.config_path = self.get_config_path()
         self.load_config()
+        if self.config.get("reset_provider_on_startup", False):
+            self.config["download_provider"] = "Default"
+            self.save_config()
         self.updateWindowTitle()
         self.steamcmd_dir = os.path.join(self.files_dir, 'steamcmd')
         self.steamcmd_executable = self.get_steamcmd_executable_path()
         self.current_process = None
+        self.tooltip_manager = TooltipManager.instance()
         
-        self.status_updates = defaultdict(int)
+        self.status_updates = {}
         self.status_update_timer = QTimer()
         self.status_update_timer.setSingleShot(True)
         self.status_update_timer.timeout.connect(self.log_status_updates)
@@ -2087,11 +2427,16 @@ class SteamWorkshopDownloader(QWidget):
         self.log_signal.connect(self.append_log)
         self.update_queue_signal.connect(self.update_queue_status)
 
-        window_size = self.config.get('window_size')
-        if window_size:
-            self.resize(window_size.get('width', 670), window_size.get('height', 750))
-        else:
+        if self.config.get('reset_window_size_on_startup', True):
             self.resize(670, 750)
+        else:
+            window_size = self.config.get('window_size')
+            if window_size:
+                self.resize(window_size.get('width', 670), window_size.get('height', 750))
+            else:
+                self.resize(670, 750)
+                
+        self.debug_manager.update_settings(self.config)
 
     def initUI(self):
         self.setWindowTitle('Streamline')
@@ -2102,6 +2447,8 @@ class SteamWorkshopDownloader(QWidget):
         else:
             self.main_layout.setContentsMargins(6, 6, 6, 6)
             self.main_layout.setSpacing(6)
+            
+        self.current_filter = "All"
 
         self.menu_bar = QMenuBar()
         self.menu_bar.setObjectName("menuBar")
@@ -2110,6 +2457,8 @@ class SteamWorkshopDownloader(QWidget):
         self.appearance_menu = self.menu_bar.addMenu("Appearance")
         self.tools_menu = self.menu_bar.addMenu("Tools")
         self.help_menu = self.menu_bar.addMenu("Help")
+        
+        self.create_debug_menu()
 
         self.theme_submenu = QMenu("Theme", self)
         self.appearance_menu.addMenu(self.theme_submenu)
@@ -2174,10 +2523,6 @@ class SteamWorkshopDownloader(QWidget):
         self.show_logs_act.setChecked(self.config["show_logs"])
         self.show_logs_act.triggered.connect(lambda checked: self.toggle_config("show_logs", checked))
 
-        self.show_workshop_btn_act = QAction("Queue Entire Workshop Button", self, checkable=True)
-        self.show_workshop_btn_act.setChecked(self.config["show_queue_entire_workshop"])
-        self.show_workshop_btn_act.triggered.connect(lambda checked: self.toggle_config("show_queue_entire_workshop", checked))
-
         self.show_provider_act = QAction("Provider Dropdown", self, checkable=True)
         self.show_provider_act.setChecked(self.config["show_provider"])
         self.show_provider_act.triggered.connect(lambda checked: self.toggle_config("show_provider", checked))
@@ -2199,7 +2544,6 @@ class SteamWorkshopDownloader(QWidget):
         self.show_submenu.addAction(self.show_import_export_act)
         self.show_submenu.addAction(self.show_sort_act)
         self.show_submenu.addAction(self.show_logs_act)
-        self.show_submenu.addAction(self.show_workshop_btn_act)
         self.show_submenu.addAction(self.show_provider_act)
 
         self.auto_detect_urls_act = QAction("Auto-detect URLs from Clipboard", self, checkable=True)
@@ -2224,6 +2568,11 @@ class SteamWorkshopDownloader(QWidget):
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about_dialog)
         self.help_menu.addAction(about_action)
+        
+        self.help_menu.addSeparator()
+        self.show_tutorial_action = QAction("Show Tutorial", self)
+        self.show_tutorial_action.triggered.connect(self.show_tutorial)
+        self.help_menu.addAction(self.show_tutorial_action)
 
         top_layout = QHBoxLayout()
         settings_icon = QIcon(resource_path('Files/settings.png'))
@@ -2266,13 +2615,20 @@ class SteamWorkshopDownloader(QWidget):
         mod_layout = QHBoxLayout()
         self.workshop_input = QLineEdit()
         set_custom_clear_icon(self.workshop_input)
-        self.workshop_input.setPlaceholderText('Enter Workshop Mod or Collection URL / ID')
+        self.workshop_input.setPlaceholderText('Enter Game, Mod, Collection URL or ID')
         self.download_btn = QPushButton('Download')
         self.download_btn.setFixedWidth(90)
         self.download_btn.clicked.connect(self.download_workshop_immediately)
         self.add_to_queue_btn = QPushButton('Add to Queue')
         self.add_to_queue_btn.setFixedWidth(90)
         self.add_to_queue_btn.clicked.connect(self.add_workshop_to_queue)
+        self.help_action = self.workshop_input.addAction(QIcon(resource_path("Files/info.png")), QLineEdit.LeadingPosition)
+        self.workshop_help_tooltip = Tooltip()
+        QTimer.singleShot(0, lambda: self.setup_workshop_tooltip())
+
+        self.workshop_input.returnPressed.connect(self.add_workshop_to_queue)
+        self.help_action.triggered.connect(self.show_workshop_help_tooltip)
+        
         mod_layout.addWidget(self.workshop_input)
         mod_layout.addWidget(self.download_btn)
         mod_layout.addWidget(self.add_to_queue_btn)
@@ -2288,9 +2644,53 @@ class SteamWorkshopDownloader(QWidget):
         self.search_input.textChanged.connect(self.on_search_text_changed)
         queue_layout.addWidget(self.search_input)
 
+        self.filter_action = self.search_input.addAction(QIcon(resource_path("Files/filter_queue_status.png")), QLineEdit.LeadingPosition)
+
+        self.filter_menu = QMenu()
+
+        self.show_all_action = QAction("All Mods", self)
+        self.show_all_action.setCheckable(True)
+        self.show_all_action.setChecked(True)
+        self.show_all_action.triggered.connect(lambda: self.filter_queue_by_status("All"))
+
+        self.show_queued_action = QAction("Mods Queued", self)
+        self.show_queued_action.setCheckable(True)
+        self.show_queued_action.triggered.connect(lambda: self.filter_queue_by_status("Queued"))
+
+        self.show_downloaded_action = QAction("Downloaded", self)
+        self.show_downloaded_action.setCheckable(True)
+        self.show_downloaded_action.triggered.connect(lambda: self.filter_queue_by_status("Downloaded"))
+        
+        self.show_failed_action = QAction("Failed", self)
+        self.show_failed_action.setCheckable(True)
+        self.show_failed_action.triggered.connect(lambda: self.filter_queue_by_status("Failed"))
+
+        self.filter_action_group = QActionGroup(self)
+        self.filter_action_group.addAction(self.show_all_action)
+        self.filter_action_group.addAction(self.show_queued_action)
+        self.filter_action_group.addAction(self.show_downloaded_action)
+        self.filter_action_group.addAction(self.show_failed_action)
+        self.filter_action_group.setExclusive(True)
+
+        self.filter_menu.addAction(self.show_all_action)
+        self.filter_menu.addAction(self.show_queued_action)
+        self.filter_menu.addAction(self.show_downloaded_action)
+        self.filter_menu.addAction(self.show_failed_action)
+
+        self.filter_tooltip = FilterTooltip(self)
+        self.filter_tooltip.setup(self.filter_action, self.filter_menu)
+
+        self.filter_action.triggered.disconnect()
+        self.filter_action.triggered.connect(self.filter_tooltip.show_filter_menu)
+
+        self.update_filter_tooltip()
+
         self.caseButton = QToolButton()
         self.caseButton.setCheckable(True)
-        self.caseButton.setToolTip("Case sensitivity")
+        self.case_tooltip = Tooltip(self.caseButton, "Case sensitivity")
+        self.case_tooltip.setPlacement(TooltipPlacement.BOTTOM)
+        self.case_tooltip.setShowDelay(500)
+        self.case_tooltip.setHideDelay(100)
         self.caseButton.setIcon(QIcon(resource_path("Files/case_disabled.png")))
         self.caseButton.setIconSize(QSize(16, 16))
         self.caseButton.setStyleSheet("QToolButton { border: none; }")
@@ -2299,7 +2699,10 @@ class SteamWorkshopDownloader(QWidget):
 
         self.regexButton = QToolButton()
         self.regexButton.setCheckable(True)
-        self.regexButton.setToolTip("Regex")
+        self.regex_tooltip = Tooltip(self.regexButton, "Regex")
+        self.regex_tooltip.setPlacement(TooltipPlacement.BOTTOM)
+        self.regex_tooltip.setShowDelay(500)
+        self.regex_tooltip.setHideDelay(100)
         self.regexButton.setIcon(QIcon(resource_path("Files/regex_disabled.png")))
         self.regexButton.setIconSize(QSize(16, 16))
         self.regexButton.setStyleSheet("QToolButton { border: none; }")
@@ -2318,17 +2721,25 @@ class SteamWorkshopDownloader(QWidget):
         self.import_queue_btn = QPushButton()
         self.import_queue_btn.setIcon(QIcon(resource_path('Files/import.png')))
         self.import_queue_btn.setIconSize(QSize(20, 20))
-        self.import_queue_btn.setToolTip('Import Queue')
         self.import_queue_btn.clicked.connect(self.import_queue)
         self.import_queue_btn.setFixedSize(32, 32)
-
+        
         self.export_queue_btn = QPushButton()
         self.export_queue_btn.setIcon(QIcon(resource_path('Files/export.png')))
         self.export_queue_btn.setIconSize(QSize(20, 20))
-        self.export_queue_btn.setToolTip('Export Queue')
         self.export_queue_btn.clicked.connect(self.export_queue)
-        self.export_queue_btn.setEnabled(False)
+        self.export_queue_btn.setEnabled(True)
         self.export_queue_btn.setFixedSize(32, 32)
+
+        self.import_tooltip = Tooltip(self.import_queue_btn, "Import Queue")
+        self.import_tooltip.setPlacement(TooltipPlacement.BOTTOM)
+        self.import_tooltip.setShowDelay(300)
+        self.import_tooltip.setHideDelay(50)
+        
+        self.export_tooltip = Tooltip(self.export_queue_btn, "Export Queue")
+        self.export_tooltip.setPlacement(TooltipPlacement.BOTTOM)
+        self.export_tooltip.setShowDelay(300)
+        self.export_tooltip.setHideDelay(50)
 
         hbox.addWidget(self.import_queue_btn)
         hbox.addWidget(self.export_queue_btn)
@@ -2345,7 +2756,10 @@ class SteamWorkshopDownloader(QWidget):
         self.queue_tree = CustomizableTreeWidgets()
         self.queue_tree.setSelectionBehavior(QTreeWidget.SelectRows)
         self.queue_tree.setEditTriggers(QTreeWidget.NoEditTriggers)
-        self.queue_tree.setItemDelegate(NoFocusDelegate(self.queue_tree))
+        if self.config.get("show_row_numbers", True):
+            self.queue_tree.setItemDelegate(RowNumberDelegate(self.queue_tree))
+        else:
+            self.queue_tree.setItemDelegate(NoFocusDelegate(self.queue_tree))
         self.queue_tree.setRootIsDecorated(False)
         self.queue_tree.setUniformRowHeights(True)
         self.queue_tree.setExpandsOnDoubleClick(False)
@@ -2385,13 +2799,22 @@ class SteamWorkshopDownloader(QWidget):
         self.main_layout.addWidget(self.queue_tree, stretch=3)
 
         button_layout = QHBoxLayout()
-        self.download_start_btn = QPushButton('Start Download')
-        self.download_start_btn.clicked.connect(self.start_download)
-        button_layout.addWidget(self.download_start_btn)
-
         self.open_folder_btn = QPushButton('Open Downloads Folder')
         self.open_folder_btn.clicked.connect(self.open_downloads_folder)
         button_layout.addWidget(self.open_folder_btn)
+
+        self.download_start_btn = QPushButton("Start Download")
+        self.download_start_btn.setStyleSheet("font-weight: bold;")
+        self.download_start_btn.clicked.connect(self.start_download)
+        self.download_start_btn.setFixedWidth(325)
+        button_layout.addWidget(self.download_start_btn)
+        
+        self.provider_dropdown = ProviderComboBox(prefix="Provider:")
+        self.provider_dropdown.addItems(['Default', 'SteamCMD', 'SteamWebAPI'])
+        self.provider_dropdown.currentIndexChanged.connect(self.on_provider_changed)
+        self.provider_dropdown.setMinimumWidth(150)
+        button_layout.addWidget(self.provider_dropdown)
+        
         self.main_layout.addLayout(button_layout)
 
         self.log_area = QTextEdit()
@@ -2402,27 +2825,15 @@ class SteamWorkshopDownloader(QWidget):
         self.log_area.setPlaceholderText("Logs")
         self.main_layout.addWidget(self.log_area, stretch=1)
 
-        self.provider_layout = QHBoxLayout()
-        self.queue_entire_workshop_btn = QPushButton("Queue Entire Workshop")
-        self.queue_entire_workshop_btn.setFixedWidth(145)
-        self.queue_entire_workshop_btn.clicked.connect(self.open_queue_entire_workshop_dialog)
-        self.provider_layout.addWidget(self.queue_entire_workshop_btn)
-
-        self.provider_layout.addStretch()
-        self.provider_label = QLabel('Download Provider:')
-        self.provider_layout.addWidget(self.provider_label)
-        self.provider_dropdown = QComboBox()
-        self.provider_dropdown.addItems(['Default', 'SteamCMD', 'SteamWebAPI'])
-        self.provider_dropdown.currentIndexChanged.connect(self.on_provider_changed)
-        self.provider_layout.addWidget(self.provider_dropdown)
-        self.main_layout.addLayout(self.provider_layout)
+        stored_provider = self.config.get("download_provider", "Default")
+        self.provider_dropdown.setCurrentText(stored_provider)
 
         apply_theme_titlebar(self, self.config)
         self.setLayout(self.main_layout)
         
     def adjust_widget_heights(self):
         button_height = 28
-        dropdown_height = 27
+        dropdown_height = 28
     
         for attr_name in dir(self):
             attr = getattr(self, attr_name)
@@ -2431,6 +2842,33 @@ class SteamWorkshopDownloader(QWidget):
                     attr.setFixedHeight(button_height)
             elif isinstance(attr, QComboBox) and "_dropdown" in attr_name:
                 attr.setFixedHeight(dropdown_height)
+                
+    def show_workshop_help_tooltip(self, position=None):
+        msg_box = ThemedMessageBox(self)
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setWindowTitle("Workshop URL/ID Help")
+        msg_box.setText("Workshop Input Formats:\n\n" +
+                        "• Game AppID (e.g., 108600) or Store URL: Queue all mods for a game\n" +
+                        "• Mod URL/ID: Queue a specific workshop mod\n" +
+                        "• Collection URL/ID: Queue all mods in a collection\n\n" + 
+                        "You can paste Steam URLs directly from your browser.\n" +
+                        "URLs are auto-detected from clipboard if enabled in settings.")
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.setDefaultButton(QMessageBox.Ok)
+        apply_theme_titlebar(msg_box, self.config)
+        msg_box.exec()
+        
+    def setup_workshop_tooltip(self):
+        tooltip_text = ("• Game AppID or URL: Queue entire workshop\n" +
+                        "• Mod ID or URL: Queue specific mod\n" +
+                        "• Collection ID or URL: Queue entire collection")
+
+        success = self.workshop_help_tooltip.setup_for_action(self.help_action, tooltip_text)
+        
+        if success:
+            self.workshop_help_tooltip.setPlacement(TooltipPlacement.LEFT)
+            self.workshop_help_tooltip.setShowDelay(300)
+            self.workshop_help_tooltip.setHideDelay(50)
                 
     def sort_column_indicator(self, index):
         if self.config.get('show_sort_indicator', False):
@@ -2442,7 +2880,7 @@ class SteamWorkshopDownloader(QWidget):
         case_sensitive = self.caseButton.isChecked()
         
         # If regex is enabled, try to compile the pattern
-        if regex_enabled:
+        if regex_enabled and text:
             try:
                 flags = 0 if case_sensitive else re.IGNORECASE
                 pattern = re.compile(text, flags)
@@ -2452,65 +2890,81 @@ class SteamWorkshopDownloader(QWidget):
             # For non-regex searches, adjust the text if not case sensitive
             if not case_sensitive:
                 text = text.lower()
-    
+        
         for i in range(self.queue_tree.topLevelItemCount()):
             item = self.queue_tree.topLevelItem(i)
             mod_id = item.text(1)
             mod_name = item.text(2)
+            item_status = item.text(3)
             
-            if regex_enabled and pattern:
-                if pattern.search(mod_id) or pattern.search(mod_name):
-                    item.setHidden(False)
+            # First check if status matches the current filter
+            status_match = (self.current_filter == "All" or 
+                           (self.current_filter == "Queued" and item_status == "Queued") or
+                           (self.current_filter == "Downloaded" and item_status == "Downloaded") or
+                           (self.current_filter == "Failed" and "Failed" in item_status))
+            
+            # If status doesn't match, hide the item
+            if not status_match:
+                item.setHidden(True)
+                continue
+            
+            # Then check if text matches (if search text exists)
+            if text:
+                if regex_enabled and pattern:
+                    text_match = bool(pattern.search(mod_id) or pattern.search(mod_name))
                 else:
-                    item.setHidden(True)
+                    if not case_sensitive:
+                        mod_id_lower = mod_id.lower()
+                        mod_name_lower = mod_name.lower()
+                        text_match = text in mod_id_lower or text in mod_name_lower
+                    else:
+                        text_match = text in mod_id or text in mod_name
+                
+                item.setHidden(not text_match)
             else:
-                if not case_sensitive:
-                    mod_id = mod_id.lower()
-                    mod_name = mod_name.lower()
-                if text in mod_id or text in mod_name:
-                    item.setHidden(False)
-                else:
-                    item.setHidden(True)
+                # No search text, show all items that match the status filter
+                item.setHidden(False)
                 
     def update_queue_count(self):
         total_count = len(self.download_queue)
-        self.search_input.setPlaceholderText(f"Mods in Queue: {total_count}     /     Search by Mod ID or Name")
-                
-    def open_queue_entire_workshop_dialog(self):
-        dialog = QueueEntireWorkshopDialog(self)
-        if dialog.exec() == QDialog.Accepted:
-            user_input = dialog.get_input()
-            if not user_input:
-                ThemedMessageBox.warning(self, 'Input Error', 'Please enter an AppID or a related URL.')
-                return
-            appid = self.extract_appid(user_input)
-            if not appid:
-                ThemedMessageBox.warning(self, 'Input Error', 'Could not parse an AppID from the given input.')
-                return
-            self.log_signal.emit(f"Starting to queue entire workshop for AppID: '{appid}'")
-
-            self.queue_entire_workshop_btn.setEnabled(False)
-
-            self.workshop_scraper = WorkshopScraperWorker(appid, self.app_ids, queue_entire_workshop_btn=self.queue_entire_workshop_btn)
-
-            self.workshop_scraper.log_signal.connect(self.append_log)
-            self.workshop_scraper.finished_scraping.connect(self.on_entire_workshop_fetched)
-            self.workshop_scraper.start()
+        
+        if not hasattr(self, 'current_filter') or self.current_filter == "All":
+            placeholder = f"Mods in Queue: {total_count}     /     Search by Mod ID or Name"
+        elif self.current_filter == "Queued":
+            queued_count = sum(1 for mod in self.download_queue if mod['status'] == 'Queued')
+            placeholder = f"Queued Mods: {queued_count} / {total_count}     /     Search by Mod ID or Name"
+        elif self.current_filter == "Downloaded":
+            downloaded_count = sum(1 for mod in self.download_queue if mod['status'] == 'Downloaded')
+            placeholder = f"Downloaded Mods: {downloaded_count} / {total_count}     /     Search by Mod ID or Name"
+        elif self.current_filter == "Failed":
+            failed_count = sum(1 for mod in self.download_queue if 'Failed' in mod['status'])
+            placeholder = f"Failed Mods: {failed_count} / {total_count}     /     Search by Mod ID or Name"
+        
+        self.search_input.setPlaceholderText(placeholder)
+        
+        if hasattr(self, 'filter_action'):
+            self.update_filter_tooltip()
+            
+    def on_entire_workshop_fetched_with_download(self, game_name, mods):
+        self.on_entire_workshop_fetched(game_name, mods)
+        if mods:
+            QTimer.singleShot(500, self.start_download)
 
     def on_entire_workshop_fetched(self, game_name, mods):
         if not mods:
             self.log_signal.emit("No mods found or failed to scrape.")
             return
-    
+        
         appid = self.workshop_scraper.appid
         
         # Determine the provider once we know the app_id
         provider = self.get_provider_for_mod({'app_id': appid})
-
+    
         self.log_signal.emit(f"Adding {len(mods)} mods from '{game_name}' (AppID: {appid}) to the queue...")
-
+    
         self.queue_progress_last_update = 0  # To avoid too frequent updates
-
+        self.queue_insertion_finished = False
+    
         self.queue_insertion_worker = QueueInsertionWorker(
             mods=mods,
             game_name=game_name,
@@ -2545,9 +2999,15 @@ class SteamWorkshopDownloader(QWidget):
 
     @Slot()
     def on_queue_insertion_finished(self):
+        if hasattr(self, 'queue_insertion_finished') and self.queue_insertion_finished:
+            return
+
+        self.queue_insertion_finished = True
+        
         # Called when the worker has finished inserting all batches
         total_count = len(self.download_queue)
         self.log_signal.emit(f"Workshop queuing complete: {total_count} total mods in queue")
+        
         # Reset progress tracking
         self.queue_progress_last_update = 0
 
@@ -2576,9 +3036,15 @@ class SteamWorkshopDownloader(QWidget):
 
     def open_header_context_menu(self, position: QPoint):
         menu = QMenu()
-    
+        
+        row_numbers_action = QAction("Row Numbers", self)
+        row_numbers_action.setCheckable(True)
+        row_numbers_action.setChecked(not self.config.get("show_row_numbers", True))
+        row_numbers_action.toggled.connect(self.toggle_row_numbers)
+
         # Submenu for hiding columns
         hide_submenu = menu.addMenu("Hide")
+        hide_submenu.addAction(row_numbers_action)
         for column in range(self.queue_tree.columnCount()):
             column_name = self.queue_tree.headerItem().text(column)
             action = QAction(f"{column_name}", self)
@@ -2586,7 +3052,7 @@ class SteamWorkshopDownloader(QWidget):
             action.setChecked(self.queue_tree.header().isSectionHidden(column))
             action.toggled.connect(lambda checked, col=column: self.toggle_column_visibility(col, checked))
             hide_submenu.addAction(action)
-            
+
         self.reset_action = QAction("Reset", self)
         self.reset_action.setEnabled(not self.header_locked)
         self.reset_action.triggered.connect(self.reset_header_layout)
@@ -2601,6 +3067,19 @@ class SteamWorkshopDownloader(QWidget):
         menu.addAction(self.lock_action)
     
         menu.exec(self.queue_tree.header().viewport().mapToGlobal(position))
+        
+    def toggle_row_numbers(self, hide):
+        self.config["show_row_numbers"] = (not hide)
+        self.save_config()
+    
+        if hide:
+            # Hide them
+            self.queue_tree.setItemDelegate(NoFocusDelegate(self.queue_tree))
+        else:
+            # Show them
+            self.queue_tree.setItemDelegate(RowNumberDelegate(self.queue_tree))
+    
+        self.queue_tree.viewport().update()
         
     def reset_header_layout(self):
         default_widths = DEFAULT_SETTINGS["queue_tree_default_widths"]
@@ -2749,6 +3228,12 @@ class SteamWorkshopDownloader(QWidget):
             self.log_signal.emit(f"Error saving config.json: {e}")
              
     def closeEvent(self, event):
+        if hasattr(self, 'log_viewer') and self.log_viewer:
+            self.log_viewer.close()
+    
+        if hasattr(self, 'tooltip_manager'):
+            self.tooltip_manager.hide_all_tooltips()
+        
         if self.is_downloading:
             reply = ThemedMessageBox.question(
                 self,
@@ -2767,29 +3252,27 @@ class SteamWorkshopDownloader(QWidget):
                 return
         else:
             event.accept()
-    
-        # Save window size before closing
-        self.config['window_size'] = {'width': self.width(), 'height': self.height()}
-    
-        # Safely retrieve or initialize column_widths as a list
+
+        if not self.config.get('reset_window_size_on_startup', True):
+            self.config['window_size'] = {'width': self.width(), 'height': self.height()}
+        elif 'window_size' in self.config:
+            del self.config['window_size']
+
         column_widths = self.config.get('queue_tree_column_widths')
         if not column_widths:
-            # If None (or empty), build a new list from current widths
             column_widths = [self.queue_tree.columnWidth(i) for i in range(self.queue_tree.columnCount())]
-    
-        # Only save widths for visible columns
+
         for i in range(self.queue_tree.columnCount()):
             if not self.queue_tree.isColumnHidden(i):
                 column_widths[i] = self.queue_tree.columnWidth(i)
-    
+
         self.config['queue_tree_column_widths'] = column_widths
-    
-        # Save column hidden states
+
         column_hidden = [self.queue_tree.isColumnHidden(i) for i in range(self.queue_tree.columnCount())]
         self.config['queue_tree_column_hidden'] = column_hidden
-    
+
         self.save_config()
-        
+
     async def fetch_game_name(self, app_id: str, log_signal=None):
         base_url = "https://steamcommunity.com/workshop/browse/"
         params = {"appid": str(app_id), "p": "1"}
@@ -2930,10 +3413,11 @@ class SteamWorkshopDownloader(QWidget):
         self.import_export_container.setVisible(self.config["show_export_import_buttons"])
         self.import_export_spacer.setVisible(self.config["show_export_import_buttons"])
         self.log_area.setVisible(self.config["show_logs"])
-        self.provider_label.setVisible(self.config["show_provider"])
         self.provider_dropdown.setVisible(self.config["show_provider"])
-        self.queue_entire_workshop_btn.setVisible(self.config["show_queue_entire_workshop"])
         self.menu_bar.setVisible(self.config["show_menu_bar"])
+        
+        if hasattr(self, 'debug_menu_action') and self.debug_menu_action:
+            self.debug_menu_action.setVisible(self.config.get("debug_enabled", False))
         
         if self.config.get("show_menu_bar", True):
             self.main_layout.setContentsMargins(6, 0, 6, 6)
@@ -2974,7 +3458,6 @@ class SteamWorkshopDownloader(QWidget):
         self.show_import_export_act.setChecked(self.config["show_export_import_buttons"])
         self.show_sort_act.setChecked(self.config["show_sort_indicator"])
         self.show_logs_act.setChecked(self.config["show_logs"])
-        self.show_workshop_btn_act.setChecked(self.config["show_queue_entire_workshop"])
         self.show_provider_act.setChecked(self.config["show_provider"])
 
     def open_settings(self):
@@ -2984,6 +3467,9 @@ class SteamWorkshopDownloader(QWidget):
     
             self.config.update(new_settings)
             self.save_config()
+            
+            if hasattr(self, 'debug_manager'):
+                self.debug_manager.update_settings(self.config)
     
             selected_theme = new_settings.get('current_theme', 'Dark')
             load_theme(QApplication.instance(), selected_theme, self.files_dir)
@@ -3077,30 +3563,74 @@ class SteamWorkshopDownloader(QWidget):
     def on_item_error(self, error_message):
         ThemedMessageBox.critical(self, 'Error', error_message)
         self.log_signal.emit(error_message)
+        
+    def detect_input_type(self, input_text):
+        # Check if it's a store.steampowered.com URL
+        if 'store.steampowered.com/app/' in input_text:
+            app_id = self.extract_appid(input_text)
+            if app_id:
+                return ('game', app_id)
+                
+        # Check if it's a workshop URL
+        if 'steamcommunity.com/sharedfiles/filedetails/' in input_text:
+            item_id = self.extract_id(input_text)
+            if item_id:
+                return ('workshop_item', item_id)
+                
+        # If it's just a number, check against known AppIDs
+        if input_text.isdigit():
+            if input_text in self.app_ids:
+                return ('game', input_text)
+            else:
+                # Assume it's a workshop item if not a known AppID
+                return ('workshop_item', input_text)
+                
+        # Try to extract an AppID or item ID from other formats
+        app_id = self.extract_appid(input_text)
+        if app_id and app_id in self.app_ids:
+            return ('game', app_id)
+            
+        item_id = self.extract_id(input_text)
+        if item_id:
+            return ('workshop_item', item_id)
+            
+        return (None, None)
 
     def add_workshop_to_queue(self):
         input_text = self.workshop_input.text().strip()
         if not input_text:
-            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL or ID.')
+            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL/ID or Game AppID.')
             return
     
-        workshop_id = self.extract_id(input_text)
-        if not workshop_id:
-            ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
+        input_type, item_id = self.detect_input_type(input_text)
+        
+        if input_type is None or item_id is None:
+            ThemedMessageBox.warning(self, 'Input Error', 'Invalid input. Please enter a valid Workshop URL/ID or Game AppID.')
             return
-    
-        # Disable the button while processing
+            
+        if input_type == 'game':
+            # Game AppID
+            game_name = self.app_ids.get(item_id, f"AppID {item_id}")
+            self.log_signal.emit(f"Starting to queue entire workshop for {game_name} (AppID: {item_id})")
+            self.workshop_scraper = WorkshopScraperWorker(item_id, self.app_ids)
+            self.workshop_scraper.log_signal.connect(self.append_log)
+            self.workshop_scraper.finished_scraping.connect(self.on_entire_workshop_fetched)
+            self.workshop_scraper.start()
+            self.workshop_input.clear()
+            return
+            
+        # If we get here, it's a mod or a collection
         self.add_to_queue_btn.setEnabled(False)
-    
+        
         existing_ids = [mod['mod_id'] for mod in self.download_queue]
-        item_fetcher = ItemFetcher(item_id=workshop_id, existing_mod_ids=existing_ids)
-        # Connect signals to a unified handler:
+        item_fetcher = ItemFetcher(item_id=item_id, existing_mod_ids=existing_ids)
+
         item_fetcher.mod_or_collection_detected.connect(self.on_workshop_item_detected)
         item_fetcher.item_processed.connect(self.on_item_processed)
         item_fetcher.error_occurred.connect(self.on_item_error)
         item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
         item_fetcher.start()
-        self.log_signal.emit(f"Processing input {workshop_id}...")
+        self.log_signal.emit(f"Processing workshop item {item_id}...")
         
     def on_workshop_item_detected(self, is_collection, item_id):
         if is_collection:
@@ -3306,54 +3836,80 @@ class SteamWorkshopDownloader(QWidget):
 
     def cancel_download(self):
         self.canceled = True
-        if self.current_process and self.current_process.poll() is None:
-            self.current_process.terminate()
-            self.log_signal.emit("Download process terminated by user.")
-    
-        for mod in self.download_queue:
-            if mod['status'] == 'Downloading' or mod['status'] == 'Downloaded':
-                mod['status'] = 'Queued'
-                self.update_queue_signal.emit(mod['mod_id'], 'Queued')
-    
-        # remove downloaded mods
-        self.remove_all_downloaded_mods()
-        
-        # Remove .acf files
-        self.remove_appworkshop_acf_files()
-    
+
+        delete_downloads = self.config.get("delete_downloads_on_cancel", False)
+
+        if delete_downloads:
+
+            if self.current_process and self.current_process.poll() is None:
+                self.current_process.terminate()
+                self.log_signal.emit("Download process terminated by user.")
+
+                self.log_signal.emit("Waiting for files to be released...")
+                time.sleep(2)
+
+            for mod in self.download_queue:
+                if mod['status'] in ['Downloading', 'Downloaded']:
+                    mod['status'] = 'Queued'
+                    self.update_queue_signal.emit(mod['mod_id'], 'Queued')
+
+            self.log_signal.emit("Removing downloaded mods due to cancellation...")
+            self.remove_all_downloaded_mods()
+
+            # Cleanup .acf files
+            self.remove_appworkshop_acf_files()
+
+            if not self.config.get("keep_downloaded_in_queue", False):
+                downloaded_mods = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
+                for mod in downloaded_mods:
+                    self.remove_mod_from_queue(mod['mod_id'])
+        else:
+            self.cancellation_pending = True
+            self.log_signal.emit("Cancellation requested. Waiting for current batch to complete...")
+
         self.is_downloading = False
         self.download_start_btn.setText('Start Download')
         self.download_start_btn.setEnabled(True)
+        
+        if delete_downloads:
+            self.log_signal.emit("Cancellation completed.")
+        else:
+            self.download_start_btn.setText('Canceling...')
+            self.download_start_btn.setEnabled(False)
 
     def download_worker(self):
         batch_size = self.config["batch_size"]
         keep_downloaded = self.config["keep_downloaded_in_queue"]
-    
+
+        self.cancellation_pending = False
+
         while self.is_downloading:
             queued_mods = [mod for mod in self.download_queue if mod['status'] == 'Queued']
             if not queued_mods:
                 break
 
-            if self.canceled:
-                return
+            if self.canceled and not self.cancellation_pending:
+                break
 
             # Separate mods by provider
             steamcmd_mods = [mod for mod in queued_mods if mod['provider'] == 'SteamCMD'][:batch_size]
             webapi_mods = [mod for mod in queued_mods if mod['provider'] == 'SteamWebAPI'][:batch_size]
 
             # Process SteamCMD mods
-            if steamcmd_mods:
+            if steamcmd_mods and not self.cancellation_pending:
                 self.log_signal.emit(f"Starting SteamCMD download of {len(steamcmd_mods)} mod(s).")
                 self.download_mods_steamcmd(steamcmd_mods)
-
-            # process SteamWebAPI mods
-            if webapi_mods:
+            # Process SteamWebAPI mods
+            if webapi_mods and not self.cancellation_pending:
                 self.log_signal.emit(f"Starting SteamWebAPI download of {len(webapi_mods)} mod(s).")
 
                 successful_count = 0
                 failed_count = 0
 
                 for mod in webapi_mods:
+                    if self.cancellation_pending:
+                        break
+
                     mod_id = mod['mod_id']
                     mod['status'] = 'Downloading'
                     self.update_queue_signal.emit(mod_id, 'Downloading')
@@ -3373,7 +3929,7 @@ class SteamWorkshopDownloader(QWidget):
                             mod['status'] = 'Failed'
                             self.update_queue_signal.emit(mod_id, 'Failed')
                             failed_count += 1
-
+    
                 summary_parts = []
                 if successful_count > 0:
                     summary_parts.append(f"{successful_count} mod(s) downloaded successfully")
@@ -3382,7 +3938,12 @@ class SteamWorkshopDownloader(QWidget):
                     
                 if summary_parts:
                     self.log_signal.emit(f"SteamWebAPI batch completed: {', '.join(summary_parts)}")
-    
+
+            if self.cancellation_pending:
+                self.log_signal.emit("Current batch completed. Processing cancellation...")
+                self.handle_cancellation()
+                break
+                
             # Remove all mods that have the status "Downloaded" if the setting is not enabled
             if not keep_downloaded:
                 mods_to_remove = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
@@ -3392,24 +3953,80 @@ class SteamWorkshopDownloader(QWidget):
         # Ensure all remaining mods are moved
         if not self.canceled:
             self.move_all_downloaded_mods()
-        
-        # Cleanup .acf files
-        self.remove_appworkshop_acf_files()
-    
-        # End the download process
-        self.log_signal.emit("All downloads have been processed.")
-        self.is_downloading = False
+            
+            # Cleanup .acf files 
+            self.remove_appworkshop_acf_files()
+
+            self.log_signal.emit("All downloads have been processed.")
+            self.is_downloading = False
+            self.download_start_btn.setText('Start Download')
+            self.download_start_btn.setEnabled(True)
+
+    def handle_cancellation(self):
+        delete_downloads = self.config.get("delete_downloads_on_cancel", False)
+        keep_downloaded_in_queue = self.config.get("keep_downloaded_in_queue", False)
+
+        status_updates = []
+
+        workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
+        if os.path.exists(workshop_content_path):
+            for app_id in os.listdir(workshop_content_path):
+                app_path = os.path.join(workshop_content_path, app_id)
+                if os.path.isdir(app_path):
+                    for mod_id in os.listdir(app_path):
+                        mod_path = os.path.join(app_path, mod_id)
+                        if os.path.isdir(mod_path):
+                            mod = next((m for m in self.download_queue if m['mod_id'] == mod_id), None)
+                            if mod and (mod['status'] == 'Downloading' or 'Failed' in mod['status']):
+                                mod['status'] = 'Downloaded'
+                                status_updates.append((mod_id, 'Downloaded'))
+                                self.downloaded_mods_info[mod_id] = mod.get('mod_name', mod_id)
+
+        for mod in self.download_queue:
+            if mod['status'] == 'Downloading':
+                mod['status'] = 'Queued'
+                status_updates.append((mod['mod_id'], 'Queued'))
+
+        for mod_id, status in status_updates:
+            self.update_queue_signal.emit(mod_id, status)
+
+        if delete_downloads:
+            self.log_signal.emit("Removing downloaded mods due to cancellation...")
+            self.remove_all_downloaded_mods()
+        else:
+            self.log_signal.emit("Keeping downloaded mods and moving them to Downloads folder...")
+            self.move_all_downloaded_mods()
+
+        if not keep_downloaded_in_queue:
+            downloaded_mods = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
+
+            if downloaded_mods:
+                for mod in downloaded_mods:
+                    self.remove_mod_from_queue(mod['mod_id'])
+
+        self.cancellation_pending = False
+
         self.download_start_btn.setText('Start Download')
         self.download_start_btn.setEnabled(True)
-        
+        self.log_signal.emit("Cancellation completed.")
+
     def change_provider_for_mods(self, selected_items, new_provider):
+        changed = 0
         for item in selected_items:
             mod_id = item.text(1)
-            mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
-            if mod:
+            mod = next((m for m in self.download_queue
+                            if m['mod_id'] == mod_id), None)
+            if mod and mod['provider'] != new_provider:
                 mod['provider'] = new_provider
                 item.setText(4, new_provider)
-                self.log_signal.emit(f"Mod {mod_id} provider changed to {new_provider}.")
+                changed += 1
+    
+        if changed == 0:
+            return
+    
+        msg = (f"Provider changed to {new_provider} for "
+               f"{changed} mod{'s' if changed != 1 else ''}.")
+        self.log_signal.emit(msg)
         
     def download_mods_steamcmd(self, steamcmd_mods):
         # Group mods by app_id
@@ -3479,6 +4096,8 @@ class SteamWorkshopDownloader(QWidget):
 
                 important_messages = []
                 current_downloads = set()
+                
+                self.debug_manager.log_steamcmd(steamcmd_commands, None)
 
                 # Process SteamCMD output line-by-line
                 for line in self.current_process.stdout:
@@ -3537,7 +4156,6 @@ class SteamWorkshopDownloader(QWidget):
                 self.current_process.wait()
 
                 if self.canceled:
-                    self.log_signal.emit("Download canceled...")
                     return
 
                 summary_parts = []
@@ -3568,50 +4186,178 @@ class SteamWorkshopDownloader(QWidget):
 
     def download_mod_webapi(self, mod):
         mod_id = mod['mod_id']
-        mod_details = self.get_published_file_details(mod_id)
-        # Extracting file URL and details from the JSON response
+        mod_name = mod.get('mod_name', 'Unknown')
+        debug_manager = DebugManager.instance()
+
+        debug_manager.debug(f"Starting WebAPI download for mod {mod_id} ({mod_name})")
+        debug_manager.debug(f"Mod details: {mod}")
+
         try:
+            debug_manager.debug(f"Fetching published file details for mod {mod_id}")
+            mod_details = self.get_published_file_details(mod_id)
+
+            debug_manager.debug(f"Published file details response structure: {list(mod_details.keys())}")
+
+            if 'response' not in mod_details or 'publishedfiledetails' not in mod_details['response']:
+                debug_manager.error(f"Invalid response structure for mod {mod_id}: {mod_details}")
+                self.log_signal.emit(f"Error: Invalid response structure while fetching details for mod {mod_id}.")
+                return False
+
             file_details = mod_details['response']['publishedfiledetails'][0]
+            debug_manager.debug(f"File details: {list(file_details.keys())}")
+
+            # Check file URL availability
             if 'file_url' not in file_details or not file_details['file_url']:
-                raise ValueError(f"Error: File URL not available for mod {mod_id}. The file might not be downloadable or doesn't exist.")
-    
+                error_msg = f"Error: File URL not available for mod {mod_id}. The file might not be downloadable or doesn't exist."
+                debug_manager.error(error_msg)
+                debug_manager.debug(f"Available fields: {list(file_details.keys())}")
+                self.log_signal.emit(error_msg)
+                return False
+
             file_url = file_details['file_url']
+            debug_manager.debug(f"File URL: {file_url}")
+
             filename = file_details.get('filename', None)
             title = file_details.get('title', 'Unnamed Mod')
-    
+
+            debug_manager.debug(f"Original filename: {filename}, title: {title}")
+
             if filename and filename.strip():
                 filename = filename.strip()
             else:
                 # If filename is not available, use title with appropriate extension based on URL
+                debug_manager.debug(f"No valid filename provided, using title with extension")
                 filename = f"{title}.zip" if file_url.endswith('.zip') else f"{title}"
 
             # Remove illegal characters from filename
+            orig_filename = filename
             filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
 
+            if orig_filename != filename:
+                debug_manager.debug(f"Sanitized filename from '{orig_filename}' to '{filename}'")
+
+            # Get download path and prepare directories
             download_path = self.get_download_path(mod)
             file_path = os.path.join(download_path, filename)
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-            self.log_signal.emit(f"Downloading mod {mod_id} via SteamWebAPI...")
-            response = requests.get(file_url, stream=True)
-            if response.status_code == 200:
-                with open(file_path, 'wb') as file:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        file.write(chunk)
-                return True
-            else:
-                self.log_signal.emit(f"Failed to download mod {mod_id} via SteamWebAPI. HTTP Status Code: {response.status_code}")
+            debug_manager.debug(f"Download path: {download_path}")
+            debug_manager.debug(f"Full file path: {file_path}")
+            
+            # Ensure directory exists
+            try:
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                debug_manager.debug(f"Download directory confirmed: {os.path.dirname(file_path)}")
+            except Exception as e:
+                debug_manager.error(f"Failed to create download directory: {e}")
+                self.log_signal.emit(f"Failed to create download directory for mod {mod_id}: {e}")
                 return False
-        except KeyError:
-            self.log_signal.emit(f"Error: Invalid response structure while fetching details for mod {mod_id}.")
+    
+            # Start download
+            self.log_signal.emit(f"Downloading mod {mod_id} via SteamWebAPI...")
+            debug_manager.debug(f"Starting file download from {file_url}")
+            
+            try:
+                start_time = time.time()
+                response = requests.get(file_url, stream=True)
+                
+                # Log network request
+                debug_manager.log_network_request(
+                    method="GET",
+                    url=file_url,
+                    response=response
+                )
+                
+                if response.status_code == 200:
+                    debug_manager.debug(f"Download stream established successfully (status 200)")
+                    
+                    # Get content length if available
+                    content_length = response.headers.get('content-length')
+                    if content_length:
+                        debug_manager.debug(f"Content length: {content_length} bytes ({int(content_length) / 1024 / 1024:.2f} MB)")
+                    
+                    # Download the file in chunks
+                    bytes_downloaded = 0
+                    last_log_time = time.time()
+                    progress_interval = 2.0  # Log progress every 2 seconds
+                    
+                    with open(file_path, 'wb') as file:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            file.write(chunk)
+                            bytes_downloaded += len(chunk)
+                            
+                            # Log progress periodically if in verbose mode
+                            current_time = time.time()
+                            if debug_manager.verbose_output and (current_time - last_log_time) > progress_interval:
+                                if content_length:
+                                    progress = bytes_downloaded / int(content_length) * 100
+                                    debug_manager.debug(f"Download progress: {bytes_downloaded / 1024 / 1024:.2f} MB / {int(content_length) / 1024 / 1024:.2f} MB ({progress:.1f}%)")
+                                else:
+                                    debug_manager.debug(f"Download progress: {bytes_downloaded / 1024 / 1024:.2f} MB")
+                                last_log_time = current_time
+                    
+                    # Calculate and log download time and speed
+                    download_time = time.time() - start_time
+                    download_speed = bytes_downloaded / download_time if download_time > 0 else 0
+                    
+                    debug_manager.debug(f"Download completed in {download_time:.2f} seconds")
+                    debug_manager.debug(f"Total downloaded: {bytes_downloaded / 1024 / 1024:.2f} MB")
+                    debug_manager.debug(f"Average download speed: {download_speed / 1024 / 1024:.2f} MB/s")
+                    debug_manager.debug(f"File saved to: {file_path}")
+                    
+                    self.log_signal.emit(f"Successfully downloaded mod {mod_id} ({bytes_downloaded / 1024 / 1024:.1f} MB)")
+                    return True
+                else:
+                    error_msg = f"Failed to download mod {mod_id} via SteamWebAPI. HTTP Status Code: {response.status_code}"
+                    debug_manager.error(error_msg)
+                    debug_manager.debug(f"Response headers: {dict(response.headers)}")
+                    
+                    # Try to get error details from response
+                    try:
+                        error_content = response.text[:1000]  # Limit to avoid huge logs
+                        debug_manager.debug(f"Error response content: {error_content}")
+                    except:
+                        debug_manager.debug("Could not retrieve error response content")
+                    
+                    self.log_signal.emit(error_msg)
+                    return False
+                    
+            except requests.exceptions.ConnectionError as ce:
+                error_msg = f"Connection error downloading mod {mod_id}: {ce}"
+                debug_manager.error(error_msg)
+                self.log_signal.emit(error_msg)
+                return False
+                
+            except requests.exceptions.Timeout as te:
+                error_msg = f"Timeout error downloading mod {mod_id}: {te}"
+                debug_manager.error(error_msg)
+                self.log_signal.emit(error_msg)
+                return False
+                
+            except requests.exceptions.RequestException as re:
+                error_msg = f"Request error downloading mod {mod_id}: {re}"
+                debug_manager.error(error_msg)
+                self.log_signal.emit(error_msg)
+                return False
+                
+        except KeyError as ke:
+            error_msg = f"Error: Invalid response structure while fetching details for mod {mod_id}."
+            debug_manager.error(error_msg)
+            debug_manager.debug(f"KeyError details: {ke}")
+            self.log_signal.emit(error_msg)
             return False
+            
         except ValueError as ve:
-            self.log_signal.emit(str(ve))
+            error_msg = str(ve)
+            debug_manager.error(f"ValueError for mod {mod_id}: {error_msg}")
+            self.log_signal.emit(error_msg)
             return False
+            
         except Exception as e:
-            self.log_signal.emit(f"An error occurred while downloading mod {mod_id}: {e}")
+            error_msg = f"An error occurred while downloading mod {mod_id}: {e}"
+            debug_manager.exception(error_msg)
+            self.log_signal.emit(error_msg)
             return False
 
+    @debug_network_request(method="POST")
     def get_published_file_details(self, file_id):
         url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
         payload = {
@@ -3645,27 +4391,37 @@ class SteamWorkshopDownloader(QWidget):
         mod_id = mod.get('mod_id')
         if not app_id or not mod_id:
             return False
-
+    
         original_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content', app_id, mod_id)
 
-        folder_name = mod_id  # default
-        if self.config.get('use_mod_name_for_folder', False):
+        folder_naming_format = self.config.get('folder_naming_format', 'id')
+
+        if folder_naming_format == 'id':
+            # Just use the mod ID
+            folder_name = mod_id
+        else:
             # Get mod name (or fallback to mod_id)
             mod_name = mod.get('mod_name', mod_id)
             # Convert to UTF-8, ignoring characters that can't be encoded
             mod_name_utf8 = mod_name.encode('utf-8', 'ignore').decode('utf-8')
             # Replace illegal filename characters with an underscore
             safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', mod_name_utf8)
-            folder_name = safe_mod_name
-    
+
+            if folder_naming_format == 'name':
+                # Use just the mod name
+                folder_name = safe_mod_name
+            elif folder_naming_format == 'combined':
+                # Use "AppID - Mod Name" format
+                folder_name = f"{app_id} - {safe_mod_name}"
+
         target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
-    
+
         if os.path.exists(original_path):
             try:
                 if not os.path.exists(os.path.dirname(target_path)):
                     os.makedirs(os.path.dirname(target_path))
                 shutil.move(original_path, target_path)
-
+    
                 return True
             except Exception as e:
                 self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
@@ -3701,18 +4457,26 @@ class SteamWorkshopDownloader(QWidget):
             if item.text(1) == mod_id:
                 item.setText(3, status)
 
-                self.status_updates[status] += 1
+                self.status_updates[mod_id] = status
 
                 if not self.status_update_timer.isActive():
                     self.status_update_timer.start(300)
+
+                if hasattr(self, 'filter_action'):
+                    self.update_filter_tooltip()
                 break
 
     def log_status_updates(self):
         if not self.status_updates:
             return
+    
+        # Count each unique status
+        status_counts = defaultdict(int)
+        for mod_id, status in self.status_updates.items():
+            status_counts[status] += 1
 
         update_parts = []
-        for status, count in self.status_updates.items():
+        for status, count in status_counts.items():
             if count == 1:
                 update_parts.append(f"1 mod → {status}")
             else:
@@ -3732,14 +4496,29 @@ class SteamWorkshopDownloader(QWidget):
         if not self.validate_steamcmd():
             return
         if not input_text:
-            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL or ID.')
+            ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL/ID or Game AppID.')
             return
-        workshop_id = self.extract_id(input_text)
-        if not workshop_id:
-            ThemedMessageBox.warning(self, 'Input Error', 'Invalid Workshop URL or ID.')
+            
+        input_type, item_id = self.detect_input_type(input_text)
+        
+        if input_type is None or item_id is None:
+            ThemedMessageBox.warning(self, 'Input Error', 'Invalid input. Please enter a valid Workshop URL/ID or Game AppID.')
             return
+            
+        if input_type == 'game':
+            # Game AppID
+            game_name = self.app_ids.get(item_id, f"AppID {item_id}")
+            self.log_signal.emit(f"Starting to queue entire workshop for {game_name} (AppID: {item_id})")
+            self.workshop_scraper = WorkshopScraperWorker(item_id, self.app_ids)
+            self.workshop_scraper.log_signal.connect(self.append_log)
+            self.workshop_scraper.finished_scraping.connect(self.on_entire_workshop_fetched_with_download)
+            self.workshop_scraper.start()
+            self.workshop_input.clear()
+            return
+            
+        # If we get here, it's a mod or a collection
         existing_ids = [mod['mod_id'] for mod in self.download_queue]
-        item_fetcher = ItemFetcher(item_id=workshop_id, existing_mod_ids=existing_ids)
+        item_fetcher = ItemFetcher(item_id=item_id, existing_mod_ids=existing_ids)
         item_fetcher.mod_or_collection_detected.connect(self.on_workshop_item_detected)
         def immediate_processed(result):
             self.on_item_processed(result)
@@ -3749,10 +4528,11 @@ class SteamWorkshopDownloader(QWidget):
         item_fetcher.error_occurred.connect(self.on_item_error)
         item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
         item_fetcher.start()
-        self.log_signal.emit(f"Processing input {workshop_id}...")
+        self.log_signal.emit(f"Processing workshop item {item_id}...")
         
     def on_provider_changed(self):
         selected_provider = self.provider_dropdown.currentText()
+        
         if selected_provider != 'Default' and self.download_queue:
             # Check if there are mods with different providers in the queue
             mods_with_different_providers = any(mod['provider'] != selected_provider for mod in self.download_queue)
@@ -3805,6 +4585,12 @@ class SteamWorkshopDownloader(QWidget):
                     previous_provider = 'SteamCMD' if mods_with_steamcmd else 'SteamWebAPI'
                     self.provider_dropdown.setCurrentText(previous_provider)
                     self.provider_dropdown.blockSignals(False)
+                        
+        self.config["download_provider"] = selected_provider
+        self.save_config()
+
+        stored_provider = self.config.get("download_provider", "Default")
+        self.provider_dropdown.setCurrentText(stored_provider)
                     
     def reset_status_of_mods(self, selected_items):
         for item in selected_items:
@@ -3820,33 +4606,52 @@ class SteamWorkshopDownloader(QWidget):
         workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
         if not os.path.exists(workshop_content_path):
             return
-
+    
         moved_count = 0
         failed_count = 0
         app_id_stats = defaultdict(int)
-
+        status_updates = []
+    
         # Iterate over each App ID folder
         for app_id in os.listdir(workshop_content_path):
             app_path = os.path.join(workshop_content_path, app_id)
             if not os.path.isdir(app_path):
                 continue
-
+    
             # Iterate over each mod folder within the App folder
             for mod_id in os.listdir(app_path):
                 mod_path = os.path.join(app_path, mod_id)
                 if os.path.isdir(mod_path):
-                    folder_name = mod_id
-                    if self.config.get('use_mod_name_for_folder', False):
-                        safe_mod_name = self.downloaded_mods_info.get(mod_id, mod_id)
+                    if mod_id not in self.downloaded_mods_info:
+                        mod = next((m for m in self.download_queue if m['mod_id'] == mod_id), None)
+                        if mod:
+                            self.downloaded_mods_info[mod_id] = mod.get('mod_name', mod_id)
 
+                            if 'Failed' in mod['status'] or mod['status'] == 'Downloading':
+                                mod['status'] = 'Downloaded'
+                                status_updates.append((mod_id, 'Downloaded'))
+
+                    folder_naming_format = self.config.get('folder_naming_format', 'id')
+
+                    if folder_naming_format == 'id':
+                        folder_name = mod_id
+                    else:
+                        safe_mod_name = self.downloaded_mods_info.get(mod_id, mod_id)
+                        
                         # If the mod is age-restricted, always use mod_id
                         if safe_mod_name == "UNKNOWN - Age Restricted":
-                            folder_name = mod_id
+                            safe_mod_name = mod_id
                         else:
                             # Remove characters that are illegal in file/folder names
                             safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', safe_mod_name)
+                        
+                        if folder_naming_format == 'name':
+                            # Use just the mod name
                             folder_name = safe_mod_name
-    
+                        elif folder_naming_format == 'combined':
+                            # Use "AppID - Mod Name" format
+                            folder_name = f"{app_id} - {safe_mod_name}"
+        
                     target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
                     try:
                         if not os.path.exists(os.path.dirname(target_path)):
@@ -3858,7 +4663,7 @@ class SteamWorkshopDownloader(QWidget):
                         failed_count += 1
                         # Only log individual failures
                         self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
-    
+
         if moved_count > 0:
             if len(app_id_stats) == 1:
                 # Single app ID
@@ -3869,12 +4674,15 @@ class SteamWorkshopDownloader(QWidget):
                 app_details = []
                 for app_id, count in app_id_stats.items():
                     app_details.append(f"{count} to {app_id}")
-    
+
                 self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD: {', '.join(app_details)}")
-    
+
         if failed_count > 0:
             self.log_signal.emit(f"Failed to move {failed_count} mod(s)")
-        
+
+        for mod_id, status in status_updates:
+            self.update_queue_signal.emit(mod_id, status)
+
     def open_context_menu(self, position: QPoint):
         if self.is_downloading:
             return
@@ -4308,6 +5116,103 @@ class SteamWorkshopDownloader(QWidget):
         if self.config.get("show_version", True):
             base_title += f" v{current_version}"
         self.setWindowTitle(base_title)
+    
+    def filter_queue_by_status(self, status):
+        self.current_filter = status
+        self.update_queue_count()
+        self.perform_search()
+
+    def update_filter_tooltip(self):
+        if not hasattr(self, 'filter_tooltip'):
+            return
+            
+        total_count = len(self.download_queue)
+        queued_count = sum(1 for mod in self.download_queue if mod['status'] == 'Queued')
+        downloaded_count = sum(1 for mod in self.download_queue if mod['status'] == 'Downloaded')
+        failed_count = sum(1 for mod in self.download_queue if 'Failed' in mod['status'])
+        downloading_count = sum(1 for mod in self.download_queue if mod['status'] == 'Downloading')
+    
+        tooltip = f"Queue Statistics\n" \
+                  f" All Mods: {total_count}\n" \
+                  f" Queued: {queued_count}\n" \
+                  f" Downloaded: {downloaded_count}\n" \
+                  f" Failed: {failed_count}"
+    
+        if downloading_count > 0:
+            tooltip += f"\nDownloading: {downloading_count}"
+        if failed_count > 0:
+            tooltip += f"\nFailed: {failed_count}"
+    
+        self.filter_tooltip.update_tooltip_text(tooltip)
+
+    def create_debug_menu(self):
+        self.debug_menu = self.menu_bar.addMenu("Debug")
+
+        self.open_log_viewer_action = QAction("Open Log Viewer", self)
+        self.open_log_viewer_action.triggered.connect(self.open_log_viewer)
+        self.debug_menu.addAction(self.open_log_viewer_action)
+
+        self.export_log_action = QAction("Export Debug Log", self)
+        self.export_log_action.triggered.connect(self.export_debug_log)
+        self.debug_menu.addAction(self.export_log_action)
+
+        self.open_logs_folder_action = QAction("Open Logs Folder", self)
+        self.open_logs_folder_action.triggered.connect(self.open_logs_folder)
+        self.debug_menu.addAction(self.open_logs_folder_action)
+
+        self.debug_menu.addSeparator()
+
+        self.view_crashes_action = QAction("View Crash Reports", self)
+        self.view_crashes_action.triggered.connect(self.view_crash_reports)
+        self.debug_menu.addAction(self.view_crashes_action)
+        
+        self.debug_menu_action = self.debug_menu.menuAction()
+        if self.debug_menu_action:
+            self.debug_menu_action.setVisible(self.config.get("debug_enabled", False))
+        
+    def open_log_viewer(self):
+        if not hasattr(self, 'log_viewer') or not self.log_viewer:
+            self.log_viewer = LogViewerDialog(self, self.debug_manager)
+            self.log_viewer.setWindowTitle(f"Debug Log Viewer - Streamline v{current_version}")
+        self.log_viewer.show()
+        self.log_viewer.activateWindow()
+    
+    def export_debug_log(self):
+        if not self.debug_manager.current_log_file:
+            ThemedMessageBox.information(self, "No Log File", "No active debug log file found.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Debug Log", "", 
+            "Log Files (*.log);;Text Files (*.txt);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                shutil.copy2(self.debug_manager.current_log_file, file_path)
+                self.log_signal.emit(f"Debug log exported to: {file_path}")
+            except Exception as e:
+                self.log_signal.emit(f"Error exporting debug log: {e}")
+    
+    def open_logs_folder(self):
+        logs_dir = self.debug_manager.logs_dir
+        if os.path.exists(logs_dir):
+            os.startfile(logs_dir)
+        else:
+            ThemedMessageBox.information(self, "Folder Not Found", "Debug logs folder does not exist.")
+    
+    def view_crash_reports(self):
+        crash_dir = self.debug_manager.crash_dir
+        if os.path.exists(crash_dir):
+            os.startfile(crash_dir)
+        else:
+            ThemedMessageBox.information(self, "Folder Not Found", "Crash reports folder does not exist.")
+            
+    def show_tutorial(self):
+        if not hasattr(self, '_tutorial_instance') or self._tutorial_instance is None:
+            self._tutorial_instance = Tutorial(self)
+
+        self._tutorial_instance.start_tutorial()
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
@@ -4324,8 +5229,8 @@ if __name__ == '__main__':
     def on_setup_complete(success):
         if success:
             downloader = SteamWorkshopDownloader()
-            downloader.resize(670, 750)
             downloader.show()
+            check_first_run(downloader)
         else:
             app.quit()
 

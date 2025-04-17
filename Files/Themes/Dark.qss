@@ -261,3 +261,12 @@ QMenuBar::item:selected#menuBar {
 #appid_info_frame {
 	background-color: #3A3A3A; border-radius: 3px;
 }
+
+QToolTip {
+    background-color: #333333;
+    color: #A0A0A0;
+    border: 1px solid #555555;
+    padding: 3px;
+	margin: 0px;
+    border-radius: 2px;
+}
