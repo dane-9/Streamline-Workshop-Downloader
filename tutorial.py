@@ -589,6 +589,11 @@ def check_first_run(app):
         save_config = getattr(app, 'save_config', None)
         if save_config and callable(save_config):
             save_config()
+            
+        if dialog_result == QDialog.Accepted:
+            QTimer.singleShot(300, tutorial.start_tutorial)
+        else:
+            QTimer.singleShot(200, tutorial.restore_visibility_states)
 
         return True
 
