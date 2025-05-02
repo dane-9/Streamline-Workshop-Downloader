@@ -5,7 +5,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/dane-9/Streamline-Workshop-Downloader.svg?label=Current%20Release&color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge&logo=github)](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) [![GitHub Release Date](https://img.shields.io/github/release-date/dane-9/Streamline-Workshop-Downloader.svg?label=Version%20Released&color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge)](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) [![GitHub Downloads](https://img.shields.io/github/downloads/dane-9/Streamline-Workshop-Downloader/total.svg?color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge)](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) [![GitHub Stars](https://img.shields.io/github/stars/dane-9/Streamline-Workshop-Downloader.svg?color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge)](https://github.com/dane-9/Streamline-Workshop-Downloader)
 
 ## User Interface
-<img src="https://i.imgur.com/FnJNMBm.png" alt="gui" width="600"/>
+<img src="https://i.imgur.com/imQRfEN.png" alt="gui" width="600"/>
 
 ## Features
 | Feature                                               | Description                                                                                                                                                                                            |
