@@ -4408,11 +4408,9 @@ class SteamWorkshopDownloader(QWidget):
             safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', mod_name_utf8)
 
             if folder_naming_format == 'name':
-                # Use just the mod name
                 folder_name = safe_mod_name
             elif folder_naming_format == 'combined':
-                # Use "AppID - Mod Name" format
-                folder_name = f"{app_id} - {safe_mod_name}"
+                folder_name = f"{mod_id} - {safe_mod_name}"
 
         target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
 
@@ -4646,11 +4644,9 @@ class SteamWorkshopDownloader(QWidget):
                             safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', safe_mod_name)
                         
                         if folder_naming_format == 'name':
-                            # Use just the mod name
                             folder_name = safe_mod_name
                         elif folder_naming_format == 'combined':
-                            # Use "AppID - Mod Name" format
-                            folder_name = f"{app_id} - {safe_mod_name}"
+                            folder_name = f"{mod_id} - {safe_mod_name}"
         
                     target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
                     try:
