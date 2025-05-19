@@ -4209,6 +4209,10 @@ class SteamWorkshopDownloader(QWidget):
             if existing_local_mods_to_evaluate:
                 if existing_mod_behavior == "Always Redownload":
                     self.log_signal.emit(f"SteamCMD: AppID {app_id} - '{existing_mod_behavior}': {len(existing_local_mods_to_evaluate)} existing mods will be deleted and redownloaded.")
+                    
+                    deleted_mods_count = 0
+                    failed_deletions_count = 0
+                    
                     for mod_to_del in existing_local_mods_to_evaluate:
                         mod_id_del = mod_to_del['mod_id']
                         safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', mod_to_del.get('mod_name', 'Unknown'))
@@ -4235,9 +4239,19 @@ class SteamWorkshopDownloader(QWidget):
                         try:
                             if os.path.isdir(path_to_del):
                                 shutil.rmtree(path_to_del)
-                                self.log_signal.emit(f"SteamCMD: Deleted local mod {mod_id_del} (AppID {app_id}) for redownload.")
+                                deleted_mods_count += 1
+                            else:
+                                pass
                         except Exception as e_del:
                             self.log_signal.emit(f"SteamCMD: Error deleting local mod {mod_id_del} (AppID {app_id}): {e_del}")
+                            failed_deletions_count += 1
+                    
+                    # Log for deletions
+                    if deleted_mods_count > 0:
+                        self.log_signal.emit(f"SteamCMD: Successfully deleted {deleted_mods_count} local mod(s) for AppID {app_id}")
+                    if failed_deletions_count > 0:
+                        self.log_signal.emit(f"SteamCMD: Failed to delete {failed_deletions_count} local mod(s) for AppID {app_id}")
+                    
                     mods_to_run_in_steamcmd_proc.extend(existing_local_mods_to_evaluate)
     
                 elif existing_mod_behavior == "Only Redownload if Updated":
@@ -4255,6 +4269,10 @@ class SteamWorkshopDownloader(QWidget):
                             loop.close()
     
                     mods_needing_redownload_after_html_check = []
+                    mods_uptodate_count = 0
+                    deleted_mods_count = 0
+                    failed_deletions_count = 0
+                    
                     for mod_eval in existing_local_mods_to_evaluate:
                         mod_id_eval = mod_eval['mod_id']
                         if update_results.get(mod_id_eval, True):
@@ -4283,22 +4301,36 @@ class SteamWorkshopDownloader(QWidget):
                             try:
                                 if os.path.isdir(path_to_del):
                                     shutil.rmtree(path_to_del)
-                                    self.log_signal.emit(f"SteamCMD: Mod {mod_id_eval} (AppID {app_id}) is updated or needs check. Deleted local folder.")
+                                    deleted_mods_count += 1
+                                else:
+                                    pass
                             except Exception as e_del_upd:
                                 self.log_signal.emit(f"SteamCMD: Error deleting local folder for mod {mod_id_eval} (AppID {app_id}): {e_del_upd}")
+                                failed_deletions_count += 1
                         else:
-                            self.log_signal.emit(f"SteamCMD: Mod {mod_id_eval} (AppID {app_id}) HTML check shows up-to-date. Skipping SteamCMD redownload.")
+                            mods_uptodate_count += 1
                             mod_eval['status'] = 'Downloaded'
                             self.update_queue_signal.emit(mod_id_eval, mod_eval['status'])
                             self.update_mod_download_log(mod_id_eval, mod_eval.get('mod_name', 'Unknown'), app_id)
                             if mod_id_eval not in self.successful_downloads_this_session:
                                 self.successful_downloads_this_session.append(mod_id_eval)
                         
+                    # Logs for HTML update check results
+                    if mods_uptodate_count > 0:
+                        self.log_signal.emit(f"SteamCMD: {mods_uptodate_count} mod(s) for AppID {app_id} are up-to-date, marked as Downloaded")
+                    if deleted_mods_count > 0:
+                        self.log_signal.emit(f"SteamCMD: Deleted {deleted_mods_count} outdated mod folder(s) for AppID {app_id}")
+                    if failed_deletions_count > 0:
+                        self.log_signal.emit(f"SteamCMD: Failed to delete {failed_deletions_count} mod folder(s) for AppID {app_id}")
+                    
                     if mods_needing_redownload_after_html_check:
+                        self.log_signal.emit(f"SteamCMD: {len(mods_needing_redownload_after_html_check)} mod(s) for AppID {app_id} need to be updated")
                         mods_to_run_in_steamcmd_proc.extend(mods_needing_redownload_after_html_check)
     
                 elif existing_mod_behavior == "Skip Existing Mods":
-                    self.log_signal.emit(f"SteamCMD: AppID {app_id} - '{existing_mod_behavior}': Skipping {len(existing_local_mods_to_evaluate)} existing mods.")
+                    skipped_mods_count = len(existing_local_mods_to_evaluate)
+                    self.log_signal.emit(f"SteamCMD: AppID {app_id} - '{existing_mod_behavior}': Skipping {skipped_mods_count} existing mods.")
+                    
                     for mod_skipped in existing_local_mods_to_evaluate:
                         mod_id_skip = mod_skipped['mod_id']
                         mod_skipped['status'] = 'Downloaded'
@@ -4325,20 +4357,19 @@ class SteamWorkshopDownloader(QWidget):
                 steamcmd_commands_list.extend(['+workshop_download_item', app_id, mod_run['mod_id']])
             
             steamcmd_commands_list.append('+quit')
-            
-            self.log_signal.emit(f"SteamCMD: Executing for {len(mods_to_run_in_steamcmd_proc)} mod(s) for AppID {app_id}.")
     
             try:
                 self.current_process = subprocess.Popen(
                     steamcmd_commands_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE,
                     text=True, encoding='utf-8', errors='replace', bufsize=1,
                     cwd=self.steamcmd_dir, shell=False, creationflags=subprocess.CREATE_NO_WINDOW
-                )   # Keep shell=False otherwise it can't terminate
+                ) # Keep shell=False otherwise it can't terminate
                 
-                steamcmd_stdout_lines = []
+                successful_downloads = 0
+                failed_downloads = 0
+                
                 if self.current_process and self.current_process.stdout:
                     for line in self.current_process.stdout:
-                        steamcmd_stdout_lines.append(line)
                         clean_line = line.strip()
                         if not clean_line: continue
     
@@ -4354,6 +4385,7 @@ class SteamWorkshopDownloader(QWidget):
                                 self.update_mod_download_log(target_mod_id, mod_target.get('mod_name', 'Unknown'), app_id)
                                 if target_mod_id not in self.successful_downloads_this_session:
                                     self.successful_downloads_this_session.append(target_mod_id)
+                                successful_downloads += 1
                                 break
     
                             fail_match = re.search(failure_re, clean_line, re.IGNORECASE)
@@ -4362,6 +4394,7 @@ class SteamWorkshopDownloader(QWidget):
                                 mod_target['status'] = f'Failed: {reason}'
                                 self.update_queue_signal.emit(target_mod_id, mod_target['status'])
                                 mod_target['retry_count'] = mod_target.get('retry_count', 0) + 1
+                                failed_downloads += 1
                                 break
                     
                     if self.current_process.stdout:
@@ -4371,16 +4404,36 @@ class SteamWorkshopDownloader(QWidget):
                     return_code = self.current_process.wait()
                     # DEBUG self.log_signal.emit(f"SteamCMD: Process for AppID {app_id} finished with code {return_code}.")
     
+                # Check for mods still in 'Downloading' status after process completion
+                still_downloading_count = 0
                 for mod_final_check in mods_to_run_in_steamcmd_proc:
                     if mod_final_check['status'] == 'Downloading':
                         mod_final_check['status'] = 'Failed No Confirmation'
                         self.update_queue_signal.emit(mod_final_check['mod_id'], mod_final_check['status'])
+                        still_downloading_count += 1
+                
+                if still_downloading_count > 0:
+                    self.log_signal.emit(f"SteamCMD: {still_downloading_count} mod(s) marked as failed - no success confirmation received")
+    
+                summary_parts = []
+                if successful_downloads > 0:
+                    summary_parts.append(f"{successful_downloads} downloaded successfully")
+                if failed_downloads > 0:
+                    summary_parts.append(f"{failed_downloads} failed")
+                if still_downloading_count > 0:
+                    summary_parts.append(f"{still_downloading_count} unconfirmed")
+                
+                if summary_parts:
+                    self.log_signal.emit(f"SteamCMD: AppID {app_id} batch complete: {', '.join(summary_parts)}")
     
             except Exception as e_proc:
                 self.log_signal.emit(f"SteamCMD: Error during subprocess for AppID {app_id}: {e_proc}")
                 for mod_sub_err in mods_to_run_in_steamcmd_proc:
-                    mod_sub_err['status'] = 'Failed: Process Error'
-                    self.update_queue_signal.emit(mod_sub_err['mod_id'], mod_sub_err['status'])
+                    if mod_sub_err['status'] == 'Downloading':
+                        mod_sub_err['status'] = 'Failed: Process Error'
+                        self.update_queue_signal.emit(mod_sub_err['mod_id'], mod_sub_err['status'])
+                
+                self.log_signal.emit(f"SteamCMD: Marked {len(mods_to_run_in_steamcmd_proc)} mod(s) as failed due to process error")
 
     def download_mod_webapi(self, mod):
         mod_id = mod['mod_id']
