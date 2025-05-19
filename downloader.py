@@ -4792,18 +4792,18 @@ class SteamWorkshopDownloader(QWidget):
         workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
         if not os.path.exists(workshop_content_path):
             return
-    
+
         moved_count = 0
         failed_count = 0
         app_id_stats = defaultdict(int)
         status_updates = []
-    
+
         # Iterate over each App ID folder
         for app_id in os.listdir(workshop_content_path):
             app_path = os.path.join(workshop_content_path, app_id)
             if not os.path.isdir(app_path):
                 continue
-    
+
             # Iterate over each mod folder within the App folder
             for mod_id in os.listdir(app_path):
                 mod_path = os.path.join(app_path, mod_id)
@@ -4823,23 +4823,31 @@ class SteamWorkshopDownloader(QWidget):
                         folder_name = mod_id
                     else:
                         safe_mod_name = self.downloaded_mods_info.get(mod_id, mod_id)
-                        
+
                         # If the mod is age-restricted, always use mod_id
                         if safe_mod_name == "UNKNOWN - Age Restricted":
                             safe_mod_name = mod_id
                         else:
                             # Remove characters that are illegal in file/folder names
                             safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', safe_mod_name)
-                        
+
                         if folder_naming_format == 'name':
                             folder_name = safe_mod_name
                         elif folder_naming_format == 'combined':
                             folder_name = f"{mod_id} - {safe_mod_name}"
-        
+
                     target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
+
                     try:
                         if not os.path.exists(os.path.dirname(target_path)):
                             os.makedirs(os.path.dirname(target_path))
+
+                        # Delete the existing directory first to prevent nesting
+                        if os.path.exists(target_path) and os.path.isdir(target_path):
+                            self.log_signal.emit(f"Target directory already exists for mod {mod_id}. Removing existing directory before moving new content.")
+                            shutil.rmtree(target_path)
+
+                        # Now move the mod directory
                         shutil.move(mod_path, target_path)
                         moved_count += 1
                         app_id_stats[app_id] += 1
