@@ -4117,6 +4117,8 @@ class SteamWorkshopDownloader(QWidget):
         else:
             self.log_signal.emit("Keeping downloaded mods and moving them to Downloads folder...")
             self.move_all_downloaded_mods()
+            
+        self.remove_appworkshop_acf_files()
 
         if not keep_downloaded_in_queue:
             downloaded_mods = [mod for mod in self.download_queue if mod['status'] == 'Downloaded']
