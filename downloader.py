@@ -3683,35 +3683,50 @@ class SteamWorkshopDownloader(QWidget):
         self.log_signal.emit(error_message)
         
     def detect_input_type(self, input_text):
-        # Check if it's a store.steampowered.com URL
+        # Try to extract numeric ID based on input type
+        app_id = None
+        numeric_id = None
+        
+        # Handle store URLs
         if 'store.steampowered.com/app/' in input_text:
             app_id = self.extract_appid(input_text)
-            if app_id:
-                return ('game', app_id)
-                
-        # Check if it's a workshop URL
-        if 'steamcommunity.com/sharedfiles/filedetails/' in input_text:
-            item_id = self.extract_id(input_text)
-            if item_id:
-                return ('workshop_item', item_id)
-                
-        # If it's just a number, check against known AppIDs
-        if input_text.isdigit():
-            if input_text in self.app_ids:
-                return ('game', input_text)
-            else:
-                # Assume it's a workshop item if not a known AppID
-                return ('workshop_item', input_text)
-                
-        # Try to extract an AppID or item ID from other formats
-        app_id = self.extract_appid(input_text)
-        if app_id and app_id in self.app_ids:
+        
+        # Handle workshop URLs
+        elif 'steamcommunity.com/sharedfiles/filedetails/' in input_text or 'steamcommunity.com/workshop/filedetails/' in input_text:
+            numeric_id = self.extract_id(input_text)
+        
+        # Handle plain numbers
+        elif input_text.isdigit():
+            numeric_id = input_text
+            
+            # First check if it's a known app ID
+            if numeric_id in self.app_ids:
+                app_id = numeric_id
+
+        else:
+            app_id = self.extract_appid(input_text)
+            if not app_id:
+                numeric_id = self.extract_id(input_text)
+        
+        # Check if identified AppID has a workshop
+        if app_id and self.check_if_appid_has_workshop(app_id):
             return ('game', app_id)
-            
-        item_id = self.extract_id(input_text)
-        if item_id:
-            return ('workshop_item', item_id)
-            
+
+        # check if numeric_id is an app with a workshop
+        if numeric_id and numeric_id != app_id and self.check_if_appid_has_workshop(numeric_id):
+            return ('game', numeric_id)
+
+        if numeric_id:
+            # Check if it's a collection
+            if self.is_collection(numeric_id):
+                return ('collection', numeric_id)
+            else:
+                return ('workshop_item', numeric_id)
+        
+        # If we still have an app_id but it doesn't have a workshop
+        if app_id:
+            return ('no_workshop', app_id)
+        
         return (None, None)
 
     def add_workshop_to_queue(self):
@@ -3719,15 +3734,20 @@ class SteamWorkshopDownloader(QWidget):
         if not input_text:
             ThemedMessageBox.warning(self, 'Input Error', 'Please enter a Workshop URL/ID or Game AppID.')
             return
-    
+        
         input_type, item_id = self.detect_input_type(input_text)
         
         if input_type is None or item_id is None:
             ThemedMessageBox.warning(self, 'Input Error', 'Invalid input. Please enter a valid Workshop URL/ID or Game AppID.')
             return
+        
+        if input_type == 'no_workshop':
+            game_name = self.app_ids.get(item_id, f"AppID {item_id}")
+            ThemedMessageBox.warning(self, 'No Workshop', f"Game '{game_name}' (AppID: {item_id}) does not have a Steam Workshop.")
+            return
             
         if input_type == 'game':
-            # Game AppID
+            # Game AppID with confirmed workshop
             game_name = self.app_ids.get(item_id, f"AppID {item_id}")
             self.log_signal.emit(f"Starting to queue entire workshop for {game_name} (AppID: {item_id})")
             self.workshop_scraper = WorkshopScraperWorker(item_id, self.app_ids)
@@ -3736,19 +3756,23 @@ class SteamWorkshopDownloader(QWidget):
             self.workshop_scraper.start()
             self.workshop_input.clear()
             return
-            
-        # If we get here, it's a mod or a collection
+        
+        # Handle collection or individual workshop item (mod)
         self.add_to_queue_btn.setEnabled(False)
         
         existing_ids = [mod['mod_id'] for mod in self.download_queue]
         item_fetcher = ItemFetcher(item_id=item_id, existing_mod_ids=existing_ids)
-
+    
         item_fetcher.mod_or_collection_detected.connect(self.on_workshop_item_detected)
         item_fetcher.item_processed.connect(self.on_item_processed)
         item_fetcher.error_occurred.connect(self.on_item_error)
         item_fetcher.finished.connect(lambda: self.on_item_fetcher_finished(item_fetcher))
         item_fetcher.start()
-        self.log_signal.emit(f"Processing workshop item {item_id}...")
+        
+        if input_type == 'collection':
+            self.log_signal.emit(f"Processing workshop collection {item_id}...")
+        else:
+            self.log_signal.emit(f"Processing workshop item {item_id}...")
         
     def on_workshop_item_detected(self, is_collection, item_id):
         if is_collection:
@@ -5490,15 +5514,47 @@ class SteamWorkshopDownloader(QWidget):
     
     def update_mod_download_log(self, mod_id, mod_name, app_id):
         logs = self.load_mod_download_logs()
-        
+
         logs[mod_id] = {
             'name': mod_name,
             'app_id': app_id,
             'timestamp': time.time(),
             'date': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
         }
-        
+
         self.save_mod_download_logs(logs)
+
+    def check_if_appid_has_workshop(self, app_id):
+        workshop_url = f"https://steamcommunity.com/app/{app_id}/workshop/"
+
+        try:
+            response = requests.get(workshop_url, allow_redirects=True)
+
+            # Check if we were redirected to the store
+            final_url = response.url
+
+            if "store.steampowered.com" in final_url and "/workshop/" not in final_url:
+                return False
+
+            if response.status_code != 200:
+                return False
+
+            # Additional check
+            workshop_elements_found = False
+            workshop_marker_terms = ["workshopItemsContainer", "workshop_home_items", "workshopBrowseItems", "workshop_browse_menu"]
+            
+            for term in workshop_marker_terms:
+                if term in response.text:
+                    workshop_elements_found = True
+                    break
+                    
+            if not workshop_elements_found:
+                return False
+
+            return True
+
+        except Exception as e:
+            return False
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
