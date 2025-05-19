@@ -781,7 +781,7 @@ class SettingsDialog(QDialog):
         batch_label = QLabel("Batch Size:")
         self.batch_size_spinbox = QSpinBox()
         self.batch_size_spinbox.setRange(1, 100)
-        self.batch_size_spinbox.setValue(self._batch_size)
+        self.batch_size_spinbox.setValue(self._config.get('batch_size', DEFAULT_SETTINGS['batch_size']))
         self.batch_size_spinbox.setMaximumWidth(125)
         max_label = QLabel("Default: 20 | Recommended: < 50 | Max: 100")
         max_label.setStyleSheet("font-size: 10px;")
@@ -794,7 +794,7 @@ class SettingsDialog(QDialog):
         layout.addRow(batch_label, spin_layout)
 
         self.keep_downloaded_in_queue_checkbox = QCheckBox("Keep Downloaded Mods in Queue")
-        self.keep_downloaded_in_queue_checkbox.setChecked(self._keep_downloaded_in_queue)
+        self.keep_downloaded_in_queue_checkbox.setChecked(self._config.get('keep_downloaded_in_queue', DEFAULT_SETTINGS['keep_downloaded_in_queue']))
         layout.addRow(self.keep_downloaded_in_queue_checkbox)
 
         self.delete_downloads_on_cancel_checkbox = QCheckBox("Delete Downloads When Canceling")
