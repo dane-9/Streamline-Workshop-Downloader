@@ -5,5 +5,6 @@ Files/Streamline
 Files/config.json
 Files/AppIDs.txt
 Files/debug
+Files/logs
 Downloads/
 __pycache__/

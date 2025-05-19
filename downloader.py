@@ -14,6 +14,7 @@ import json
 import webbrowser
 import aiohttp
 import asyncio
+from datetime import datetime
 from io import BytesIO
 from lxml import html
 from collections import defaultdict
@@ -55,6 +56,7 @@ DEFAULT_SETTINGS = {
     "auto_detect_urls": False,
     "auto_add_to_queue": False,
     "delete_downloads_on_cancel": False,
+    "steamcmd_existing_mod_behavior": "Only Redownload if Updated",
     
     "download_button": True,
     "show_menu_bar": True, 
@@ -277,6 +279,69 @@ def create_help_icon(self, tooltip_text: str, detailed_text: str, parent=None) -
 
     help_btn.clicked.connect(on_click)
     return help_btn
+    
+async def get_workshop_mod_last_update_timestamp(session, mod_id: str, log_signal=None) -> float | None:
+    url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={mod_id}"
+    try:
+        async with session.get(url) as response:
+            if response.status != 200:
+                if log_signal:
+                    log_signal.emit(f"HTMLUpdateCheck: Mod {mod_id} page status {response.status}")
+                return None
+            page_content = await response.text()
+
+        tree = html.fromstring(page_content)
+        update_date_elements = tree.xpath('//div[@class="detailsStatsContainerRight"]/div[@class="detailsStatRight"]')
+        
+        update_date_str = None
+        if len(update_date_elements) >= 3:
+            potential_update_str = update_date_elements[2].text_content().strip()
+            if "@" in potential_update_str and ("am" in potential_update_str.lower() or "pm" in potential_update_str.lower()):
+                 update_date_str = potential_update_str
+        
+        if not update_date_str:
+            for i, element in enumerate(update_date_elements):
+                text = element.text_content().strip()
+                if "@" in text and ("am" in text.lower() or "pm" in text.lower()):
+                    if i != 1: 
+                        update_date_str = text
+                        break
+            if not update_date_str and len(update_date_elements) > 0:
+                for element in reversed(update_date_elements): # Last resort
+                    text = element.text_content().strip()
+                    if "@" in text and ("am" in text.lower() or "pm" in text.lower()):
+                        update_date_str = text
+                        break
+        
+        if not update_date_str:
+            if log_signal:
+                log_signal.emit(f"HTMLUpdateCheck: Could not extract update date string for mod {mod_id}.")
+            return None
+
+        current_year = datetime.now().year
+        parsed_date = None
+        try:
+            cleaned_date_str = update_date_str.replace(',', '')
+            parsed_date = datetime.strptime(cleaned_date_str, '%d %b %Y @ %I:%M%p')
+        except ValueError:
+            try:
+                parsed_date_no_year = datetime.strptime(update_date_str, '%d %b @ %I:%M%p')
+                parsed_date = parsed_date_no_year.replace(year=current_year)
+            except ValueError as e_parse:
+                if log_signal:
+                    log_signal.emit(f"HTMLUpdateCheck: Failed to parse date '{update_date_str}' for mod {mod_id}. Error: {e_parse}")
+                return None
+
+        return parsed_date.timestamp()
+
+    except aiohttp.ClientError as e_http:
+        if log_signal:
+            log_signal.emit(f"HTMLUpdateCheck: HTTP error for mod {mod_id}: {e_http}")
+        return None
+    except Exception as e_generic:
+        if log_signal:
+            log_signal.emit(f"HTMLUpdateCheck: Generic error for mod {mod_id}: {e_generic}")
+        return None
 
 class NoFocusDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
@@ -712,7 +777,7 @@ class SettingsDialog(QDialog):
         page = QWidget()
         layout = QFormLayout(page)
         layout.setVerticalSpacing(10)
-    
+        
         batch_label = QLabel("Batch Size:")
         self.batch_size_spinbox = QSpinBox()
         self.batch_size_spinbox.setRange(1, 100)
@@ -720,66 +785,102 @@ class SettingsDialog(QDialog):
         self.batch_size_spinbox.setMaximumWidth(125)
         max_label = QLabel("Default: 20 | Recommended: < 50 | Max: 100")
         max_label.setStyleSheet("font-size: 10px;")
-        
+
         spin_layout = QHBoxLayout()
         spin_layout.setContentsMargins(0, 0, 0, 0)
         spin_layout.addWidget(self.batch_size_spinbox)
         spin_layout.setSpacing(5)
         spin_layout.addWidget(max_label)
-        
-        # Add the row to the form layout
         layout.addRow(batch_label, spin_layout)
-        
+
         self.keep_downloaded_in_queue_checkbox = QCheckBox("Keep Downloaded Mods in Queue")
         self.keep_downloaded_in_queue_checkbox.setChecked(self._keep_downloaded_in_queue)
         layout.addRow(self.keep_downloaded_in_queue_checkbox)
-        
+
         self.delete_downloads_on_cancel_checkbox = QCheckBox("Delete Downloads When Canceling")
-        self.delete_downloads_on_cancel_checkbox.setChecked(self._config.get("delete_downloads_on_cancel", False))
-        tooltip_text = "When enabled, downloaded mods will be deleted when canceling."
-        detailed_text = "By default, when you cancel a download, any downloaded mods are kept and moved to the downloads folder. Enabling this option will delete any downloaded mods when canceling instead."
-        help_btn = create_help_icon(self, tooltip_text, detailed_text)
-        help_layout = QHBoxLayout()
-        help_layout.addWidget(self.delete_downloads_on_cancel_checkbox)
-        help_layout.addWidget(help_btn)
-        help_layout.addStretch()
-        layout.addRow(help_layout)
+        self.delete_downloads_on_cancel_checkbox.setChecked(self._config.get("delete_downloads_on_cancel", DEFAULT_SETTINGS['delete_downloads_on_cancel']))
+        tooltip_text_del = "When enabled, downloaded mods will be deleted when canceling."
+        detailed_text_del = "By default, when you cancel a download, any downloaded mods are kept and moved to the downloads folder. Enabling this option will delete any downloaded mods when canceling instead."
+        help_btn_del = create_help_icon(self, tooltip_text_del, detailed_text_del, parent=self)
+        help_layout_del = QHBoxLayout()
+        help_layout_del.addWidget(self.delete_downloads_on_cancel_checkbox)
+        help_layout_del.addWidget(help_btn_del)
+        help_layout_del.addStretch()
+        layout.addRow(help_layout_del)
 
-        layout.addRow(create_separator("settings_separator", parent=self, width=200, label="Downloads", label_alignment="left", size_policy=(QSizePolicy.Expanding, QSizePolicy.Fixed), font_style="standard", margin=True))
+        naming_scheme_label_widget = QWidget()
+        naming_scheme_label_hbox = QHBoxLayout(naming_scheme_label_widget)
+        naming_scheme_label_hbox.setContentsMargins(0,0,0,0) 
+        naming_scheme_label_hbox.addWidget(QLabel("Naming Scheme:"))
+        tooltip_text_naming = "Downloaded Mods Naming Scheme"
+        detailed_text_naming = (
+            "Choose how the folder for downloaded mods should be named:<br><br>"
+            "<b>• Mod ID:</b><br>"
+            "Uses the mod's numeric ID (e.g., '123456789').<br><br>"
+            "<b>• Mod Name:</b><br>"
+            "Uses the mod's title (e.g., 'Awesome Mod Name'). Illegal characters will be replaced.<br><br>"
+            "<b>• Mod ID + Mod Name:</b><br>"
+            "Combines both, typically as 'ModID - Mod Name' (e.g., '123456789 - Awesome Mod Name')."
+        )
+        help_icon_naming = create_help_icon(self, tooltip_text_naming, detailed_text_naming, parent=self)
+        naming_scheme_label_hbox.addWidget(help_icon_naming)
+        naming_scheme_label_hbox.addStretch()
+        layout.addRow(naming_scheme_label_widget)
 
-        folder_name_label = QLabel("Naming Scheme: ")
-        tooltip_text = "Downloaded Mods Naming Scheme"
-        detailed_text = ("Choose how the folder for downloaded mods should be named:\n"
-                         "• 'Mod ID': Uses the mod's numeric ID.\n"
-                         "• 'Mod Name': Uses the mod's title.\n"
-                         "• 'Mod ID + Mod Name': Combines both.")
-        help_icon = create_help_icon(self, tooltip_text, detailed_text)
+        naming_scheme_options_container = QWidget()
+        naming_scheme_options_vlayout = QVBoxLayout(naming_scheme_options_container)
+        naming_scheme_options_vlayout.setContentsMargins(0,0,0,0)
+        naming_scheme_options_vlayout.setSpacing(5)
 
-        folder_label_layout = QHBoxLayout()
-        folder_label_layout.addWidget(folder_name_label)
-        folder_label_layout.addWidget(help_icon)
-        folder_label_layout.addStretch()
-
-        folder_name_layout = QVBoxLayout()
-        folder_name_layout.setSpacing(5)
-
-        folder_format = self._config.get("folder_naming_format", "id")
-
+        folder_format = self._config.get("folder_naming_format", DEFAULT_SETTINGS["folder_naming_format"])
         self.id_folder_scheme = QRadioButton("Mod ID")
         self.id_folder_scheme.setChecked(folder_format == "id")
-
         self.name_folder_scheme = QRadioButton("Mod Name")
         self.name_folder_scheme.setChecked(folder_format == "name")
-
         self.combined_folder_scheme = QRadioButton("Mod ID + Mod Name")
         self.combined_folder_scheme.setChecked(folder_format == "combined")
+
+        naming_scheme_options_vlayout.addWidget(self.id_folder_scheme)
+        naming_scheme_options_vlayout.addWidget(self.name_folder_scheme)
+        naming_scheme_options_vlayout.addWidget(self.combined_folder_scheme)
+
+        layout.addRow(None, naming_scheme_options_container) 
+
+        steamcmd_behavior_label_widget = QWidget()
+        steamcmd_behavior_label_hbox = QHBoxLayout(steamcmd_behavior_label_widget)
+        steamcmd_behavior_label_hbox.setContentsMargins(0,0,0,0)
+        steamcmd_behavior_label_hbox.addWidget(QLabel("Preexisting Mods:"))
+        steamcmd_behavior_help_tooltip_text = (
+            "<b>• Only Redownload if Updated:</b><br>"
+            "Checks mod page for updates. Downloads if newer or if update status can't be determined.<br><br>"
+            "<b>• Always Redownload:</b><br>"
+            "Deletes local mod folder and redownloads from SteamCMD.<br><br>"
+            "<b>• Skip Existing Mods:</b><br>"
+            "If mod folder exists locally, it's skipped entirely. Fastest, but won't get updates for existing mods."
+        )
+        help_btn_steamcmd = create_help_icon(self, "How SteamCMD handles mods already downloaded that haven't been removed", steamcmd_behavior_help_tooltip_text, parent=self)
+        steamcmd_behavior_label_hbox.addWidget(help_btn_steamcmd)
+        steamcmd_behavior_label_hbox.addStretch()
+        layout.addRow(steamcmd_behavior_label_widget)
+
+        steamcmd_behavior_options_container = QWidget()
+        steamcmd_behavior_options_vlayout = QVBoxLayout(steamcmd_behavior_options_container)
+        steamcmd_behavior_options_vlayout.setContentsMargins(0,0,0,0)
+        steamcmd_behavior_options_vlayout.setSpacing(5)
+
+        current_behavior = self._config.get("steamcmd_existing_mod_behavior", DEFAULT_SETTINGS["steamcmd_existing_mod_behavior"])
+        self.steamcmd_rb_only_if_updated = QRadioButton("Only Redownload if Updated")
+        self.steamcmd_rb_only_if_updated.setChecked(current_behavior == "Only Redownload if Updated")
+        self.steamcmd_rb_always_redownload = QRadioButton("Always Redownload")
+        self.steamcmd_rb_always_redownload.setChecked(current_behavior == "Always Redownload")
+        self.steamcmd_rb_skip_existing = QRadioButton("Skip Existing Mods")
+        self.steamcmd_rb_skip_existing.setChecked(current_behavior == "Skip Existing Mods")
         
-        folder_name_layout.addWidget(self.id_folder_scheme)
-        folder_name_layout.addWidget(self.name_folder_scheme)
-        folder_name_layout.addWidget(self.combined_folder_scheme)
+        steamcmd_behavior_options_vlayout.addWidget(self.steamcmd_rb_only_if_updated)
+        steamcmd_behavior_options_vlayout.addWidget(self.steamcmd_rb_always_redownload)
+        steamcmd_behavior_options_vlayout.addWidget(self.steamcmd_rb_skip_existing)
         
-        layout.addRow(folder_label_layout)
-        layout.addRow(folder_name_layout)
+        layout.addRow(None, steamcmd_behavior_options_container)
     
         return page
 
@@ -945,6 +1046,12 @@ class SettingsDialog(QDialog):
         elif self.combined_folder_scheme.isChecked():
             folder_format = "combined"
             
+        steamcmd_behavior = "Only Redownload if Updated"
+        if self.steamcmd_rb_always_redownload.isChecked():
+            steamcmd_behavior = "Always Redownload"
+        elif self.steamcmd_rb_skip_existing.isChecked():
+            steamcmd_behavior = "Skip Existing Mods"
+            
         settings = {
             'current_theme': self.theme_dropdown.currentText(),
             'logo_style': (
@@ -957,6 +1064,7 @@ class SettingsDialog(QDialog):
             'show_provider': self.show_provider_checkbox.isChecked(),
             'keep_downloaded_in_queue': self.keep_downloaded_in_queue_checkbox.isChecked(),
             'folder_naming_format': folder_format,
+            'steamcmd_existing_mod_behavior': steamcmd_behavior,
             'auto_detect_urls': self.auto_detect_urls_checkbox.isChecked(),
             'auto_add_to_queue': self.auto_add_to_queue_checkbox.isChecked(),
             'delete_downloads_on_cancel': self.delete_downloads_on_cancel_checkbox.isChecked(),
@@ -1005,6 +1113,7 @@ class SettingsDialog(QDialog):
         self.batch_size_spinbox.setValue(DEFAULT_SETTINGS["batch_size"])
         self.keep_downloaded_in_queue_checkbox.setChecked(DEFAULT_SETTINGS["keep_downloaded_in_queue"])
         self.delete_downloads_on_cancel_checkbox.setChecked(DEFAULT_SETTINGS["delete_downloads_on_cancel"])
+        self.steamcmd_behavior_combo.setCurrentText(DEFAULT_SETTINGS["steamcmd_existing_mod_behavior"])
 
         self.auto_detect_urls_checkbox.setChecked(DEFAULT_SETTINGS["auto_detect_urls"])
         self.auto_add_to_queue_checkbox.setChecked(DEFAULT_SETTINGS["auto_add_to_queue"])
@@ -1019,6 +1128,14 @@ class SettingsDialog(QDialog):
         self.verbose_console_checkbox.setChecked(DEFAULT_SETTINGS["verbose_console_output"])
         self.save_crash_reports_checkbox.setChecked(DEFAULT_SETTINGS["save_crash_reports"])
         self.raw_steamcmd_logs_checkbox.setChecked(DEFAULT_SETTINGS["output_raw_steamcmd_logs"])
+        
+        default_steamcmd_behavior = DEFAULT_SETTINGS["steamcmd_existing_mod_behavior"]
+        if default_steamcmd_behavior == "Always Redownload":
+            self.steamcmd_rb_always_redownload.setChecked(True)
+        elif default_steamcmd_behavior == "Skip Existing Mods":
+            self.steamcmd_rb_skip_existing.setChecked(True)
+        else:
+            self.steamcmd_rb_only_if_updated.setChecked(True)
         
     def toggle_debug_options(self):
         is_enabled = self.debug_enabled_checkbox.isChecked()
@@ -2363,6 +2480,7 @@ class SteamWorkshopDownloader(QWidget):
         self.themes_dir = os.path.join(self.files_dir, 'Themes')
         os.makedirs(self.themes_dir, exist_ok=True)
         self.debug_manager = DebugManager.instance(self.files_dir, self.log_signal)
+        self.mod_download_logs = self.load_mod_download_logs()
 
         self.config = {}
         self.config_path = self.get_config_path()
@@ -3826,9 +3944,12 @@ class SteamWorkshopDownloader(QWidget):
         if self.is_downloading:
             self.cancel_download()
             return
+            
+        self.successful_downloads_this_session = [] 
 
         self.is_downloading = True
         self.canceled = False
+        self.cancellation_pending = False
         self.download_start_btn.setText('Cancel Download')
         self.download_start_btn.setEnabled(True)
         self.log_signal.emit("Starting download process...")
@@ -4028,221 +4149,268 @@ class SteamWorkshopDownloader(QWidget):
                f"{changed} mod{'s' if changed != 1 else ''}.")
         self.log_signal.emit(msg)
         
-    def download_mods_steamcmd(self, steamcmd_mods):
-        # Group mods by app_id
+    def download_mods_steamcmd(self, steamcmd_mods_batch):
         mods_by_app_id = defaultdict(list)
-        for mod in steamcmd_mods:
+        for mod in steamcmd_mods_batch:
             app_id = mod.get('app_id')
             if app_id:
                 mods_by_app_id[app_id].append(mod)
             else:
-                self.log_signal.emit(f"No app_id for mod {mod['mod_id']}. Skipping.")
-                mod['status'] = 'Failed'
-                self.update_queue_signal.emit(mod['mod_id'], 'Failed')
+                self.log_signal.emit(f"SteamCMD: Mod {mod['mod_id']} has no AppID. Skipping.")
+                mod['status'] = 'Failed: No AppID'
+                self.update_queue_signal.emit(mod['mod_id'], mod['status'])
     
-        if not hasattr(self, 'downloaded_mods_info'):
-            self.downloaded_mods_info = {}
+        for app_id, mods_for_this_app_id in mods_by_app_id.items():
+            if self.canceled:
+                self.log_signal.emit("SteamCMD: Download cancelled, stopping further batches.")
+                return
     
-        # Process each group of mods (by app_id)
-        for app_id, mods in mods_by_app_id.items():
-            for mod in mods:
-                mod['status'] = 'Downloading'
-                self.update_queue_signal.emit(mod['mod_id'], 'Downloading')
+            self.log_signal.emit(f"SteamCMD: Processing {len(mods_for_this_app_id)} mod(s) for AppID {app_id}.")
     
-            # Build the SteamCMD command
-            steamcmd_commands = [self.steamcmd_executable]
+            newly_missing_mods = []
+            existing_local_mods_to_evaluate = []
+    
+            for mod_dict in mods_for_this_app_id:
+                if self.check_mod_folder_exists(mod_dict['mod_id'], mod_dict.get('mod_name', 'Unknown'), app_id):
+                    existing_local_mods_to_evaluate.append(mod_dict)
+                else:
+                    newly_missing_mods.append(mod_dict)
+            
+            mods_to_run_in_steamcmd_proc = list(newly_missing_mods)
+            
+            existing_mod_behavior = self.config.get("steamcmd_existing_mod_behavior", "Only Redownload if Updated")
+    
+            if existing_local_mods_to_evaluate:
+                if existing_mod_behavior == "Always Redownload":
+                    self.log_signal.emit(f"SteamCMD: AppID {app_id} - '{existing_mod_behavior}': {len(existing_local_mods_to_evaluate)} existing mods will be deleted and redownloaded.")
+                    for mod_to_del in existing_local_mods_to_evaluate:
+                        mod_id_del = mod_to_del['mod_id']
+                        safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', mod_to_del.get('mod_name', 'Unknown'))
+                        
+                        folder_naming_format = self.config.get('folder_naming_format', 'id')
+                        if folder_naming_format == 'id':
+                            folder_name = mod_id_del
+                        elif folder_naming_format == 'name':
+                            folder_name = safe_mod_name
+                        else:  # combined
+                            folder_name = f"{mod_id_del} - {safe_mod_name}"
+                        
+                        path_to_del = os.path.join(self.steamcmd_download_path, app_id, folder_name)
+                        
+                        if not os.path.isdir(path_to_del):
+                            # Try to find by mod_id if exact path not found
+                            download_path = os.path.join(self.steamcmd_download_path, app_id)
+                            if os.path.isdir(download_path):
+                                for folder_name in os.listdir(download_path):
+                                    if mod_id_del in folder_name:
+                                        path_to_del = os.path.join(download_path, folder_name)
+                                        break
+                        
+                        try:
+                            if os.path.isdir(path_to_del):
+                                shutil.rmtree(path_to_del)
+                                self.log_signal.emit(f"SteamCMD: Deleted local mod {mod_id_del} (AppID {app_id}) for redownload.")
+                        except Exception as e_del:
+                            self.log_signal.emit(f"SteamCMD: Error deleting local mod {mod_id_del} (AppID {app_id}): {e_del}")
+                    mods_to_run_in_steamcmd_proc.extend(existing_local_mods_to_evaluate)
+    
+                elif existing_mod_behavior == "Only Redownload if Updated":
+                    self.log_signal.emit(f"SteamCMD: AppID {app_id} - '{existing_mod_behavior}': Checking {len(existing_local_mods_to_evaluate)} existing mods for updates via HTML.")
+                    
+                    update_results = {}
+                    if existing_local_mods_to_evaluate:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            update_results = loop.run_until_complete(
+                                self.check_mods_for_updates_in_batch(existing_local_mods_to_evaluate, self.log_signal)
+                            )
+                        finally:
+                            loop.close()
+    
+                    mods_needing_redownload_after_html_check = []
+                    for mod_eval in existing_local_mods_to_evaluate:
+                        mod_id_eval = mod_eval['mod_id']
+                        if update_results.get(mod_id_eval, True):
+                            mods_needing_redownload_after_html_check.append(mod_eval)
+                            
+                            safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', mod_eval.get('mod_name', 'Unknown'))
+                            folder_naming_format = self.config.get('folder_naming_format', 'id')
+                            if folder_naming_format == 'id':
+                                folder_name = mod_id_eval
+                            elif folder_naming_format == 'name':
+                                folder_name = safe_mod_name
+                            else:  # combined
+                                folder_name = f"{mod_id_eval} - {safe_mod_name}"
+                            
+                            path_to_del = os.path.join(self.steamcmd_download_path, app_id, folder_name)
+                            
+                            if not os.path.isdir(path_to_del):
+                                # Try to find by mod_id if exact path not found
+                                download_path = os.path.join(self.steamcmd_download_path, app_id)
+                                if os.path.isdir(download_path):
+                                    for folder_name in os.listdir(download_path):
+                                        if mod_id_eval in folder_name:
+                                            path_to_del = os.path.join(download_path, folder_name)
+                                            break
+                            
+                            try:
+                                if os.path.isdir(path_to_del):
+                                    shutil.rmtree(path_to_del)
+                                    self.log_signal.emit(f"SteamCMD: Mod {mod_id_eval} (AppID {app_id}) is updated or needs check. Deleted local folder.")
+                            except Exception as e_del_upd:
+                                self.log_signal.emit(f"SteamCMD: Error deleting local folder for mod {mod_id_eval} (AppID {app_id}): {e_del_upd}")
+                        else:
+                            self.log_signal.emit(f"SteamCMD: Mod {mod_id_eval} (AppID {app_id}) HTML check shows up-to-date. Skipping SteamCMD redownload.")
+                            mod_eval['status'] = 'Downloaded'
+                            self.update_queue_signal.emit(mod_id_eval, mod_eval['status'])
+                            self.update_mod_download_log(mod_id_eval, mod_eval.get('mod_name', 'Unknown'), app_id)
+                            if mod_id_eval not in self.successful_downloads_this_session:
+                                self.successful_downloads_this_session.append(mod_id_eval)
+                        
+                    if mods_needing_redownload_after_html_check:
+                        mods_to_run_in_steamcmd_proc.extend(mods_needing_redownload_after_html_check)
+    
+                elif existing_mod_behavior == "Skip Existing Mods":
+                    self.log_signal.emit(f"SteamCMD: AppID {app_id} - '{existing_mod_behavior}': Skipping {len(existing_local_mods_to_evaluate)} existing mods.")
+                    for mod_skipped in existing_local_mods_to_evaluate:
+                        mod_id_skip = mod_skipped['mod_id']
+                        mod_skipped['status'] = 'Downloaded'
+                        self.update_queue_signal.emit(mod_id_skip, mod_skipped['status'])
+                        self.update_mod_download_log(mod_id_skip, mod_skipped.get('mod_name', 'Unknown'), app_id)
+                        if mod_id_skip not in self.successful_downloads_this_session:
+                            self.successful_downloads_this_session.append(mod_id_skip)
+            
+            if not mods_to_run_in_steamcmd_proc:
+                self.log_signal.emit(f"SteamCMD: No mods require direct SteamCMD action for AppID {app_id} in this batch.")
+                continue
+    
+            steamcmd_commands_list = [self.steamcmd_executable]
             active_account = self.config.get('active_account', "Anonymous")
-    
-            # Set up login credentials
             if active_account != "Anonymous":
                 account = next((acc for acc in self.config['steam_accounts'] if acc['username'] == active_account), None)
-                if account:
-                    username = account.get('username', '')
-                    steamcmd_commands.extend(['+login', username])
-                else:
-                    steamcmd_commands.extend(['+login', 'anonymous'])
+                steamcmd_commands_list.extend(['+login', account.get('username', '') if account else 'anonymous'])
             else:
-                steamcmd_commands.extend(['+login', 'anonymous'])
-
-            # Add workshop download commands for each mod in the batch
-            for mod in mods:
-                mod_id = mod['mod_id']
-                steamcmd_commands.extend(['+workshop_download_item', app_id, mod_id])
-
-            steamcmd_commands.append('+quit')
-
-            # Debugging output
-            # self.log_signal.emit(f"Executing SteamCMD command: {steamcmd_command}")
+                steamcmd_commands_list.extend(['+login', 'anonymous'])
+    
+            for mod_run in mods_to_run_in_steamcmd_proc:
+                mod_run['status'] = 'Downloading'
+                self.update_queue_signal.emit(mod_run['mod_id'], mod_run['status'])
+                steamcmd_commands_list.extend(['+workshop_download_item', app_id, mod_run['mod_id']])
+            
+            steamcmd_commands_list.append('+quit')
+            
+            self.log_signal.emit(f"SteamCMD: Executing for {len(mods_to_run_in_steamcmd_proc)} mod(s) for AppID {app_id}.")
+    
             try:
-                self.log_signal.emit(f"Starting download of {len(mods)} mod(s) for AppID {app_id}...")
-
-                # Start the SteamCMD process for the batch
                 self.current_process = subprocess.Popen(
-                    steamcmd_commands,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.PIPE,
-                    text=True,
-                    encoding='utf-8',
-                    errors='replace',
-                    bufsize=1,
-                    cwd=self.steamcmd_dir,
-                    shell=False, # Keep false otherwise it can't terminate
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-
-                successful_downloads = []
-                failed_downloads = []
-
-                important_messages = []
-                current_downloads = set()
+                    steamcmd_commands_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE,
+                    text=True, encoding='utf-8', errors='replace', bufsize=1,
+                    cwd=self.steamcmd_dir, shell=False, creationflags=subprocess.CREATE_NO_WINDOW
+                )   # Keep shell=False otherwise it can't terminate
                 
-                self.debug_manager.log_steamcmd(steamcmd_commands, None)
-
-                # Process SteamCMD output line-by-line
-                for line in self.current_process.stdout:
-                    clean_line = line.strip()
-
-                    if clean_line:
-                        is_important = False
-
-                        if any(keyword in clean_line.lower() for keyword in ['error', 'failed', 'warning', 'critical']):
-                            is_important = True
-
-                        if any(state in clean_line.lower() for state in ['initializing', 'logged in', 'connecting', 'license']):
-                            is_important = True
-
-
-                        if "Downloading item" in clean_line:
-                            download_match = re.search(r'Downloading item (\d+)', clean_line)
-                            if download_match:
-                                current_downloads.add(download_match.group(1))
-                            is_important = False
-
-                        if "Success. Downloaded item" in clean_line:
-                            is_important = False
-
-                        if is_important:
-                            important_messages.append(clean_line)
-                            self.log_signal.emit(clean_line)
-
-
-                    for mod in mods:
-                        mod_id = mod['mod_id']
-
-                        # Check for successful downloads
-                        if f"Downloaded item {mod_id}" in clean_line:
-                            mod['status'] = 'Downloaded'
-                            # Save the mod name so we can use it later when moving the folder
-                            self.downloaded_mods_info[mod_id] = mod.get('mod_name', mod_id)
-                            self.update_queue_signal.emit(mod_id, 'Downloaded')
-                            successful_downloads.append(mod_id)
-                            if mod_id in current_downloads:
-                                current_downloads.remove(mod_id)
-
-                        # Check for failed downloads
-                        elif f"ERROR! Download item {mod_id} failed" in clean_line:
-                            reason = "Unknown error"
-                            match = re.search(r'ERROR! Download item \d+ failed \(([^)]+)\)', clean_line)
-                            if match:
-                                reason = match.group(1)
-                            mod['status'] = f'Failed: {reason}'
-                            self.update_queue_signal.emit(mod_id, mod['status'])
-                            failed_downloads.append(mod_id)
-                            if mod_id in current_downloads:
-                                current_downloads.remove(mod_id)
+                steamcmd_stdout_lines = []
+                if self.current_process and self.current_process.stdout:
+                    for line in self.current_process.stdout:
+                        steamcmd_stdout_lines.append(line)
+                        clean_line = line.strip()
+                        if not clean_line: continue
     
-                self.current_process.stdout.close()
-                self.current_process.wait()
-
-                if self.canceled:
-                    return
-
-                summary_parts = []
-                if successful_downloads:
-                    summary_parts.append(f"{len(successful_downloads)} mod(s) downloaded successfully")
-                if failed_downloads:
-                    summary_parts.append(f"{len(failed_downloads)} mod(s) failed")
-
-                if summary_parts:
-                    self.log_signal.emit(f"Batch for AppID {app_id} completed: {', '.join(summary_parts)}")
-                else:
-                    self.log_signal.emit(f"Batch for AppID {app_id} completed with no status changes")
+                        for mod_target in mods_to_run_in_steamcmd_proc:
+                            target_mod_id = mod_target['mod_id']
+                            
+                            success_re = rf"Success. Downloaded item {target_mod_id}"
+                            failure_re = rf"ERROR! Download item {target_mod_id} failed \(([^)]+)\)"
     
-            except Exception as e:
-                error_message = f"Error processing batch for AppID {app_id}: {e}"
-                self.log_signal.emit(error_message)
-                for mod in mods:
-                    mod['status'] = 'Failed'
-                    self.update_queue_signal.emit(mod['mod_id'], 'Failed')
-                    mod['retry_count'] += 1
+                            if re.search(success_re, clean_line, re.IGNORECASE):
+                                mod_target['status'] = 'Downloaded'
+                                self.update_queue_signal.emit(target_mod_id, 'Downloaded')
+                                self.update_mod_download_log(target_mod_id, mod_target.get('mod_name', 'Unknown'), app_id)
+                                if target_mod_id not in self.successful_downloads_this_session:
+                                    self.successful_downloads_this_session.append(target_mod_id)
+                                break
     
-            # Keep downloaded mods in queue if the setting is enabled
-            if not self.config.get('keep_downloaded_in_queue', False):
-                # Remove all mods that have the status "Downloaded" from the queue
-                downloaded_mods = [mod for mod in mods if mod['status'] == 'Downloaded']
-                for mod in downloaded_mods:
-                    self.remove_mod_from_queue(mod['mod_id'])
+                            fail_match = re.search(failure_re, clean_line, re.IGNORECASE)
+                            if fail_match:
+                                reason = fail_match.group(1)
+                                mod_target['status'] = f'Failed: {reason}'
+                                self.update_queue_signal.emit(target_mod_id, mod_target['status'])
+                                mod_target['retry_count'] = mod_target.get('retry_count', 0) + 1
+                                break
+                    
+                    if self.current_process.stdout:
+                        self.current_process.stdout.close()
+                
+                if self.current_process:
+                    return_code = self.current_process.wait()
+                    # DEBUG self.log_signal.emit(f"SteamCMD: Process for AppID {app_id} finished with code {return_code}.")
+    
+                for mod_final_check in mods_to_run_in_steamcmd_proc:
+                    if mod_final_check['status'] == 'Downloading':
+                        mod_final_check['status'] = 'Failed No Confirmation'
+                        self.update_queue_signal.emit(mod_final_check['mod_id'], mod_final_check['status'])
+    
+            except Exception as e_proc:
+                self.log_signal.emit(f"SteamCMD: Error during subprocess for AppID {app_id}: {e_proc}")
+                for mod_sub_err in mods_to_run_in_steamcmd_proc:
+                    mod_sub_err['status'] = 'Failed: Process Error'
+                    self.update_queue_signal.emit(mod_sub_err['mod_id'], mod_sub_err['status'])
 
     def download_mod_webapi(self, mod):
         mod_id = mod['mod_id']
         mod_name = mod.get('mod_name', 'Unknown')
+        app_id = mod.get('app_id', 'Unknown')
         debug_manager = DebugManager.instance()
-
+    
         debug_manager.debug(f"Starting WebAPI download for mod {mod_id} ({mod_name})")
         debug_manager.debug(f"Mod details: {mod}")
-
+    
         try:
             debug_manager.debug(f"Fetching published file details for mod {mod_id}")
             mod_details = self.get_published_file_details(mod_id)
-
+    
             debug_manager.debug(f"Published file details response structure: {list(mod_details.keys())}")
-
+    
             if 'response' not in mod_details or 'publishedfiledetails' not in mod_details['response']:
                 debug_manager.error(f"Invalid response structure for mod {mod_id}: {mod_details}")
                 self.log_signal.emit(f"Error: Invalid response structure while fetching details for mod {mod_id}.")
                 return False
-
+    
             file_details = mod_details['response']['publishedfiledetails'][0]
             debug_manager.debug(f"File details: {list(file_details.keys())}")
-
-            # Check file URL availability
+    
             if 'file_url' not in file_details or not file_details['file_url']:
                 error_msg = f"Error: File URL not available for mod {mod_id}. The file might not be downloadable or doesn't exist."
                 debug_manager.error(error_msg)
                 debug_manager.debug(f"Available fields: {list(file_details.keys())}")
                 self.log_signal.emit(error_msg)
                 return False
-
+    
             file_url = file_details['file_url']
             debug_manager.debug(f"File URL: {file_url}")
-
+    
             filename = file_details.get('filename', None)
             title = file_details.get('title', 'Unnamed Mod')
-
+    
             debug_manager.debug(f"Original filename: {filename}, title: {title}")
-
+    
             if filename and filename.strip():
                 filename = filename.strip()
             else:
-                # If filename is not available, use title with appropriate extension based on URL
                 debug_manager.debug(f"No valid filename provided, using title with extension")
                 filename = f"{title}.zip" if file_url.endswith('.zip') else f"{title}"
-
-            # Remove illegal characters from filename
+    
             orig_filename = filename
             filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
-
+    
             if orig_filename != filename:
                 debug_manager.debug(f"Sanitized filename from '{orig_filename}' to '{filename}'")
-
-            # Get download path and prepare directories
+    
             download_path = self.get_download_path(mod)
             file_path = os.path.join(download_path, filename)
             debug_manager.debug(f"Download path: {download_path}")
             debug_manager.debug(f"Full file path: {file_path}")
             
-            # Ensure directory exists
             try:
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
                 debug_manager.debug(f"Download directory confirmed: {os.path.dirname(file_path)}")
@@ -4251,7 +4419,6 @@ class SteamWorkshopDownloader(QWidget):
                 self.log_signal.emit(f"Failed to create download directory for mod {mod_id}: {e}")
                 return False
     
-            # Start download
             self.log_signal.emit(f"Downloading mod {mod_id} via SteamWebAPI...")
             debug_manager.debug(f"Starting file download from {file_url}")
             
@@ -4259,7 +4426,6 @@ class SteamWorkshopDownloader(QWidget):
                 start_time = time.time()
                 response = requests.get(file_url, stream=True)
                 
-                # Log network request
                 debug_manager.log_network_request(
                     method="GET",
                     url=file_url,
@@ -4269,22 +4435,19 @@ class SteamWorkshopDownloader(QWidget):
                 if response.status_code == 200:
                     debug_manager.debug(f"Download stream established successfully (status 200)")
                     
-                    # Get content length if available
                     content_length = response.headers.get('content-length')
                     if content_length:
                         debug_manager.debug(f"Content length: {content_length} bytes ({int(content_length) / 1024 / 1024:.2f} MB)")
                     
-                    # Download the file in chunks
                     bytes_downloaded = 0
                     last_log_time = time.time()
-                    progress_interval = 2.0  # Log progress every 2 seconds
+                    progress_interval = 2.0
                     
                     with open(file_path, 'wb') as file:
                         for chunk in response.iter_content(chunk_size=8192):
                             file.write(chunk)
                             bytes_downloaded += len(chunk)
                             
-                            # Log progress periodically if in verbose mode
                             current_time = time.time()
                             if debug_manager.verbose_output and (current_time - last_log_time) > progress_interval:
                                 if content_length:
@@ -4294,7 +4457,6 @@ class SteamWorkshopDownloader(QWidget):
                                     debug_manager.debug(f"Download progress: {bytes_downloaded / 1024 / 1024:.2f} MB")
                                 last_log_time = current_time
                     
-                    # Calculate and log download time and speed
                     download_time = time.time() - start_time
                     download_speed = bytes_downloaded / download_time if download_time > 0 else 0
                     
@@ -4304,15 +4466,15 @@ class SteamWorkshopDownloader(QWidget):
                     debug_manager.debug(f"File saved to: {file_path}")
                     
                     self.log_signal.emit(f"Successfully downloaded mod {mod_id} ({bytes_downloaded / 1024 / 1024:.1f} MB)")
+                    self.update_mod_download_log(mod_id, mod_name, app_id)
                     return True
                 else:
                     error_msg = f"Failed to download mod {mod_id} via SteamWebAPI. HTTP Status Code: {response.status_code}"
                     debug_manager.error(error_msg)
                     debug_manager.debug(f"Response headers: {dict(response.headers)}")
                     
-                    # Try to get error details from response
                     try:
-                        error_content = response.text[:1000]  # Limit to avoid huge logs
+                        error_content = response.text[:1000]
                         debug_manager.debug(f"Error response content: {error_content}")
                     except:
                         debug_manager.debug("Could not retrieve error response content")
@@ -5209,6 +5371,132 @@ class SteamWorkshopDownloader(QWidget):
             self._tutorial_instance = Tutorial(self)
 
         self._tutorial_instance.start_tutorial()
+    
+    async def check_mods_for_updates_in_batch(self, mods_to_check: list, log_signal_emitter) -> dict:
+        
+        updated_status = {}
+        download_logs = self.load_mod_download_logs()
+        
+        async with aiohttp.ClientSession() as session:
+            tasks_with_mod_id = []
+            valid_mods_for_api_call = []
+    
+            for mod_dict in mods_to_check:
+                mod_id = mod_dict['mod_id']
+                mod_name = mod_dict.get('mod_name', 'Unknown')
+                app_id = mod_dict.get('app_id', 'Unknown')
+                
+                if not self.check_mod_folder_exists(mod_id, mod_name, app_id):
+                    log_signal_emitter.emit(f"Folder Check: Mod {mod_id} folder does not exist. Will be downloaded by SteamCMD.")
+                    updated_status[mod_id] = True
+                    continue
+                    
+                mod_log = download_logs.get(mod_id)
+                if not mod_log or 'timestamp' not in mod_log:
+                    log_signal_emitter.emit(f"Log Check: Mod {mod_id} has no prior download record. Will be processed by SteamCMD.")
+                    updated_status[mod_id] = True
+                    continue
+                
+                valid_mods_for_api_call.append(mod_dict)
+                tasks_with_mod_id.append(
+                    (get_workshop_mod_last_update_timestamp(session, mod_id, log_signal_emitter), mod_id)
+                )
+    
+            if tasks_with_mod_id:
+                tasks, task_mod_ids = zip(*tasks_with_mod_id)
+                workshop_update_timestamps_results = await asyncio.gather(*tasks, return_exceptions=True)
+            else:
+                workshop_update_timestamps_results = []
+                task_mod_ids = []
+    
+            for i, mod_id_from_task in enumerate(task_mod_ids):
+                original_mod_dict = next((m for m in valid_mods_for_api_call if m['mod_id'] == mod_id_from_task), None)
+                if not original_mod_dict:
+                    continue 
+    
+                mod_log = download_logs.get(mod_id_from_task, {})
+                local_last_download_ts = mod_log.get('timestamp', 0)
+                
+                remote_last_update_ts_or_exc = workshop_update_timestamps_results[i]
+    
+                if isinstance(remote_last_update_ts_or_exc, Exception) or remote_last_update_ts_or_exc is None:
+                    if isinstance(remote_last_update_ts_or_exc, Exception):
+                        log_signal_emitter.emit(f"HTMLUpdateCheck: Error checking mod {mod_id_from_task}: {remote_last_update_ts_or_exc}")
+                    updated_status[mod_id_from_task] = True
+                elif remote_last_update_ts_or_exc > local_last_download_ts:
+                    local_dt = datetime.fromtimestamp(local_last_download_ts).strftime('%Y-%m-%d %H:%M:%S')
+                    remote_dt = datetime.fromtimestamp(remote_last_update_ts_or_exc).strftime('%Y-%m-%d %H:%M:%S')
+                    log_signal_emitter.emit(f"HTMLUpdateCheck: Mod {mod_id_from_task} updated on Workshop ({remote_dt}) since last recorded download ({local_dt}).")
+                    updated_status[mod_id_from_task] = True
+                else:
+                    updated_status[mod_id_from_task] = False
+                    
+        return updated_status
+        
+    def check_mod_folder_exists(self, mod_id, mod_name, app_id):
+        folder_naming_format = self.config.get('folder_naming_format', 'id')
+        download_path = os.path.join(self.steamcmd_download_path, app_id)
+        
+        if not os.path.isdir(download_path):
+            return False
+            
+        if folder_naming_format == 'id':
+            folder_path = os.path.join(download_path, mod_id)
+            if os.path.isdir(folder_path):
+                return True
+        elif folder_naming_format == 'name':
+            safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', mod_name)
+            folder_path = os.path.join(download_path, safe_mod_name)
+            if os.path.isdir(folder_path):
+                return True
+        elif folder_naming_format == 'combined':
+            safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', mod_name)
+            folder_path = os.path.join(download_path, f"{mod_id} - {safe_mod_name}")
+            if os.path.isdir(folder_path):
+                return True
+        
+        for folder_name in os.listdir(download_path):
+            folder_path = os.path.join(download_path, folder_name)
+            if os.path.isdir(folder_path) and mod_id in folder_name:
+                return True
+        
+        return False
+        
+    def get_mod_log_path(self):
+        log_dir = os.path.join(self.files_dir, 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        return os.path.join(log_dir, 'mod_downloads.json')
+    
+    def load_mod_download_logs(self):
+        log_path = self.get_mod_log_path()
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, 'r', encoding='utf-8') as file:
+                    return json.load(file)
+            except Exception as e:
+                self.log_signal.emit(f"Error loading mod download logs: {e}")
+                return {}
+        return {}
+    
+    def save_mod_download_logs(self, logs_data):
+        log_path = self.get_mod_log_path()
+        try:
+            with open(log_path, 'w', encoding='utf-8') as file:
+                json.dump(logs_data, file, indent=4)
+        except Exception as e:
+            self.log_signal.emit(f"Error saving mod download logs: {e}")
+    
+    def update_mod_download_log(self, mod_id, mod_name, app_id):
+        logs = self.load_mod_download_logs()
+        
+        logs[mod_id] = {
+            'name': mod_name,
+            'app_id': app_id,
+            'timestamp': time.time(),
+            'date': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+        }
+        
+        self.save_mod_download_logs(logs)
 
 if __name__ == '__main__':
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
