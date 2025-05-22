@@ -4832,6 +4832,7 @@ class SteamWorkshopDownloader(QWidget):
         self.provider_dropdown.setCurrentText(stored_provider)
                     
     def reset_status_of_mods(self, selected_items):
+        reset_count = 0
         for item in selected_items:
             mod_id = item.text(1)
             mod = next((mod for mod in self.download_queue if mod['mod_id'] == mod_id), None)
@@ -4839,7 +4840,13 @@ class SteamWorkshopDownloader(QWidget):
                 mod['status'] = 'Queued'
                 mod['retry_count'] = 0
                 item.setText(3, 'Queued')
-                self.log_signal.emit(f"Mod {mod_id} status reset to 'Queued'.")
+                reset_count += 1
+        
+        if reset_count > 0:
+            if reset_count == 1:
+                self.log_signal.emit("Status reset to 'Queued' for 1 mod")
+            else:
+                self.log_signal.emit(f"Status reset to 'Queued' for {reset_count} mods")
 
     def move_all_downloaded_mods(self):
         workshop_content_path = os.path.join(self.steamcmd_dir, 'steamapps', 'workshop', 'content')
