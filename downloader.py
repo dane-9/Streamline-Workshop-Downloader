@@ -41,7 +41,7 @@ from PySide6.QtGui import (
     QColor, QPixmap, QPolygon, QFontMetrics, QActionGroup, QPalette
 )
 
-current_version = "1.3.0"
+current_version = "1.3.1"
 
 DEFAULT_SETTINGS = {
     "current_theme": "Dark",
