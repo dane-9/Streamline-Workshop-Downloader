@@ -4208,7 +4208,7 @@ class SteamWorkshopDownloader(QWidget):
     
             if existing_local_mods_to_evaluate:
                 if existing_mod_behavior == "Always Redownload":
-                    self.log_signal.emit(f"SteamCMD: AppID {app_id} - '{existing_mod_behavior}': {len(existing_local_mods_to_evaluate)} existing mods will be deleted and redownloaded.")
+                    # self.log_signal.emit(f"SteamCMD: AppID {app_id} - '{existing_mod_behavior}': {len(existing_local_mods_to_evaluate)} existing mods will be deleted and redownloaded.")
                     
                     deleted_mods_count = 0
                     failed_deletions_count = 0
@@ -4247,15 +4247,15 @@ class SteamWorkshopDownloader(QWidget):
                             failed_deletions_count += 1
                     
                     # Log for deletions
-                    if deleted_mods_count > 0:
-                        self.log_signal.emit(f"SteamCMD: Successfully deleted {deleted_mods_count} local mod(s) for AppID {app_id}")
+                    # if deleted_mods_count > 0:
+                        # self.log_signal.emit(f"SteamCMD: Successfully deleted {deleted_mods_count} local mod(s) for AppID {app_id}")
                     if failed_deletions_count > 0:
                         self.log_signal.emit(f"SteamCMD: Failed to delete {failed_deletions_count} local mod(s) for AppID {app_id}")
                     
                     mods_to_run_in_steamcmd_proc.extend(existing_local_mods_to_evaluate)
     
                 elif existing_mod_behavior == "Only Redownload if Updated":
-                    self.log_signal.emit(f"SteamCMD: AppID {app_id} - '{existing_mod_behavior}': Checking {len(existing_local_mods_to_evaluate)} existing mods for updates via HTML.")
+                    # self.log_signal.emit(f"SteamCMD: AppID {app_id} - '{existing_mod_behavior}': Checking {len(existing_local_mods_to_evaluate)} existing mods for updates via HTML.")
                     
                     update_results = {}
                     if existing_local_mods_to_evaluate:
@@ -4340,7 +4340,7 @@ class SteamWorkshopDownloader(QWidget):
                             self.successful_downloads_this_session.append(mod_id_skip)
             
             if not mods_to_run_in_steamcmd_proc:
-                self.log_signal.emit(f"SteamCMD: No mods require direct SteamCMD action for AppID {app_id} in this batch.")
+                # self.log_signal.emit(f"SteamCMD: No mods require direct SteamCMD action for AppID {app_id} in this batch.")
                 continue
     
             steamcmd_commands_list = [self.steamcmd_executable]
