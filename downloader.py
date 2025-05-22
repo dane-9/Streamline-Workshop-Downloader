@@ -4851,64 +4851,78 @@ class SteamWorkshopDownloader(QWidget):
         app_id_stats = defaultdict(int)
         status_updates = []
 
+        mod_download_logs = self.load_mod_download_logs()
+
         # Iterate over each App ID folder
         for app_id in os.listdir(workshop_content_path):
             app_path = os.path.join(workshop_content_path, app_id)
             if not os.path.isdir(app_path):
                 continue
-
+    
             # Iterate over each mod folder within the App folder
             for mod_id in os.listdir(app_path):
                 mod_path = os.path.join(app_path, mod_id)
                 if os.path.isdir(mod_path):
-                    if mod_id not in self.downloaded_mods_info:
-                        mod = next((m for m in self.download_queue if m['mod_id'] == mod_id), None)
-                        if mod:
-                            self.downloaded_mods_info[mod_id] = mod.get('mod_name', mod_id)
+                    mod = next((m for m in self.download_queue if m['mod_id'] == mod_id), None)
+                    mod_name = None
 
-                            if 'Failed' in mod['status'] or mod['status'] == 'Downloading':
-                                mod['status'] = 'Downloaded'
-                                status_updates.append((mod_id, 'Downloaded'))
+                    if mod:
+                        mod_name = mod.get('mod_name')
 
+                        if 'Failed' in mod['status'] or mod['status'] == 'Downloading':
+                            mod['status'] = 'Downloaded'
+                            status_updates.append((mod_id, 'Downloaded'))
+
+                        if mod_name:
+                            self.downloaded_mods_info[mod_id] = mod_name
+
+                    if not mod_name and mod_id in mod_download_logs:
+                        mod_name = mod_download_logs[mod_id].get('name')
+                        if mod_name:
+                            self.downloaded_mods_info[mod_id] = mod_name
+
+                    if not mod_name:
+                        mod_name = "UNKNOWN MOD"
+                        self.log_signal.emit(f"Warning: No name found for mod {mod_id}")
+    
                     folder_naming_format = self.config.get('folder_naming_format', 'id')
-
+    
                     if folder_naming_format == 'id':
                         folder_name = mod_id
                     else:
-                        safe_mod_name = self.downloaded_mods_info.get(mod_id, mod_id)
-
-                        # If the mod is age-restricted, always use mod_id
-                        if safe_mod_name == "UNKNOWN - Age Restricted":
-                            safe_mod_name = mod_id
+                        # If the mod is age-restricted
+                        if mod_name == "UNKNOWN - Age Restricted":
+                            safe_mod_name = "Age_Restricted_Content"
                         else:
                             # Remove characters that are illegal in file/folder names
-                            safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', safe_mod_name)
-
+                            safe_mod_name = re.sub(r'[<>:"/\\|?*]', '_', mod_name)
+    
                         if folder_naming_format == 'name':
                             folder_name = safe_mod_name
                         elif folder_naming_format == 'combined':
                             folder_name = f"{mod_id} - {safe_mod_name}"
-
+    
                     target_path = os.path.join(self.steamcmd_download_path, app_id, folder_name)
-
+    
                     try:
                         if not os.path.exists(os.path.dirname(target_path)):
                             os.makedirs(os.path.dirname(target_path))
-
+    
                         # Delete the existing directory first to prevent nesting
                         if os.path.exists(target_path) and os.path.isdir(target_path):
-                            self.log_signal.emit(f"Target directory already exists for mod {mod_id}. Removing existing directory before moving new content.")
                             shutil.rmtree(target_path)
-
-                        # Now move the mod directory
+    
+                        # Then move the mod directory
                         shutil.move(mod_path, target_path)
                         moved_count += 1
                         app_id_stats[app_id] += 1
+
+                        self.update_mod_download_log(mod_id, mod_name, app_id)
                     except Exception as e:
                         failed_count += 1
                         # Only log individual failures
                         self.log_signal.emit(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}")
-
+    
         if moved_count > 0:
             if len(app_id_stats) == 1:
                 # Single app ID
@@ -4919,12 +4933,12 @@ class SteamWorkshopDownloader(QWidget):
                 app_details = []
                 for app_id, count in app_id_stats.items():
                     app_details.append(f"{count} to {app_id}")
-
+    
                 self.log_signal.emit(f"Moved {moved_count} mod(s) to Downloads/SteamCMD: {', '.join(app_details)}")
-
+    
         if failed_count > 0:
             self.log_signal.emit(f"Failed to move {failed_count} mod(s)")
-
+    
         for mod_id, status in status_updates:
             self.update_queue_signal.emit(mod_id, status)
 
