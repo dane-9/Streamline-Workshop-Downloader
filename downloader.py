@@ -5297,37 +5297,6 @@ class SteamWorkshopDownloader(QWidget):
         try:
             scraper = AppIDScraper(self.files_dir)
 
-            chrome_win64_dir = os.path.join(self.files_dir, 'chromium', 'chrome-win64')
-            chromedriver_win64_dir = os.path.join(self.files_dir, 'chromium', 'chromedriver-win64')
-
-            if not (os.path.exists(chrome_win64_dir) and os.path.exists(chromedriver_win64_dir)):
-                self.log_signal.emit("Chromium or ChromeDriver not found. Installing...")
-                chromium_url, chromedriver_url = scraper.get_download_links()
-
-                def download_and_extract(url, extract_to, component_name):
-                    try:
-                        self.log_signal.emit(f"Downloading {component_name}...")
-                        response = requests.get(url)
-                        zip_filename = os.path.join(extract_to, "download.zip")
-
-                        with open(zip_filename, 'wb') as f:
-                            f.write(response.content)
-
-                        with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
-                            zip_ref.extractall(extract_to)
-
-                        os.remove(zip_filename)
-                        self.log_signal.emit(f"{component_name} downloaded and extracted.")
-                    except Exception as e:
-                        self.log_signal.emit(f"Error downloading {component_name}: {e}")
-                        raise
-
-                if not os.path.exists(chrome_win64_dir):
-                    download_and_extract(chromium_url, os.path.join(self.files_dir, 'chromium'), "Chromium")
-
-                if not os.path.exists(chromedriver_win64_dir):
-                    download_and_extract(chromedriver_url, os.path.join(self.files_dir, 'chromium'), "ChromeDriver")
-
             self.log_signal.emit("Scraping SteamDB for AppIDs...")
             entries = scraper.scrape_steamdb(selected_types)
 

@@ -3,19 +3,13 @@ import sys
 import shutil
 import subprocess
 import platform
+import json
 import time
-import threading
 import ctypes
 import requests
 import zipfile
 from io import BytesIO
-from lxml import html
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import win32gui
+from botasaurus.browser import browser, Driver
 
 from PySide6.QtWidgets import (
     QDialog, QLabel, QProgressBar, QPushButton, QVBoxLayout, QHBoxLayout,
@@ -91,197 +85,85 @@ def apply_theme_titlebar(window, config):
 class AppIDScraper:
     def __init__(self, files_dir):
         self.files_dir = files_dir
-        self.chromium_dir = os.path.join(self.files_dir, 'chromium')
-        os.makedirs(self.chromium_dir, exist_ok=True)
-
-    def hide_browser(self):
-        time.sleep(0.1)
-        def window_enum_callback(hwnd, window_list):
-            window_list.append(hwnd)
-        hwnd_list = []
-        win32gui.EnumWindows(window_enum_callback, hwnd_list)
-        for hwnd in hwnd_list:
-            window_text = win32gui.GetWindowText(hwnd)
-            if 'Chrome for Testing' in window_text:
-                ctypes.windll.user32.ShowWindow(hwnd, 0)
-                return
-
-    def get_download_links(self):
-        url = "https://googlechromelabs.github.io/chrome-for-testing/#stable"
-        response = requests.get(url)
-        tree = html.fromstring(response.content)
-
-        chrome_url = tree.xpath("//section[@id='stable']//tr[@class='status-ok' and th[1]/code/text()='chrome' and th[2]/code/text()='win64']//td[1]/code/text()")
-        chromedriver_url = tree.xpath("//section[@id='stable']//tr[@class='status-ok' and th[1]/code/text()='chromedriver' and th[2]/code/text()='win64']//td[1]/code/text()")
-
-        if not chrome_url or not chromedriver_url:
-            raise Exception("Failed to find the download links for Chromium and Chromedriver.")
-
-        return chrome_url[0].strip(), chromedriver_url[0].strip()
-
-    def download_and_extract_zip(self, url, extract_to, component_name, log_signal=None, progress_value=None):
-        if log_signal:
-            try:
-                if progress_value is not None:
-                    log_signal.emit(progress_value, f"Downloading {component_name}...")
-                else:
-                    log_signal.emit(f"Downloading {component_name}...")
-            except TypeError:
-                log_signal.emit(f"Downloading {component_name}...")
-
-        response = requests.get(url)
-        zip_filename = os.path.join(extract_to, "download.zip")
-
-        with open(zip_filename, 'wb') as f:
-            f.write(response.content)
-
-        with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
-            zip_ref.extractall(extract_to)
-
-        os.remove(zip_filename)
-
-        if log_signal:
-            try:
-                if progress_value is not None:
-                    log_signal.emit(progress_value + 5, f"{component_name} downloaded and extracted.")
-                else:
-                    log_signal.emit(f"{component_name} downloaded and extracted.")
-            except TypeError:
-                log_signal.emit(f"{component_name} downloaded and extracted.")
-
-    def check_chrome_installed(self):
-        chrome_win64_dir = os.path.join(self.chromium_dir, 'chrome-win64')
-        return os.path.exists(chrome_win64_dir)
-    
-    def check_chromedriver_installed(self):
-        chromedriver_win64_dir = os.path.join(self.chromium_dir, 'chromedriver-win64')
-        return os.path.exists(chromedriver_win64_dir)
-    
-    def install_chrome(self, log_signal=None, progress_value=None):
-        if not self.check_chrome_installed():
-            if log_signal:
-                try:
-                    if progress_value is not None:
-                        log_signal.emit(progress_value, "Chromium not found, downloading...")
-                    else:
-                        log_signal.emit("Chromium not found, downloading...")
-                except TypeError:
-                    log_signal.emit("Chromium not found, downloading...")
-            
-            chrome_url, _ = self.get_download_links()
-            
-            self.download_and_extract_zip(
-                chrome_url, 
-                self.chromium_dir, 
-                "Chromium", 
-                log_signal,
-                progress_value
-            )
-
-            if log_signal:
-                try:
-                    if progress_value is not None:
-                        log_signal.emit(progress_value + 10, "Chromium installed")
-                    else:
-                        log_signal.emit("Chromium installed")
-                except TypeError:
-                    log_signal.emit("Chromium installed")
-        else:
-            if log_signal:
-                try:
-                    if progress_value is not None:
-                        log_signal.emit(progress_value + 10, "Chromium already installed")
-                    else:
-                        log_signal.emit("Chromium already installed")
-                except TypeError:
-                    log_signal.emit("Chromium already installed")
-    
-    def install_chromedriver(self, log_signal=None, progress_value=None):
-        if not self.check_chromedriver_installed():
-            if log_signal:
-                try:
-                    if progress_value is not None:
-                        log_signal.emit(progress_value, "ChromeDriver not found, downloading...")
-                    else:
-                        log_signal.emit("ChromeDriver not found, downloading...")
-                except TypeError:
-                    log_signal.emit("ChromeDriver not found, downloading...")
-
-            _, chromedriver_url = self.get_download_links()
-
-            self.download_and_extract_zip(
-                chromedriver_url, 
-                self.chromium_dir, 
-                "ChromeDriver", 
-                log_signal,
-                progress_value
-            )
-
-            if log_signal:
-                try:
-
-                    if progress_value is not None:
-                        log_signal.emit(progress_value + 10, "ChromeDriver installed")
-                    else:
-                        log_signal.emit("ChromeDriver installed")
-                except TypeError:
-                    log_signal.emit("ChromeDriver installed")
-        else:
-            if log_signal:
-                try:
-                    if progress_value is not None:
-                        log_signal.emit(progress_value + 10, "ChromeDriver already installed")
-                    else:
-                        log_signal.emit("ChromeDriver already installed")
-                except TypeError:
-                    log_signal.emit("ChromeDriver already installed")
 
     def scrape_steamdb(self, selected_types, log_signal=None):
         if log_signal:
             log_signal.emit("Scraping SteamDB for AppIDs...")
 
-        self.install_chrome(log_signal)
-        self.install_chromedriver(log_signal)
-
-        chrome_options = webdriver.ChromeOptions()
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("window-position=-2000,0")
-
-        chromedriver_path = os.path.abspath(os.path.join(self.chromium_dir, "chromedriver-win64", "chromedriver.exe"))
-        chrome_path = os.path.abspath(os.path.join(self.chromium_dir, "chrome-win64", "chrome.exe"))
-        chrome_options.binary_location = chrome_path
-
-        driver = webdriver.Chrome(service=Service(chromedriver_path), options=chrome_options)
-
-        hide_thread = threading.Thread(target=self.hide_browser)
-        hide_thread.start()
-
-        entries = []
         try:
-            steamdb_url = "https://steamdb.info/sub/17906/apps/"
-            driver.get(steamdb_url)
-
-            WebDriverWait(driver, 60).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'tr.app'))
-            )
-
-            rows = driver.find_elements(By.CSS_SELECTOR, 'tr.app')
-
-            for row in rows:
-                app_type = row.find_element(By.CSS_SELECTOR, 'td:nth-child(2)').text.strip()
-                if app_type in selected_types:
-                    app_name = row.find_element(By.CSS_SELECTOR, 'td:nth-child(3)').text.strip()
-                    app_id = row.get_attribute('data-appid')
-                    entries.append(f"{app_name},{app_id}")
-
+            result = _scrape_steamdb_botasaurus({"selected_types": selected_types})
+            # The @browser decorator may wrap results in a list
+            if isinstance(result, list) and len(result) == 1 and isinstance(result[0], list):
+                entries = result[0]
+            elif isinstance(result, list) and all(isinstance(e, str) for e in result):
+                entries = result
+            else:
+                entries = result if result else []
+        except Exception as e:
             if log_signal:
-                log_signal.emit("SteamDB scraping Completed.")
-            return entries
+                log_signal.emit(f"SteamDB scraping failed: {e}")
+            raise
 
-        finally:
-            driver.quit()
+        if log_signal:
+            log_signal.emit("SteamDB scraping Completed.")
+        return entries
+
+
+@browser(
+    headless=True,
+    block_images=True,
+    output=None,
+    cache=False,
+    close_on_crash=True,
+    raise_exception=True,
+)
+def _scrape_steamdb_botasaurus(driver: Driver, data):
+    selected_types = data["selected_types"]
+
+    driver.google_get("https://steamdb.info/sub/17906/apps/", bypass_cloudflare=True)
+    
+    # Wait for the table rows to appear after Cloudflare bypass
+    driver.wait_for_element("tr.app", wait=60)
+
+    # Small delay to ensure the full table has rendered
+    time.sleep(2)
+
+    # Debug: check what page we're actually on and how many rows exist
+    current_url = driver.run_js("return window.location.href")
+    row_count = driver.run_js("return document.querySelectorAll('tr.app').length")
+    print(f"[SteamDB Scraper] Current URL: {current_url}")
+    print(f"[SteamDB Scraper] Found {row_count} tr.app rows")
+
+    if not row_count or row_count == 0:
+        print("[SteamDB Scraper] No rows found — page may not have loaded correctly")
+        return []
+
+    # Extract all data in one JS call — note the "return" keyword is required
+    types_json = json.dumps(selected_types)
+    entries = driver.run_js(f"""
+        return (function() {{
+            var selectedTypes = {types_json};
+            var rows = document.querySelectorAll('tr.app');
+            var results = [];
+            for (var i = 0; i < rows.length; i++) {{
+                var cells = rows[i].querySelectorAll('td');
+                if (cells.length >= 3) {{
+                    var appType = cells[1].textContent.trim();
+                    if (selectedTypes.indexOf(appType) !== -1) {{
+                        var appName = cells[2].textContent.trim();
+                        var appId = rows[i].getAttribute('data-appid');
+                        if (appId) {{
+                            results.push(appName + ',' + appId);
+                        }}
+                    }}
+                }}
+            }}
+            return results;
+        }})();
+    """)
+
+    print(f"[SteamDB Scraper] Extracted {len(entries) if entries else 0} entries")
+    return entries if entries else []
 
 class SetupWorker(QThread):
     progress_update = Signal(int, str)
@@ -302,56 +184,22 @@ class SetupWorker(QThread):
             steamcmd_present = self.check_steamcmd_installed()
 
             if not steamcmd_present:
-                self.progress_update.emit(5, "Downloading SteamCMD...")
+                self.progress_update.emit(10, "Downloading SteamCMD...")
                 self.download_steamcmd()
                 if self.canceled:
                     return
 
-                self.progress_update.emit(20, "Initializing SteamCMD...")
+                self.progress_update.emit(30, "Initializing SteamCMD...")
                 self.initialize_steamcmd()
                 if self.canceled:
                     return
             
-            self.progress_update.emit(30, "SteamCMD setup complete.")
+            self.progress_update.emit(50, "SteamCMD setup complete.")
 
-            self.progress_update.emit(35, "Checking Chromium installation...")
-            chrome_present = self.check_chrome_installed()
-
-            if not chrome_present:
-                self.progress_update.emit(40, "Chromium not found.")
-                
-                chrome_url, _ = self.scraper.get_download_links()
-                
-                self.progress_update.emit(45, "Downloading Chromium...")
-                self.download_chrome(chrome_url)
-                if self.canceled:
-                    return
-            else:
-                self.progress_update.emit(45, "Chromium already installed.")
-            
-            self.progress_update.emit(55, "Chromium setup complete.")
-
-            self.progress_update.emit(60, "Checking ChromeDriver installation...")
-            chromedriver_present = self.check_chromedriver_installed()
-
-            if not chromedriver_present:
-                self.progress_update.emit(65, "ChromeDriver not found.")
-                
-                _, chromedriver_url = self.scraper.get_download_links()
-                
-                self.progress_update.emit(70, "Downloading ChromeDriver...")
-                self.download_chromedriver(chromedriver_url)
-                if self.canceled:
-                    return
-            else:
-                self.progress_update.emit(70, "ChromeDriver already installed.")
-            
-            self.progress_update.emit(80, "ChromeDriver setup complete.")
-
-            self.progress_update.emit(85, "Checking AppIDs database...")
+            self.progress_update.emit(60, "Checking AppIDs database...")
             appids_path = os.path.join(self.files_dir, 'AppIDs.txt')
             if not os.path.isfile(appids_path):
-                self.progress_update.emit(90, "Scraping SteamDB for AppIDs...")
+                self.progress_update.emit(70, "Scraping SteamDB for AppIDs...")
                 self.download_appids()
                 if self.canceled:
                     return
@@ -375,12 +223,6 @@ class SetupWorker(QThread):
             os.path.join(self.steamcmd_dir, 'steamclient.dll')
         ]
         return os.path.isfile(steamcmd_executable) and all(os.path.isfile(file) for file in essential_files)
-    
-    def check_chrome_installed(self):
-        return self.scraper.check_chrome_installed()
-    
-    def check_chromedriver_installed(self):
-        return self.scraper.check_chromedriver_installed()
     
     def download_steamcmd(self):
         try:
@@ -421,30 +263,6 @@ class SetupWorker(QThread):
             self.error_emitted = True
             self.error_occurred.emit(f"Failed to initialize SteamCMD: {str(e)}")
             raise
-    
-    def download_chrome(self, url):
-        try:
-            self.progress_update.emit(45, "Starting Chrome download...")
-            
-            self.scraper.download_and_extract_zip(url, self.scraper.chromium_dir, "Chromium", self.progress_update,progress_value=50)
-
-            self.progress_update.emit(55, "Chromium downloaded and installed.")
-        except Exception as e:
-            self.error_emitted = True
-            self.error_occurred.emit(f"Failed to download Chromium: {str(e)}")
-            raise
-
-    def download_chromedriver(self, url):
-        try:
-            self.progress_update.emit(70, "Starting ChromeDriver download...")
-
-            self.scraper.download_and_extract_zip(url, self.scraper.chromium_dir, "ChromeDriver", self.progress_update, progress_value=75)
-
-            self.progress_update.emit(80, "ChromeDriver downloaded and installed.")
-        except Exception as e:
-            self.error_emitted = True
-            self.error_occurred.emit(f"Failed to download ChromeDriver: {str(e)}")
-            raise
 
     def download_appids(self):
         try:
@@ -462,13 +280,6 @@ class SetupWorker(QThread):
         if os.path.exists(self.steamcmd_dir):
             try:
                 shutil.rmtree(self.steamcmd_dir)
-            except Exception:
-                pass
-            
-        chromium_dir = os.path.join(self.files_dir, 'chromium')
-        if os.path.exists(chromium_dir):
-            try:
-                shutil.rmtree(chromium_dir)
             except Exception:
                 pass
             
