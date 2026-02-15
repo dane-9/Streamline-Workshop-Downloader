@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Streamline</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="theme-dark">
+  <div class="window-root">
+    <header class="app-titlebar">
+      <div class="titlebar-drag pywebview-drag-region">
+        <img id="titlebar-logo" class="titlebar-logo" src="../logo.png" alt="">
+        <span class="titlebar-text">Streamline</span>
+      </div>
+      <div class="titlebar-actions">
+        <button class="titlebar-btn" id="minimize-btn" type="button" title="Minimize">
+          <img src="../window-minimize.svg" alt="Minimize">
+        </button>
+        <button class="titlebar-btn close" id="close-btn" type="button" title="Close">
+          <img src="../window-close.svg" alt="Close">
+        </button>
+      </div>
+    </header>
+
+    <nav id="menu-bar" class="menu-bar">
+      <div class="menu-root">
+        <button class="menu-btn" data-menu="appearance-menu">Appearance</button>
+        <div class="menu-popup" id="appearance-menu">
+          <div class="menu-submenu">
+            <button class="menu-item menu-item-submenu" type="button">Theme</button>
+            <div class="menu-subpopup">
+              <button class="menu-item" id="theme-dark-btn" type="button">Dark</button>
+              <button class="menu-item" id="theme-light-btn" type="button">Light</button>
+            </div>
+          </div>
+          <div class="menu-submenu">
+            <button class="menu-item menu-item-submenu" type="button">Logo Style</button>
+            <div class="menu-subpopup">
+              <button class="menu-item" id="logo-light-btn" type="button">Light</button>
+              <button class="menu-item" id="logo-dark-btn" type="button">Dark</button>
+              <button class="menu-item" id="logo-darker-btn" type="button">Darker</button>
+            </div>
+          </div>
+          <div class="menu-sep"></div>
+          <button class="menu-item" id="toggle-menu-bar-btn">Toggle Menu Bar</button>
+          <button class="menu-item" id="toggle-search-bar-btn">Toggle Search Bar</button>
+          <button class="menu-item" id="toggle-logs-btn">Toggle Logs View</button>
+          <button class="menu-item" id="toggle-provider-btn">Toggle Provider</button>
+        </div>
+      </div>
+      <div class="menu-root">
+        <button class="menu-btn" data-menu="tools-menu">Tools</button>
+        <div class="menu-popup" id="tools-menu">
+          <button class="menu-item" id="toggle-auto-detect-btn">Toggle Auto-detect URLs</button>
+          <button class="menu-item" id="toggle-auto-add-btn">Toggle Auto-add URLs</button>
+        </div>
+      </div>
+      <div class="menu-root">
+        <button class="menu-btn" data-menu="help-menu">Help</button>
+        <div class="menu-popup" id="help-menu">
+          <button class="menu-item" id="documentation-btn">Documentation</button>
+          <button class="menu-item" id="report-issue-btn">Report Issue</button>
+          <button class="menu-item" id="tutorial-btn">Show Tutorial</button>
+          <button class="menu-item" id="about-btn">About</button>
+        </div>
+      </div>
+    </nav>
+
+    <div class="content">
+      <section class="toolbar-row">
+        <button class="icon-btn" id="settings-btn" title="Settings"><img src="../settings.png" alt="Settings"></button>
+        <button class="icon-btn" id="accounts-btn" title="Accounts"><img src="../accounts.png" alt="Accounts"></button>
+        <button class="text-icon-btn" id="appids-btn"><img src="../update_appids.png" alt="">AppIDs</button>
+        <div class="toolbar-spacer"></div>
+        <select class="control account-select" id="account-select">
+          <option>Anonymous</option>
+        </select>
+      </section>
+
+      <form id="queue-form" class="input-row">
+        <div class="line-input-wrap">
+          <button class="line-icon-btn" id="url-help-btn" type="button" title="Workshop Input Help">
+            <img src="../info.png" alt="Info">
+          </button>
+          <input class="control line-input" id="item-url" name="item-url" type="text" placeholder="Enter Game, Mod, Collection URL or ID" required>
+        </div>
+        <button class="control action-btn" id="download-now-btn" type="button">Download</button>
+        <button class="control action-btn" id="add-to-queue-btn" type="submit">Add to Queue</button>
+      </form>
+
+      <section id="search-row" class="search-row">
+        <div class="line-input-wrap">
+          <button class="line-icon-btn" id="filter-btn" type="button" title="Filter Queue Status">
+            <img src="../filter_queue_status.png" alt="Filter">
+          </button>
+          <input class="control line-input" id="search-input" type="text" placeholder="Mods in Queue: 0     /     Search by Mod ID or Name">
+          <div class="filter-popup hidden" id="filter-popup">
+            <button class="filter-item active" data-filter="All">All Mods</button>
+            <button class="filter-item" data-filter="Queued">Mods Queued</button>
+            <button class="filter-item" data-filter="Downloaded">Downloaded</button>
+            <button class="filter-item" data-filter="Failed">Failed</button>
+          </div>
+        </div>
+        <button class="tiny-icon-btn" id="case-btn" type="button" title="Case sensitivity">
+          <img id="case-icon" src="../case_disabled.png" alt="Case">
+        </button>
+        <button class="tiny-icon-btn" id="regex-btn" type="button" title="Regex">
+          <img id="regex-icon" src="../regex_disabled.png" alt="Regex">
+        </button>
+        <div id="import-export-spacer" class="import-export-spacer"></div>
+        <div id="import-export-wrap" class="import-export-wrap">
+          <button class="icon-btn" id="import-btn" type="button" title="Import Queue"><img src="../import.png" alt="Import"></button>
+          <button class="icon-btn" id="export-btn" type="button" title="Export Queue"><img src="../export.png" alt="Export"></button>
+        </div>
+      </section>
+
+      <section class="queue-table-wrap">
+        <table id="queue-table">
+          <thead>
+            <tr id="queue-head-row">
+              <th>Game</th>
+              <th>Mod ID</th>
+              <th>Mod Name</th>
+              <th>Status</th>
+              <th>Provider</th>
+            </tr>
+          </thead>
+          <tbody id="queue-body"></tbody>
+        </table>
+      </section>
+
+      <section class="footer-row">
+        <button class="control footer-btn" id="open-downloads-btn" type="button">Open Downloads Folder</button>
+        <button class="control footer-btn start-btn" id="start-download-btn" type="button">Start Download</button>
+        <div id="provider-wrap" class="provider-wrap">
+          <div class="provider-select-wrap">
+            <span class="provider-display" aria-hidden="true">
+              <span class="provider-display-prefix">Provider:</span>
+              <span class="provider-display-name" id="provider-display-name">Default</span>
+            </span>
+            <select class="control provider-select" id="provider" name="provider" aria-label="Provider">
+              <option value="Default">Default</option>
+              <option value="SteamCMD">SteamCMD</option>
+              <option value="SteamWebAPI">SteamWebAPI</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section id="log-wrap" class="log-wrap">
+        <div class="log-area" id="event-log"></div>
+      </section>
+    </div>
+    <div id="window-resize-east" class="window-resize-edge east"></div>
+    <div id="window-resize-south" class="window-resize-edge south"></div>
+  </div>
+  <div id="queue-context-menu" class="queue-context-menu hidden">
+    <button class="queue-context-item" data-action="move_top" type="button">Move to Top</button>
+    <button class="queue-context-item" data-action="move_up" type="button">Move Up</button>
+    <button class="queue-context-item" data-action="move_down" type="button">Move Down</button>
+    <button class="queue-context-item" data-action="move_bottom" type="button">Move to Bottom</button>
+    <div class="queue-context-sep"></div>
+    <div class="queue-context-submenu">
+      <button class="queue-context-parent" type="button">Provider</button>
+      <div class="queue-context-subpopup">
+        <button class="queue-context-item" data-action="provider_default" type="button">Default</button>
+        <button class="queue-context-item" data-action="provider_steamcmd" type="button">SteamCMD</button>
+        <button class="queue-context-item" data-action="provider_webapi" type="button">SteamWebAPI</button>
+      </div>
+    </div>
+    <button class="queue-context-item" data-action="override_appid" type="button">Override AppID</button>
+    <button class="queue-context-item" data-action="reset_status" type="button">Reset Status</button>
+    <div class="queue-context-sep"></div>
+    <button class="queue-context-item danger" data-action="remove" type="button">Remove</button>
+  </div>
+  <div id="logs-context-menu" class="queue-context-menu hidden">
+    <button class="queue-context-item" data-action="clear_logs" type="button">Clear Logs</button>
+  </div>
+  <div id="header-context-menu" class="header-context-menu hidden"></div>
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal-card">
+      <h3 id="modal-title" class="modal-title">Dialog</h3>
+      <p id="modal-message" class="modal-message"></p>
+      <div id="modal-form" class="modal-form hidden"></div>
+      <textarea id="modal-input" class="modal-input" rows="8"></textarea>
+      <div class="modal-actions">
+        <button id="modal-cancel-btn" class="control modal-btn" type="button">Cancel</button>
+        <button id="modal-ok-btn" class="control modal-btn primary" type="button">OK</button>
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

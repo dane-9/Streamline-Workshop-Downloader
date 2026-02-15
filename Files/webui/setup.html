@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Initializing Streamline</title>
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body>
+  <main class="setup-root">
+    <section class="setup-card">
+      <img class="setup-logo" src="../logo.png" alt="Streamline logo">
+      <h1 class="setup-title">Initializing Streamline</h1>
+      <p id="setup-status" class="setup-status">Preparing setup...</p>
+      <div class="progress-wrap">
+        <div id="setup-progress-bar" class="progress-bar"></div>
+      </div>
+      <div id="setup-progress-text" class="progress-text">0%</div>
+      <p id="setup-error" class="setup-error hidden"></p>
+      <div class="setup-actions">
+        <button id="setup-cancel-btn" class="setup-btn secondary" type="button">Cancel</button>
+        <button id="setup-retry-btn" class="setup-btn secondary hidden" type="button">Retry</button>
+        <button id="setup-open-anyway-btn" class="setup-btn secondary hidden" type="button">Open Anyway</button>
+        <button id="setup-open-btn" class="setup-btn primary hidden" type="button">Open Streamline</button>
+        <button id="setup-close-btn" class="setup-btn secondary hidden" type="button">Close</button>
+      </div>
+    </section>
+  </main>
+  <script src="setup.js"></script>
+</body>
+</html>
