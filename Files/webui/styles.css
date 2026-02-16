@@ -376,6 +376,10 @@ button.control:active,
   height: 27px;
 }
 
+.titlebar-left-controls #appids-btn {
+  width: 50px;
+}
+
 .settings-command-shell {
   position: relative;
   display: inline-flex;
@@ -389,6 +393,7 @@ button.control:active,
 }
 
 .settings-command-shell #settings-btn,
+.settings-command-shell #appids-btn,
 .settings-command-shell #command-palette-btn {
   height: 27px;
   border: none;
@@ -402,12 +407,18 @@ button.control:active,
   width: 30px;
 }
 
+.settings-command-shell #appids-btn {
+  width: 50px;
+  border-left: 1px solid var(--menu-border);
+}
+
 .settings-command-shell #command-palette-btn {
   width: 20px;
   border-left: 1px solid var(--menu-border);
 }
 
 .settings-command-shell #settings-btn:hover,
+.settings-command-shell #appids-btn:hover,
 .settings-command-shell #command-palette-btn:hover,
 .settings-command-shell #command-palette-btn.active {
   border: none;
@@ -415,6 +426,7 @@ button.control:active,
   background: var(--control-hover);
 }
 
+.settings-command-shell #appids-btn:hover,
 .settings-command-shell #command-palette-btn:hover,
 .settings-command-shell #command-palette-btn.active {
   border-left: 1px solid var(--menu-border);
@@ -774,8 +786,13 @@ button.control:active,
 }
 
 #appids-btn::before {
-  width: 17px;
-  height: 17px;
+  width: 42px;
+  height: 42px;
+  background-color: var(--fg);
+}
+
+#appids-btn:hover::before {
+  background-color: var(--fg-hover);
 }
 
 #command-palette-btn::before {
