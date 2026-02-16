@@ -6,8 +6,6 @@ const filterBtn = document.getElementById("filter-btn");
 const filterPopup = document.getElementById("filter-popup");
 const caseBtn = document.getElementById("case-btn");
 const regexBtn = document.getElementById("regex-btn");
-const caseIcon = document.getElementById("case-icon");
-const regexIcon = document.getElementById("regex-icon");
 const providerSelect = document.getElementById("provider");
 const providerDisplayName = document.getElementById("provider-display-name");
 const accountSelect = document.getElementById("account-select");
@@ -2622,10 +2620,22 @@ function buildSettingsFormHtml(settings) {
   return `
     <div class="settings-shell">
       <div class="settings-nav">
-        <button class="settings-nav-item active" type="button" data-settings-page-btn="appearance">Appearance</button>
-        <button class="settings-nav-item" type="button" data-settings-page-btn="download">Download Options</button>
-        <button class="settings-nav-item" type="button" data-settings-page-btn="tools">Tools</button>
-        <button class="settings-nav-item" type="button" data-settings-page-btn="system">System</button>
+        <button class="settings-nav-item active" type="button" data-settings-page-btn="appearance">
+          <span class="settings-nav-icon settings-nav-icon-appearance" aria-hidden="true"></span>
+          <span class="settings-nav-label">Appearance</span>
+        </button>
+        <button class="settings-nav-item" type="button" data-settings-page-btn="download">
+          <span class="settings-nav-icon settings-nav-icon-download" aria-hidden="true"></span>
+          <span class="settings-nav-label">Download Options</span>
+        </button>
+        <button class="settings-nav-item" type="button" data-settings-page-btn="tools">
+          <span class="settings-nav-icon settings-nav-icon-tools" aria-hidden="true"></span>
+          <span class="settings-nav-label">Tools</span>
+        </button>
+        <button class="settings-nav-item" type="button" data-settings-page-btn="system">
+          <span class="settings-nav-icon settings-nav-icon-system" aria-hidden="true"></span>
+          <span class="settings-nav-label">System</span>
+        </button>
         <div class="settings-nav-spacer"></div>
         <button id="st-reset-defaults" class="control settings-reset-btn" type="button">Reset to Defaults</button>
       </div>
@@ -3676,7 +3686,6 @@ function wireFilterControls() {
   caseBtn.addEventListener("click", () => {
     state.caseSensitive = !state.caseSensitive;
     caseBtn.classList.toggle("active", state.caseSensitive);
-    caseIcon.src = state.caseSensitive ? "../case_enabled.png" : "../case_disabled.png";
     state.searchMatcherCache.matcher = null;
     scheduleSearchRender(0);
   });
@@ -3684,7 +3693,6 @@ function wireFilterControls() {
   regexBtn.addEventListener("click", () => {
     state.regex = !state.regex;
     regexBtn.classList.toggle("active", state.regex);
-    regexIcon.src = state.regex ? "../regex_enabled.png" : "../regex_disabled.png";
     state.searchMatcherCache.matcher = null;
     scheduleSearchRender(0);
   });

@@ -421,6 +421,7 @@ button.control:active,
   height: 28px;
   border: none;
   background: transparent;
+  color: var(--fg);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -458,6 +459,116 @@ button.control:active,
 
 .tiny-icon-btn.active {
   background: var(--control-hover);
+  color: var(--fg);
+}
+
+#case-btn.active,
+#regex-btn.active,
+#case-btn.active:hover,
+#regex-btn.active:hover {
+  color: #40b6e0;
+}
+
+#settings-btn img,
+#appids-btn img,
+#accounts-btn img,
+#url-help-btn img,
+#filter-btn img,
+#import-btn img,
+#export-btn img,
+#case-btn img,
+#regex-btn img {
+  display: none;
+}
+
+#settings-btn::before,
+#appids-btn::before,
+#accounts-btn::before,
+#url-help-btn::before,
+#filter-btn::before,
+#import-btn::before,
+#export-btn::before,
+#case-btn::before,
+#regex-btn::before {
+  content: "";
+  display: block;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+#settings-btn::before,
+#accounts-btn::before,
+#import-btn::before,
+#export-btn::before {
+  width: 18px;
+  height: 18px;
+}
+
+#appids-btn::before {
+  width: 17px;
+  height: 17px;
+}
+
+#url-help-btn::before,
+#filter-btn::before {
+  width: 15px;
+  height: 15px;
+}
+
+#case-btn::before,
+#regex-btn::before {
+  width: 16px;
+  height: 16px;
+}
+
+#settings-btn::before {
+  -webkit-mask-image: url("../settings.svg");
+  mask-image: url("../settings.svg");
+}
+
+#appids-btn::before {
+  -webkit-mask-image: url("../update-appids.svg");
+  mask-image: url("../update-appids.svg");
+}
+
+#accounts-btn::before {
+  -webkit-mask-image: url("../accounts.svg");
+  mask-image: url("../accounts.svg");
+}
+
+#url-help-btn::before {
+  -webkit-mask-image: url("../info.svg");
+  mask-image: url("../info.svg");
+}
+
+#filter-btn::before {
+  -webkit-mask-image: url("../filter-queue-status.svg");
+  mask-image: url("../filter-queue-status.svg");
+}
+
+#case-btn::before {
+  -webkit-mask-image: url("../case-sensitive.svg");
+  mask-image: url("../case-sensitive.svg");
+}
+
+#regex-btn::before {
+  -webkit-mask-image: url("../regex.svg");
+  mask-image: url("../regex.svg");
+}
+
+#import-btn::before {
+  -webkit-mask-image: url("../import.svg");
+  mask-image: url("../import.svg");
+}
+
+#export-btn::before {
+  -webkit-mask-image: url("../export.svg");
+  mask-image: url("../export.svg");
 }
 
 .import-export-spacer {
@@ -1032,6 +1143,9 @@ select.form-control:hover {
   background: transparent;
   color: var(--fg);
   text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 7px 8px;
   font: inherit;
   cursor: pointer;
@@ -1046,6 +1160,39 @@ select.form-control:hover {
   background: var(--settings-nav-active);
   color: var(--fg);
   border-color: var(--panel-border);
+}
+
+.settings-nav-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+.settings-nav-icon-appearance {
+  -webkit-mask-image: url("../apperance-options.svg");
+  mask-image: url("../apperance-options.svg");
+}
+
+.settings-nav-icon-download {
+  -webkit-mask-image: url("../download-options.svg");
+  mask-image: url("../download-options.svg");
+}
+
+.settings-nav-icon-tools {
+  -webkit-mask-image: url("../tool-options.svg");
+  mask-image: url("../tool-options.svg");
+}
+
+.settings-nav-icon-system {
+  -webkit-mask-image: url("../system-options.svg");
+  mask-image: url("../system-options.svg");
 }
 
 .settings-page-wrap {
