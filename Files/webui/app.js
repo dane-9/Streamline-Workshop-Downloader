@@ -27,11 +27,15 @@ const itemUrlInput = document.getElementById("item-url");
 const settingsBtn = document.getElementById("settings-btn");
 const accountsBtn = document.getElementById("accounts-btn");
 const appidsBtn = document.getElementById("appids-btn");
+const commandPaletteBtn = document.getElementById("command-palette-btn");
 const importBtn = document.getElementById("import-btn");
 const exportBtn = document.getElementById("export-btn");
 const queueContextMenu = document.getElementById("queue-context-menu");
 const logsContextMenu = document.getElementById("logs-context-menu");
 const headerContextMenu = document.getElementById("header-context-menu");
+const commandPaletteOverlay = document.getElementById("command-palette-overlay");
+const commandPaletteInput = document.getElementById("command-palette-input");
+const commandPaletteList = document.getElementById("command-palette-list");
 const queueTable = document.getElementById("queue-table");
 const queueHeadRow = document.getElementById("queue-head-row");
 const queueTableWrap = document.querySelector(".queue-table-wrap");
@@ -72,6 +76,10 @@ let activeColumnResize = null;
 let searchRenderTimer = null;
 let appShuttingDown = false;
 let tutorialSession = null;
+let commandPaletteActions = [];
+let commandPaletteResults = [];
+let commandPaletteSelectedIndex = 0;
+let commandPaletteLastFocusedElement = null;
 
 const MAX_LOG_LINES = 500;
 const SEARCH_RENDER_DEBOUNCE_MS = 180;
@@ -455,6 +463,493 @@ function toggleMenuPopup(button) {
     popup.classList.add("open");
     button.classList.add("active");
   }
+}
+
+function isCommandPaletteOpen() {
+  return !!commandPaletteOverlay && !commandPaletteOverlay.classList.contains("hidden");
+}
+
+function getSharedCommands() {
+  const config = {
+    ...SETTINGS_DEFAULTS,
+    ...(state.config || {})
+  };
+  const showMenuBar = config.show_menu_bar !== false;
+  const showSearch = config.show_searchbar !== false;
+  const showLogs = config.show_logs !== false;
+  const showProvider = config.show_provider !== false;
+  const autoDetect = !!config.auto_detect_urls;
+  const autoAdd = !!config.auto_add_to_queue;
+  const theme = String(config.current_theme || "Dark");
+  const logoStyle = String(config.logo_style || "Light");
+
+  return [
+    {
+      id: "open_settings",
+      label: "Open Settings",
+      hint: "Controls",
+      keywords: "settings preferences options",
+      run: async () => {
+        try {
+          await openSettingsEditor();
+        } catch (error) {
+          addLog(error?.message || "Settings action failed.", "bad");
+        }
+      }
+    },
+    {
+      id: "manage_accounts",
+      label: "Manage Accounts",
+      hint: "Controls",
+      keywords: "accounts login users",
+      run: async () => {
+        try {
+          await openAccountsManager();
+        } catch (error) {
+          addLog(error?.message || "Accounts action failed.", "bad");
+        }
+      }
+    },
+    {
+      id: "manage_appids",
+      label: "Manage AppIDs",
+      hint: "Controls",
+      keywords: "appids ids overrides",
+      run: async () => {
+        try {
+          await openAppIdsManager();
+        } catch (error) {
+          addLog(error?.message || "AppIDs action failed.", "bad");
+        }
+      }
+    },
+    {
+      id: "import_queue",
+      label: "Import Queue",
+      hint: "Controls",
+      keywords: "import queue file",
+      run: async () => {
+        const browse = await callApi("browse_import_queue_file");
+        if (!browse?.success) {
+          if (!browse?.cancelled) {
+            addLog(browse?.error || "Import file selection failed.", "bad");
+          }
+          return;
+        }
+        const filePath = browse.path;
+        const result = await callApi("import_queue", filePath);
+        if (result?.success) {
+          addLog(`Queue imported (${result.added} added, ${result.skipped} skipped).`, "good");
+          await refreshQueue();
+        } else {
+          addLog(result?.error || "Import failed.", "bad");
+        }
+      }
+    },
+    {
+      id: "export_queue",
+      label: "Export Queue",
+      hint: "Controls",
+      keywords: "export queue file",
+      run: async () => {
+        const browse = await callApi("browse_export_queue_file");
+        if (!browse?.success) {
+          if (!browse?.cancelled) {
+            addLog(browse?.error || "Export file selection failed.", "bad");
+          }
+          return;
+        }
+        const filePath = browse.path;
+        const result = await callApi("export_queue", filePath);
+        if (result?.success) {
+          addLog(`Queue exported to ${result.path}.`, "good");
+        } else {
+          addLog(result?.error || "Export failed.", "bad");
+        }
+      }
+    },
+    {
+      id: "start_or_cancel_download",
+      label: state.isDownloading ? "Cancel Download" : "Start Download",
+      hint: "Queue",
+      keywords: "download start cancel",
+      run: () => startDownloadBtn?.click()
+    },
+    {
+      id: "open_downloads_folder",
+      label: "Open Downloads Folder",
+      hint: "Queue",
+      keywords: "open downloads folder path",
+      run: () => openDownloadsBtn?.click()
+    },
+    {
+      id: "download_now",
+      label: "Download Now",
+      hint: "Queue",
+      keywords: "download now immediate",
+      run: () => downloadNowBtn?.click()
+    },
+    {
+      id: "theme_dark",
+      label: "Theme: Dark",
+      hint: theme === "Dark" ? "Current" : "Appearance",
+      keywords: "theme dark",
+      run: async () => {
+        await applySettingsPatch({ current_theme: "Dark" }, "Theme changed to Dark.");
+      }
+    },
+    {
+      id: "theme_light",
+      label: "Theme: Light",
+      hint: theme === "Light" ? "Current" : "Appearance",
+      keywords: "theme light",
+      run: async () => {
+        await applySettingsPatch({ current_theme: "Light" }, "Theme changed to Light.");
+      }
+    },
+    {
+      id: "logo_light",
+      label: "Logo Style: Light",
+      hint: logoStyle === "Light" ? "Current" : "Appearance",
+      keywords: "logo style light",
+      run: async () => {
+        await applySettingsPatch({ logo_style: "Light" }, "Logo style changed to Light.");
+      }
+    },
+    {
+      id: "logo_dark",
+      label: "Logo Style: Dark",
+      hint: logoStyle === "Dark" ? "Current" : "Appearance",
+      keywords: "logo style dark",
+      run: async () => {
+        await applySettingsPatch({ logo_style: "Dark" }, "Logo style changed to Dark.");
+      }
+    },
+    {
+      id: "logo_darker",
+      label: "Logo Style: Darker",
+      hint: logoStyle === "Darker" ? "Current" : "Appearance",
+      keywords: "logo style darker",
+      run: async () => {
+        await applySettingsPatch({ logo_style: "Darker" }, "Logo style changed to Darker.");
+      }
+    },
+    {
+      id: "toggle_search_bar",
+      label: showSearch ? "Hide Search Bar" : "Show Search Bar",
+      hint: "Appearance",
+      keywords: "search bar visibility",
+      run: async () => {
+        await applySettingsPatch({ show_searchbar: !state.config.show_searchbar }, "Toggled search bar visibility.");
+      }
+    },
+    {
+      id: "toggle_logs",
+      label: showLogs ? "Hide Logs View" : "Show Logs View",
+      hint: "Appearance",
+      keywords: "logs console visibility",
+      run: async () => {
+        await applySettingsPatch({ show_logs: !state.config.show_logs }, "Toggled logs view visibility.");
+      }
+    },
+    {
+      id: "toggle_provider",
+      label: showProvider ? "Hide Provider Selector" : "Show Provider Selector",
+      hint: "Appearance",
+      keywords: "provider visibility dropdown",
+      run: async () => {
+        await applySettingsPatch({ show_provider: !state.config.show_provider }, "Toggled provider dropdown visibility.");
+      }
+    },
+    {
+      id: "toggle_menu_bar",
+      label: showMenuBar ? "Hide Menu Bar" : "Show Menu Bar",
+      hint: "Appearance",
+      keywords: "menu menubar visibility",
+      run: async () => {
+        await applySettingsPatch({ show_menu_bar: !state.config.show_menu_bar }, "Toggled menu bar visibility.");
+      }
+    },
+    {
+      id: "toggle_auto_detect",
+      label: autoDetect ? "Disable Auto-detect URLs" : "Enable Auto-detect URLs",
+      hint: "Tools",
+      keywords: "auto detect clipboard urls",
+      run: async () => {
+        const nextValue = !state.config.auto_detect_urls;
+        const patch = { auto_detect_urls: nextValue };
+        if (!nextValue) {
+          patch.auto_add_to_queue = false;
+        }
+        await applySettingsPatch(patch, `Auto-detect URLs ${nextValue ? "enabled" : "disabled"}.`);
+      }
+    },
+    {
+      id: "toggle_auto_add",
+      label: autoAdd ? "Disable Auto-add URLs" : "Enable Auto-add URLs",
+      hint: "Tools",
+      keywords: "auto add queue urls",
+      run: async () => {
+        if (!state.config.auto_detect_urls) {
+          addLog("Enable auto-detect URLs first.", "bad");
+          return;
+        }
+        const nextValue = !state.config.auto_add_to_queue;
+        await applySettingsPatch({ auto_add_to_queue: nextValue }, `Auto-add URLs ${nextValue ? "enabled" : "disabled"}.`);
+      }
+    },
+    {
+      id: "open_documentation",
+      label: "Documentation",
+      hint: "Help",
+      keywords: "docs guide manual",
+      run: async () => {
+        const result = await callApi("launch_documentation");
+        if (!result?.success) {
+          addLog(result?.error || "Failed to open documentation.", "bad");
+        }
+      }
+    },
+    {
+      id: "open_report_issue",
+      label: "Report Issue",
+      hint: "Help",
+      keywords: "bug issue github",
+      run: async () => {
+        const result = await callApi("launch_report_issue");
+        if (!result?.success) {
+          addLog(result?.error || "Failed to open issues page.", "bad");
+        }
+      }
+    },
+    {
+      id: "show_tutorial",
+      label: "Show Tutorial",
+      hint: "Help",
+      keywords: "tutorial walkthrough onboarding",
+      run: async () => {
+        await openTutorialDialog();
+      }
+    },
+    {
+      id: "show_about",
+      label: "About",
+      hint: "Help",
+      keywords: "about version info",
+      run: async () => {
+        await openAboutDialog();
+      }
+    }
+  ];
+}
+
+function getPaletteCommands() {
+  return getSharedCommands();
+}
+
+function getSharedCommandById(commandId) {
+  return getSharedCommands().find((command) => command.id === commandId) || null;
+}
+
+async function runCommandById(commandId, { closeMenus = false } = {}) {
+  const command = getSharedCommandById(commandId);
+  if (!command) {
+    addLog(`Unknown command: ${commandId}`, "bad");
+    return false;
+  }
+  if (closeMenus) {
+    closeMenuPopups();
+  }
+  try {
+    await command.run();
+    return true;
+  } catch (error) {
+    addLog(error?.message || `Command failed: ${command.label}`, "bad");
+    return false;
+  }
+}
+
+function bindCommandToButton(button, commandId, { closeMenus = false } = {}) {
+  if (!button) {
+    return;
+  }
+  button.addEventListener("click", () => {
+    void runCommandById(commandId, { closeMenus });
+  });
+}
+
+function filterCommandPaletteActions(queryText) {
+  const terms = String(queryText || "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!terms.length) {
+    return commandPaletteActions.slice();
+  }
+
+  return commandPaletteActions.filter((action) => {
+    const haystack = `${action.label} ${action.hint || ""} ${action.keywords || ""}`.toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+function setCommandPaletteSelection(index, scroll = true) {
+  if (!Array.isArray(commandPaletteResults) || commandPaletteResults.length === 0) {
+    commandPaletteSelectedIndex = 0;
+    return;
+  }
+  const maxIndex = commandPaletteResults.length - 1;
+  commandPaletteSelectedIndex = Math.max(0, Math.min(index, maxIndex));
+
+  const items = commandPaletteList?.querySelectorAll(".command-palette-item");
+  if (!items || items.length === 0) {
+    return;
+  }
+  items.forEach((itemNode, itemIndex) => {
+    itemNode.classList.toggle("active", itemIndex === commandPaletteSelectedIndex);
+  });
+  if (scroll) {
+    items[commandPaletteSelectedIndex]?.scrollIntoView({ block: "nearest" });
+  }
+}
+
+function renderCommandPaletteList() {
+  if (!commandPaletteList) {
+    return;
+  }
+
+  commandPaletteResults = filterCommandPaletteActions(commandPaletteInput?.value || "");
+  if (commandPaletteResults.length === 0) {
+    commandPaletteList.innerHTML = '<div class="command-palette-empty">No commands found.</div>';
+    commandPaletteSelectedIndex = 0;
+    return;
+  }
+
+  commandPaletteList.innerHTML = "";
+  commandPaletteResults.forEach((action, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "command-palette-item";
+    button.dataset.commandIndex = String(index);
+
+    const label = document.createElement("span");
+    label.className = "command-palette-item-label";
+    label.textContent = action.label;
+    button.appendChild(label);
+
+    if (action.hint) {
+      const hint = document.createElement("span");
+      hint.className = "command-palette-item-hint";
+      hint.textContent = action.hint;
+      button.appendChild(hint);
+    }
+
+    button.addEventListener("mouseenter", () => setCommandPaletteSelection(index, false));
+    button.addEventListener("click", () => executeCommandPaletteAction(index));
+    commandPaletteList.appendChild(button);
+  });
+
+  if (commandPaletteSelectedIndex >= commandPaletteResults.length) {
+    commandPaletteSelectedIndex = commandPaletteResults.length - 1;
+  }
+  setCommandPaletteSelection(commandPaletteSelectedIndex, false);
+}
+
+function closeCommandPalette({ restoreFocus = true } = {}) {
+  if (!isCommandPaletteOpen()) {
+    return;
+  }
+  commandPaletteOverlay.classList.add("hidden");
+  commandPaletteList.innerHTML = "";
+  commandPaletteResults = [];
+  commandPaletteActions = [];
+  commandPaletteSelectedIndex = 0;
+
+  const restoreTarget = commandPaletteLastFocusedElement;
+  commandPaletteLastFocusedElement = null;
+  if (restoreFocus && restoreTarget instanceof HTMLElement && document.contains(restoreTarget)) {
+    restoreTarget.focus();
+  }
+}
+
+function executeCommandPaletteAction(index = commandPaletteSelectedIndex) {
+  const action = commandPaletteResults[index];
+  if (!action?.id) {
+    return;
+  }
+  closeCommandPalette();
+  void runCommandById(action.id);
+}
+
+function openCommandPalette() {
+  if (!commandPaletteOverlay || !commandPaletteInput || !commandPaletteList) {
+    return;
+  }
+  if (modalOverlay && !modalOverlay.classList.contains("hidden")) {
+    return;
+  }
+
+  closeMenuPopups();
+  hideQueueContextMenu();
+  hideLogsContextMenu();
+  hideHeaderContextMenu();
+
+  commandPaletteLastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  commandPaletteActions = getPaletteCommands();
+  commandPaletteSelectedIndex = 0;
+  commandPaletteInput.value = "";
+  commandPaletteOverlay.classList.remove("hidden");
+  renderCommandPaletteList();
+  commandPaletteInput.focus();
+}
+
+function wireCommandPalette() {
+  if (!commandPaletteOverlay || !commandPaletteInput || !commandPaletteList) {
+    return;
+  }
+
+  commandPaletteBtn?.addEventListener("click", () => {
+    if (isCommandPaletteOpen()) {
+      closeCommandPalette();
+    } else {
+      openCommandPalette();
+    }
+  });
+
+  commandPaletteOverlay.addEventListener("mousedown", (event) => {
+    if (event.target === commandPaletteOverlay) {
+      closeCommandPalette();
+    }
+  });
+
+  commandPaletteInput.addEventListener("input", () => {
+    commandPaletteSelectedIndex = 0;
+    renderCommandPaletteList();
+  });
+
+  commandPaletteInput.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeCommandPalette();
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setCommandPaletteSelection(commandPaletteSelectedIndex + 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setCommandPaletteSelection(commandPaletteSelectedIndex - 1);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      executeCommandPaletteAction(commandPaletteSelectedIndex);
+    }
+  });
 }
 
 function parseModId(inputUrl) {
@@ -1488,10 +1983,29 @@ function wireQueueRowInteractions() {
 
 function wireGlobalShortcuts() {
   document.addEventListener("keydown", (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey) {
+    const key = String(event.key || "").toLowerCase();
+    const hasModifier = event.ctrlKey || event.metaKey;
+
+    if (key === "escape" && isCommandPaletteOpen()) {
+      event.preventDefault();
+      closeCommandPalette();
       return;
     }
-    if (String(event.key || "").toLowerCase() !== "a") {
+
+    if (hasModifier && !event.altKey && key === "k") {
+      event.preventDefault();
+      if (isCommandPaletteOpen()) {
+        closeCommandPalette({ restoreFocus: false });
+      } else {
+        openCommandPalette();
+      }
+      return;
+    }
+
+    if (!hasModifier || event.altKey) {
+      return;
+    }
+    if (key !== "a") {
       return;
     }
     if (event.repeat) {
@@ -2870,9 +3384,9 @@ async function openTutorialDialog(options = {}) {
       selectors: []
     },
     {
-      title: "Menu Bar",
-      message: "Use the top menus for appearance, tool options, and help.",
-      selectors: ["#menu-bar"]
+      title: "Command Palette",
+      message: "Use Commands for quick access to appearance, tools, and help actions.",
+      selectors: ["#command-palette-btn", "#menu-bar"]
     },
     {
       title: "Workshop Input",
@@ -3198,157 +3712,29 @@ async function openWorkshopInputHelpDialog() {
 }
 
 async function wireControlButtons() {
-  settingsBtn.addEventListener("click", async () => {
-    try {
-      await openSettingsEditor();
-    } catch (error) {
-      addLog(error.message || "Settings action failed.", "bad");
-    }
-  });
-
-  accountsBtn.addEventListener("click", async () => {
-    try {
-      await openAccountsManager();
-    } catch (error) {
-      addLog(error.message || "Accounts action failed.", "bad");
-    }
-  });
-
-  appidsBtn.addEventListener("click", async () => {
-    try {
-      await openAppIdsManager();
-    } catch (error) {
-      addLog(error.message || "AppIDs action failed.", "bad");
-    }
-  });
-
-  importBtn.addEventListener("click", async () => {
-    const browse = await callApi("browse_import_queue_file");
-    if (!browse?.success) {
-      if (!browse?.cancelled) {
-        addLog(browse?.error || "Import file selection failed.", "bad");
-      }
-      return;
-    }
-    const filePath = browse.path;
-    const result = await callApi("import_queue", filePath);
-    if (result?.success) {
-      addLog(`Queue imported (${result.added} added, ${result.skipped} skipped).`, "good");
-      await refreshQueue();
-    } else {
-      addLog(result?.error || "Import failed.", "bad");
-    }
-  });
-
-  exportBtn.addEventListener("click", async () => {
-    const browse = await callApi("browse_export_queue_file");
-    if (!browse?.success) {
-      if (!browse?.cancelled) {
-        addLog(browse?.error || "Export file selection failed.", "bad");
-      }
-      return;
-    }
-    const filePath = browse.path;
-    const result = await callApi("export_queue", filePath);
-    if (result?.success) {
-      addLog(`Queue exported to ${result.path}.`, "good");
-    } else {
-      addLog(result?.error || "Export failed.", "bad");
-    }
-  });
+  bindCommandToButton(settingsBtn, "open_settings");
+  bindCommandToButton(accountsBtn, "manage_accounts");
+  bindCommandToButton(appidsBtn, "manage_appids");
+  bindCommandToButton(importBtn, "import_queue");
+  bindCommandToButton(exportBtn, "export_queue");
 }
 
 function wireMenuActions() {
-  themeDarkBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await applySettingsPatch({ current_theme: "Dark" }, "Theme changed to Dark.");
-  });
-
-  themeLightBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await applySettingsPatch({ current_theme: "Light" }, "Theme changed to Light.");
-  });
-
-  logoLightBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await applySettingsPatch({ logo_style: "Light" }, "Logo style changed to Light.");
-  });
-
-  logoDarkBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await applySettingsPatch({ logo_style: "Dark" }, "Logo style changed to Dark.");
-  });
-
-  logoDarkerBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await applySettingsPatch({ logo_style: "Darker" }, "Logo style changed to Darker.");
-  });
-
-  toggleMenuBarBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await applySettingsPatch({ show_menu_bar: !state.config.show_menu_bar }, "Toggled menu bar visibility.");
-  });
-
-  toggleSearchBarBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await applySettingsPatch({ show_searchbar: !state.config.show_searchbar }, "Toggled search bar visibility.");
-  });
-
-  toggleLogsBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await applySettingsPatch({ show_logs: !state.config.show_logs }, "Toggled logs view visibility.");
-  });
-
-  toggleProviderBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await applySettingsPatch({ show_provider: !state.config.show_provider }, "Toggled provider dropdown visibility.");
-  });
-
-  toggleAutoDetectBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    const nextValue = !state.config.auto_detect_urls;
-    const patch = { auto_detect_urls: nextValue };
-    if (!nextValue) {
-      patch.auto_add_to_queue = false;
-    }
-    await applySettingsPatch(patch, `Auto-detect URLs ${nextValue ? "enabled" : "disabled"}.`);
-  });
-
-  toggleAutoAddBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    if (!state.config.auto_detect_urls) {
-      addLog("Enable auto-detect URLs first.", "bad");
-      return;
-    }
-    const nextValue = !state.config.auto_add_to_queue;
-    await applySettingsPatch({ auto_add_to_queue: nextValue }, `Auto-add URLs ${nextValue ? "enabled" : "disabled"}.`);
-  });
-
-  documentationBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    const result = await callApi("launch_documentation");
-    if (!result?.success) {
-      addLog(result?.error || "Failed to open documentation.", "bad");
-    }
-  });
-
-  reportIssueBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    const result = await callApi("launch_report_issue");
-    if (!result?.success) {
-      addLog(result?.error || "Failed to open issues page.", "bad");
-    }
-  });
-
-  tutorialBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await openTutorialDialog();
-  });
-
-  aboutBtn.addEventListener("click", async () => {
-    closeMenuPopups();
-    await openAboutDialog();
-  });
+  bindCommandToButton(themeDarkBtn, "theme_dark", { closeMenus: true });
+  bindCommandToButton(themeLightBtn, "theme_light", { closeMenus: true });
+  bindCommandToButton(logoLightBtn, "logo_light", { closeMenus: true });
+  bindCommandToButton(logoDarkBtn, "logo_dark", { closeMenus: true });
+  bindCommandToButton(logoDarkerBtn, "logo_darker", { closeMenus: true });
+  bindCommandToButton(toggleMenuBarBtn, "toggle_menu_bar", { closeMenus: true });
+  bindCommandToButton(toggleSearchBarBtn, "toggle_search_bar", { closeMenus: true });
+  bindCommandToButton(toggleLogsBtn, "toggle_logs", { closeMenus: true });
+  bindCommandToButton(toggleProviderBtn, "toggle_provider", { closeMenus: true });
+  bindCommandToButton(toggleAutoDetectBtn, "toggle_auto_detect", { closeMenus: true });
+  bindCommandToButton(toggleAutoAddBtn, "toggle_auto_add", { closeMenus: true });
+  bindCommandToButton(documentationBtn, "open_documentation", { closeMenus: true });
+  bindCommandToButton(reportIssueBtn, "open_report_issue", { closeMenus: true });
+  bindCommandToButton(tutorialBtn, "show_tutorial", { closeMenus: true });
+  bindCommandToButton(aboutBtn, "show_about", { closeMenus: true });
 }
 
 function wireFilterControls() {
@@ -3587,6 +3973,7 @@ async function init() {
 
   wireMenuButtons();
   wireMenuActions();
+  wireCommandPalette();
   wireQueueContextMenu();
   wireLogsContextMenu();
   wireHeaderContextMenu();
