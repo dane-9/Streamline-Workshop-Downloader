@@ -22,9 +22,12 @@ const importExportWrap = document.getElementById("import-export-wrap");
 const importExportSpacer = document.getElementById("import-export-spacer");
 const itemUrlInput = document.getElementById("item-url");
 const settingsBtn = document.getElementById("settings-btn");
+const settingsCommandShell = document.getElementById("settings-command-shell");
 const accountsBtn = document.getElementById("accounts-btn");
 const appidsBtn = document.getElementById("appids-btn");
 const commandPaletteBtn = document.getElementById("command-palette-btn");
+const commandsSplitMenu = document.getElementById("commands-split-menu");
+const openCommandPaletteMenuBtn = document.getElementById("open-command-palette-btn");
 const importBtn = document.getElementById("import-btn");
 const exportBtn = document.getElementById("export-btn");
 const queueContextMenu = document.getElementById("queue-context-menu");
@@ -62,9 +65,11 @@ let commandPaletteActions = [];
 let commandPaletteResults = [];
 let commandPaletteSelectedIndex = 0;
 let commandPaletteLastFocusedElement = null;
+let lastShiftTapAt = 0;
 
 const MAX_LOG_LINES = 500;
 const SEARCH_RENDER_DEBOUNCE_MS = 180;
+const DOUBLE_SHIFT_WINDOW_MS = 360;
 const VIRTUAL_ROW_HEIGHT_FALLBACK = 18;
 const VIRTUAL_OVERSCAN_ROWS = 14;
 const VIRTUAL_FETCH_BUFFER_ROWS = 80;
@@ -429,10 +434,16 @@ function beginAppShutdown() {
 function closeMenuPopups() {
   document.querySelectorAll(".menu-popup").forEach((menu) => menu.classList.remove("open"));
   document.querySelectorAll(".menu-btn").forEach((btn) => btn.classList.remove("active"));
+  hideCommandSplitMenu();
 }
 
 function isCommandPaletteOpen() {
   return !!commandPaletteOverlay && !commandPaletteOverlay.classList.contains("hidden");
+}
+
+function hideCommandSplitMenu() {
+  commandsSplitMenu?.classList.add("hidden");
+  commandPaletteBtn?.classList.remove("active");
 }
 
 function getSharedCommands() {
@@ -866,14 +877,6 @@ function wireCommandPalette() {
     return;
   }
 
-  commandPaletteBtn?.addEventListener("click", () => {
-    if (isCommandPaletteOpen()) {
-      closeCommandPalette();
-    } else {
-      openCommandPalette();
-    }
-  });
-
   commandPaletteOverlay.addEventListener("mousedown", (event) => {
     if (event.target === commandPaletteOverlay) {
       closeCommandPalette();
@@ -906,6 +909,48 @@ function wireCommandPalette() {
       executeCommandPaletteAction(commandPaletteSelectedIndex);
     }
   });
+}
+
+function wireCommandSplitMenu() {
+  if (!commandPaletteBtn || !commandsSplitMenu) {
+    return;
+  }
+
+  commandPaletteBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (commandPaletteBtn.style.display === "none") {
+      return;
+    }
+    const willOpen = commandsSplitMenu.classList.contains("hidden");
+    hideCommandSplitMenu();
+    if (!willOpen) {
+      return;
+    }
+    closeMenuPopups();
+    hideQueueContextMenu();
+    hideLogsContextMenu();
+    hideHeaderContextMenu();
+    commandsSplitMenu.classList.remove("hidden");
+    commandPaletteBtn.classList.add("active");
+  });
+
+  openCommandPaletteMenuBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    hideCommandSplitMenu();
+    commandPaletteBtn.focus();
+    openCommandPalette();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#settings-command-shell")) {
+      hideCommandSplitMenu();
+    }
+  });
+
+  document.addEventListener("scroll", () => hideCommandSplitMenu(), true);
+  window.addEventListener("resize", () => hideCommandSplitMenu());
 }
 
 function parseModId(inputUrl) {
@@ -1942,6 +1987,10 @@ function wireGlobalShortcuts() {
     const key = String(event.key || "").toLowerCase();
     const hasModifier = event.ctrlKey || event.metaKey;
 
+    if (key !== "shift") {
+      lastShiftTapAt = 0;
+    }
+
     if (key === "escape" && isCommandPaletteOpen()) {
       event.preventDefault();
       closeCommandPalette();
@@ -1978,6 +2027,30 @@ function wireGlobalShortcuts() {
     void selectAllQueueItems().catch((error) => {
       addLog(error?.message || "Failed to select all queue entries.", "bad");
     });
+  });
+
+  document.addEventListener("keyup", (event) => {
+    const key = String(event.key || "").toLowerCase();
+    if (key !== "shift") {
+      return;
+    }
+    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) {
+      lastShiftTapAt = 0;
+      return;
+    }
+
+    const now = Date.now();
+    if (lastShiftTapAt && now - lastShiftTapAt <= DOUBLE_SHIFT_WINDOW_MS) {
+      lastShiftTapAt = 0;
+      if (!isCommandPaletteOpen()) {
+        openCommandPalette();
+      } else {
+        commandPaletteInput?.focus();
+      }
+      return;
+    }
+
+    lastShiftTapAt = now;
   });
 }
 
@@ -2290,7 +2363,8 @@ function applyVisibilityConfig(config) {
   providerWrap.style.display = config.show_provider === false ? "none" : "";
   regexBtn.style.display = "";
   caseBtn.style.display = "";
-  commandPaletteBtn.style.display = config.show_commands_button === false ? "none" : "";
+  commandPaletteBtn.style.display = "";
+  settingsCommandShell?.classList.remove("commands-toggle-hidden");
   downloadNowBtn.style.display = config.download_button === false ? "none" : "";
   const showImportExport = config.show_export_import_buttons !== false;
   importExportWrap.style.display = showImportExport ? "" : "none";
@@ -2668,7 +2742,6 @@ function buildSettingsFormHtml(settings) {
           <div class="form-grid">
             <label class="form-checkbox-row"><input id="st-download-btn" type="checkbox" ${settings.download_button ? "checked" : ""}>Download Button</label>
             <label class="form-checkbox-row"><input id="st-search-bar" type="checkbox" ${settings.show_searchbar ? "checked" : ""}>Search Bar</label>
-            <label class="form-checkbox-row"><input id="st-commands-btn" type="checkbox" ${settings.show_commands_button !== false ? "checked" : ""}>Commands Button</label>
             <label class="form-checkbox-row"><input id="st-import-export" type="checkbox" ${settings.show_export_import_buttons ? "checked" : ""}>Import/Export Buttons</label>
             <label class="form-checkbox-row"><input id="st-logs" type="checkbox" ${settings.show_logs ? "checked" : ""}>Logs View</label>
             <label class="form-checkbox-row"><input id="st-provider-show" type="checkbox" ${settings.show_provider ? "checked" : ""}>Download Provider</label>
@@ -2802,7 +2875,6 @@ async function openSettingsEditor() {
 
         setCheck("st-download-btn", SETTINGS_DEFAULTS.download_button);
         setCheck("st-search-bar", SETTINGS_DEFAULTS.show_searchbar);
-        setCheck("st-commands-btn", SETTINGS_DEFAULTS.show_commands_button);
         setCheck("st-import-export", SETTINGS_DEFAULTS.show_export_import_buttons);
         setCheck("st-logs", SETTINGS_DEFAULTS.show_logs);
         setCheck("st-provider-show", SETTINGS_DEFAULTS.show_provider);
@@ -2840,7 +2912,7 @@ async function openSettingsEditor() {
         folder_naming_format: root.querySelector("#st-folder-format").value,
         download_button: root.querySelector("#st-download-btn").checked,
         show_searchbar: root.querySelector("#st-search-bar").checked,
-        show_commands_button: root.querySelector("#st-commands-btn").checked,
+        show_commands_button: true,
         show_regex_button: true,
         show_case_button: true,
         show_export_import_buttons: root.querySelector("#st-import-export").checked,
@@ -3331,7 +3403,7 @@ async function openTutorialDialog(options = {}) {
     },
     {
       title: "Command Palette",
-      message: "Use Commands for quick access to appearance, tools, and help actions.",
+      message: "Use the chevron next to Settings for quick actions, or press Ctrl+K.",
       selectors: ["#command-palette-btn"]
     },
     {
@@ -3658,7 +3730,7 @@ async function openWorkshopInputHelpDialog() {
 }
 
 async function wireControlButtons() {
-  bindCommandToButton(settingsBtn, "open_settings");
+  bindCommandToButton(settingsBtn, "open_settings", { closeMenus: true });
   bindCommandToButton(accountsBtn, "manage_accounts");
   bindCommandToButton(appidsBtn, "manage_appids");
   bindCommandToButton(importBtn, "import_queue");
@@ -3898,6 +3970,7 @@ async function init() {
   updateQueueStatisticsTooltip();
 
   wireCommandPalette();
+  wireCommandSplitMenu();
   wireQueueContextMenu();
   wireLogsContextMenu();
   wireHeaderContextMenu();

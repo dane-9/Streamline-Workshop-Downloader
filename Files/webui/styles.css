@@ -376,6 +376,119 @@ button.control:active,
   height: 27px;
 }
 
+.settings-command-shell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 27px;
+  border: 1px solid var(--control-border);
+  border-bottom: 1px solid var(--control-border-bottom);
+  border-radius: 3px;
+  background: var(--control-bg);
+  overflow: visible;
+}
+
+.settings-command-shell #settings-btn,
+.settings-command-shell #command-palette-btn {
+  height: 27px;
+  border: none;
+  border-bottom: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.settings-command-shell #settings-btn {
+  width: 30px;
+}
+
+.settings-command-shell #command-palette-btn {
+  width: 20px;
+  border-left: 1px solid var(--menu-border);
+}
+
+.settings-command-shell #settings-btn:hover,
+.settings-command-shell #command-palette-btn:hover,
+.settings-command-shell #command-palette-btn.active {
+  border: none;
+  border-bottom: none;
+  background: var(--control-hover);
+}
+
+.settings-command-shell #command-palette-btn:hover,
+.settings-command-shell #command-palette-btn.active {
+  border-left: 1px solid var(--menu-border);
+}
+
+.settings-command-shell.commands-toggle-hidden #command-palette-btn {
+  display: none;
+}
+
+.commands-split-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  min-width: 230px;
+  padding: 4px;
+  border: 1px solid var(--menu-border);
+  border-radius: 3px;
+  background: var(--menu-popup-bg);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  z-index: 56;
+}
+
+.commands-split-menu.hidden {
+  display: none;
+}
+
+.commands-split-item {
+  width: 100%;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--menu-text);
+  font: inherit;
+  padding: 5px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.commands-split-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.commands-split-label::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  -webkit-mask-image: url("../command.svg");
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-image: url("../command.svg");
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+.commands-split-item:hover {
+  background: var(--menu-hover);
+  color: var(--menu-text-hover);
+}
+
+.commands-split-hint {
+  color: var(--fg);
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
 .titlebar-right-controls .account-select {
   height: 27px;
   padding: 0 8px 0 0;
@@ -620,6 +733,7 @@ button.control:active,
 
 #settings-btn img,
 #appids-btn img,
+#command-palette-btn img,
 #accounts-btn img,
 #url-help-btn img,
 #filter-btn img,
@@ -632,6 +746,7 @@ button.control:active,
 
 #settings-btn::before,
 #appids-btn::before,
+#command-palette-btn::before,
 #accounts-btn::before,
 #url-help-btn::before,
 #filter-btn::before,
@@ -663,6 +778,11 @@ button.control:active,
   height: 17px;
 }
 
+#command-palette-btn::before {
+  width: 10px;
+  height: 10px;
+}
+
 #url-help-btn::before,
 #filter-btn::before {
   width: 15px;
@@ -683,6 +803,11 @@ button.control:active,
 #appids-btn::before {
   -webkit-mask-image: url("../update-appids.svg");
   mask-image: url("../update-appids.svg");
+}
+
+#command-palette-btn::before {
+  -webkit-mask-image: url("../chevron.svg");
+  mask-image: url("../chevron.svg");
 }
 
 #accounts-btn::before {
