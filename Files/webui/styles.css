@@ -428,6 +428,55 @@ button.control:active,
   white-space: nowrap;
 }
 
+.input-row-zoned {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.input-row-zone {
+  min-width: 0;
+}
+
+.input-row-zone-center #item-url {
+  height: 28px;
+}
+
+.input-row-zone-right {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+  background: var(--control-bg);
+  overflow: hidden;
+}
+
+.input-row-zone-right .action-btn {
+  width: auto;
+  min-width: 98px;
+  height: 28px;
+  border: none;
+  border-bottom: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0 14px;
+}
+
+.input-row-zone-right .action-btn + .action-btn {
+  border-left: 1px solid var(--menu-border);
+}
+
+.input-row-zone-right #add-to-queue-btn {
+  font-weight: 600;
+}
+
+.input-row-zone-right .action-btn:hover {
+  background: var(--control-hover);
+}
+
+.input-row-zone-right .action-btn:active {
+  background: var(--control-pressed);
+}
+
 .tiny-icon-btn {
   width: 24px;
   height: 24px;

@@ -33,15 +33,19 @@
     </header>
 
     <div class="content">
-      <form id="queue-form" class="input-row">
-        <div class="line-input-wrap">
-          <button class="line-icon-btn" id="url-help-btn" type="button" title="Workshop Input Help">
-            <img src="../info.svg" alt="Info">
-          </button>
-          <input class="control line-input" id="item-url" name="item-url" type="text" placeholder="Enter Game, Mod, Collection URL or ID" required>
+      <form id="queue-form" class="input-row input-row-zoned">
+        <div class="input-row-zone input-row-zone-center">
+          <div class="line-input-wrap">
+            <button class="line-icon-btn" id="url-help-btn" type="button" title="Workshop Input Help">
+              <img src="../info.svg" alt="Info">
+            </button>
+            <input class="control line-input" id="item-url" name="item-url" type="text" placeholder="Enter Game, Mod, Collection URL or ID" required>
+          </div>
         </div>
-        <button class="control action-btn" id="download-now-btn" type="button">Download</button>
-        <button class="control action-btn" id="add-to-queue-btn" type="submit">Add to Queue</button>
+        <div class="input-row-zone input-row-zone-right">
+          <button class="control action-btn" id="download-now-btn" type="button">Download</button>
+          <button class="control action-btn" id="add-to-queue-btn" type="submit">Add to Queue</button>
+        </div>
       </form>
 
       <section id="search-row" class="search-row">
