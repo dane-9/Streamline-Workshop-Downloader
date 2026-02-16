@@ -374,6 +374,61 @@ button.control:active,
   line-height: 25px;
 }
 
+.titlebar-account-shell {
+  display: inline-flex;
+  align-items: center;
+  height: 27px;
+  border: 1px solid var(--control-border);
+  border-bottom: 1px solid var(--control-border-bottom);
+  border-radius: 3px;
+  background: var(--control-bg);
+  overflow: hidden;
+}
+
+.titlebar-account-shell .account-select {
+  width: 186px;
+  height: 27px;
+  border: none;
+  border-bottom: none;
+  border-radius: 0;
+  background: var(--control-bg);
+  color: var(--fg);
+  padding: 0 8px 0 2px;
+  line-height: 25px;
+}
+
+.titlebar-account-shell .account-select:hover {
+  border: none;
+  border-bottom: none;
+}
+
+.titlebar-account-shell .account-select option {
+  background: var(--menu-popup-bg);
+  color: var(--fg);
+}
+
+.titlebar-account-shell #accounts-btn {
+  width: 30px;
+  height: 27px;
+  border: none;
+  border-bottom: none;
+  border-radius: 0;
+  border-left: 1px solid var(--menu-border);
+  background: transparent;
+  padding: 0;
+}
+
+.titlebar-account-shell #accounts-btn:hover {
+  border: none;
+  border-bottom: none;
+  border-left: 1px solid var(--menu-border);
+  background: var(--control-hover);
+}
+
+.titlebar-account-shell #accounts-btn:active {
+  background: var(--control-pressed);
+}
+
 .line-input-wrap {
   position: relative;
   flex: 1;
