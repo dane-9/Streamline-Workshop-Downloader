@@ -17,9 +17,11 @@
       <div class="titlebar-drag pywebview-drag-region"></div>
       <div class="titlebar-right-controls">
         <div class="titlebar-account-shell">
-          <select class="control account-select" id="account-select">
-            <option>Anonymous</option>
-          </select>
+          <div class="account-select-wrap select-chevron-wrap">
+            <select class="control account-select" id="account-select">
+              <option>Anonymous</option>
+            </select>
+          </div>
           <button class="icon-btn" id="accounts-btn" title="Accounts"><img src="../accounts.svg" alt="Accounts"></button>
         </div>
       </div>
@@ -95,7 +97,7 @@
         <button class="control footer-btn" id="open-downloads-btn" type="button">Open Downloads Folder</button>
         <button class="control footer-btn start-btn" id="start-download-btn" type="button">Start Download</button>
         <div id="provider-wrap" class="provider-wrap">
-          <div class="provider-select-wrap">
+          <div class="provider-select-wrap select-chevron-wrap">
             <span class="provider-display" aria-hidden="true">
               <span class="provider-display-prefix">Provider:</span>
               <span class="provider-display-name" id="provider-display-name">Default</span>

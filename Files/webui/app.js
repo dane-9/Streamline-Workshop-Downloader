@@ -2645,18 +2645,22 @@ function buildSettingsFormHtml(settings) {
           <div class="form-grid">
             <div class="form-block">
               <label for="st-theme">Theme</label>
-              <select id="st-theme" class="form-control">
-                <option value="Dark" ${settings.current_theme === "Dark" ? "selected" : ""}>Dark</option>
-                <option value="Light" ${settings.current_theme === "Light" ? "selected" : ""}>Light</option>
-              </select>
+              <div class="select-chevron-wrap">
+                <select id="st-theme" class="form-control">
+                  <option value="Dark" ${settings.current_theme === "Dark" ? "selected" : ""}>Dark</option>
+                  <option value="Light" ${settings.current_theme === "Light" ? "selected" : ""}>Light</option>
+                </select>
+              </div>
             </div>
             <div class="form-block">
               <label for="st-logo">Logo Style</label>
-              <select id="st-logo" class="form-control">
-                <option value="Light" ${settings.logo_style === "Light" ? "selected" : ""}>Light</option>
-                <option value="Dark" ${settings.logo_style === "Dark" ? "selected" : ""}>Dark</option>
-                <option value="Darker" ${settings.logo_style === "Darker" ? "selected" : ""}>Darker</option>
-              </select>
+              <div class="select-chevron-wrap">
+                <select id="st-logo" class="form-control">
+                  <option value="Light" ${settings.logo_style === "Light" ? "selected" : ""}>Light</option>
+                  <option value="Dark" ${settings.logo_style === "Dark" ? "selected" : ""}>Dark</option>
+                  <option value="Darker" ${settings.logo_style === "Darker" ? "selected" : ""}>Darker</option>
+                </select>
+              </div>
             </div>
           </div>
           <div class="form-divider"></div>
@@ -2676,11 +2680,13 @@ function buildSettingsFormHtml(settings) {
           <div class="form-grid">
             <div class="form-block">
               <label for="st-provider">Default Provider</label>
-              <select id="st-provider" class="form-control">
-                <option value="Default" ${settings.download_provider === "Default" ? "selected" : ""}>Default</option>
-                <option value="SteamCMD" ${settings.download_provider === "SteamCMD" ? "selected" : ""}>SteamCMD</option>
-                <option value="SteamWebAPI" ${settings.download_provider === "SteamWebAPI" ? "selected" : ""}>SteamWebAPI</option>
-              </select>
+              <div class="select-chevron-wrap">
+                <select id="st-provider" class="form-control">
+                  <option value="Default" ${settings.download_provider === "Default" ? "selected" : ""}>Default</option>
+                  <option value="SteamCMD" ${settings.download_provider === "SteamCMD" ? "selected" : ""}>SteamCMD</option>
+                  <option value="SteamWebAPI" ${settings.download_provider === "SteamWebAPI" ? "selected" : ""}>SteamWebAPI</option>
+                </select>
+              </div>
             </div>
             <div class="form-block">
               <label for="st-batch">Batch Size</label>
@@ -2688,19 +2694,23 @@ function buildSettingsFormHtml(settings) {
             </div>
             <div class="form-block" style="grid-column: 1 / -1;">
               <label for="st-existing">SteamCMD Existing Mods</label>
-              <select id="st-existing" class="form-control">
-                <option value="Only Redownload if Updated" ${settings.steamcmd_existing_mod_behavior === "Only Redownload if Updated" ? "selected" : ""}>Only Redownload if Updated</option>
-                <option value="Always Redownload" ${settings.steamcmd_existing_mod_behavior === "Always Redownload" ? "selected" : ""}>Always Redownload</option>
-                <option value="Skip Existing Mods" ${settings.steamcmd_existing_mod_behavior === "Skip Existing Mods" ? "selected" : ""}>Skip Existing Mods</option>
-              </select>
+              <div class="select-chevron-wrap">
+                <select id="st-existing" class="form-control">
+                  <option value="Only Redownload if Updated" ${settings.steamcmd_existing_mod_behavior === "Only Redownload if Updated" ? "selected" : ""}>Only Redownload if Updated</option>
+                  <option value="Always Redownload" ${settings.steamcmd_existing_mod_behavior === "Always Redownload" ? "selected" : ""}>Always Redownload</option>
+                  <option value="Skip Existing Mods" ${settings.steamcmd_existing_mod_behavior === "Skip Existing Mods" ? "selected" : ""}>Skip Existing Mods</option>
+                </select>
+              </div>
             </div>
             <div class="form-block">
               <label for="st-folder-format">SteamCMD Folder Naming</label>
-              <select id="st-folder-format" class="form-control">
-                <option value="id" ${settings.folder_naming_format === "id" ? "selected" : ""}>Mod ID</option>
-                <option value="name" ${settings.folder_naming_format === "name" ? "selected" : ""}>Mod Name</option>
-                <option value="combined" ${settings.folder_naming_format === "combined" ? "selected" : ""}>ID + Name</option>
-              </select>
+              <div class="select-chevron-wrap">
+                <select id="st-folder-format" class="form-control">
+                  <option value="id" ${settings.folder_naming_format === "id" ? "selected" : ""}>Mod ID</option>
+                  <option value="name" ${settings.folder_naming_format === "name" ? "selected" : ""}>Mod Name</option>
+                  <option value="combined" ${settings.folder_naming_format === "combined" ? "selected" : ""}>ID + Name</option>
+                </select>
+              </div>
             </div>
           </div>
           <div class="form-divider"></div>

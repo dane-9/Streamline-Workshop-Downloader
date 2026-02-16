@@ -291,6 +291,14 @@ body.window-resizing-ns {
   padding: 5px 8px;
 }
 
+select.control,
+select.form-control {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: none;
+}
+
 button.control,
 .icon-btn,
 .text-icon-btn,
@@ -385,8 +393,12 @@ button.control:active,
   overflow: hidden;
 }
 
-.titlebar-account-shell .account-select {
+.titlebar-account-shell .account-select-wrap {
   width: 186px;
+}
+
+.titlebar-account-shell .account-select {
+  width: 100%;
   height: 27px;
   border: none;
   border-bottom: none;
@@ -405,6 +417,37 @@ button.control:active,
 .titlebar-account-shell .account-select option {
   background: var(--menu-popup-bg);
   color: var(--fg);
+}
+
+.select-chevron-wrap {
+  position: relative;
+}
+
+.select-chevron-wrap::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  background-color: var(--fg);
+  -webkit-mask-image: url("../chevron.svg");
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-image: url("../chevron.svg");
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+.select-chevron-wrap::after {
+  right: 4px;
+}
+
+.select-chevron-wrap:hover::after {
+  background-color: var(--fg-hover);
 }
 
 .titlebar-account-shell #accounts-btn {
@@ -822,12 +865,22 @@ button.control:active,
 }
 
 .queue-context-parent::after {
-  content: ">";
+  content: "";
   position: absolute;
   right: 8px;
   top: 50%;
-  transform: translateY(-50%);
-  opacity: 0.8;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%) rotate(-90deg);
+  background-color: var(--fg);
+  -webkit-mask-image: url("../chevron.svg");
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-image: url("../chevron.svg");
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
 }
 
 .queue-context-subpopup {
@@ -1190,6 +1243,14 @@ button.control:active,
   gap: 4px;
 }
 
+.form-block .select-chevron-wrap {
+  width: 100%;
+}
+
+.form-block .select-chevron-wrap > select.form-control {
+  width: 100%;
+}
+
 .form-block label {
   font-size: 12px;
 }
@@ -1212,6 +1273,7 @@ textarea.form-control:hover {
 
 select.form-control {
   background: var(--control-bg);
+  padding: 6px 28px 6px 8px;
 }
 
 select.form-control:hover {
@@ -1435,17 +1497,33 @@ body.column-resizing {
 
 #queue-table thead th.sortable.sort-asc::after,
 #queue-table thead th.sortable.sort-desc::after {
+  content: "";
   float: right;
   margin-left: 4px;
-  color: var(--fg-hover);
+  width: 12px;
+  height: 12px;
+  background-color: var(--fg);
+  -webkit-mask-image: url("../chevron.svg");
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-image: url("../chevron.svg");
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
 }
 
 #queue-table thead th.sortable.sort-asc::after {
-  content: "▲";
+  transform: rotate(180deg);
 }
 
 #queue-table thead th.sortable.sort-desc::after {
-  content: "▼";
+  transform: rotate(0deg);
+}
+
+#queue-table thead th.sortable:hover.sort-asc::after,
+#queue-table thead th.sortable:hover.sort-desc::after {
+  background-color: var(--fg-hover);
 }
 
 #queue-table thead th .col-resizer {
@@ -1615,7 +1693,7 @@ body.column-resizing {
 .provider-select {
   width: 100%;
   height: 28px;
-  padding-left: 8px;
+  padding: 0 24px 0 8px;
   color: var(--fg);
   -webkit-text-fill-color: transparent;
 }
