@@ -408,6 +408,10 @@ button.control:active,
   outline: none;
 }
 
+#search-input {
+  padding-right: 56px;
+}
+
 .line-input::placeholder {
   color: var(--fg);
   opacity: 0.95;
@@ -450,6 +454,21 @@ button.control:active,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.search-row .line-input-wrap #case-btn,
+.search-row .line-input-wrap #regex-btn {
+  position: absolute;
+  top: 2px;
+  z-index: 3;
+}
+
+.search-row .line-input-wrap #regex-btn {
+  right: 2px;
+}
+
+.search-row .line-input-wrap #case-btn {
+  right: 28px;
 }
 
 .tiny-icon-btn img {

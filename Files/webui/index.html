@@ -49,6 +49,12 @@
             <img src="../filter-queue-status.svg" alt="Filter">
           </button>
           <input class="control line-input" id="search-input" type="text" placeholder="Mods in Queue: 0     /     Search by Mod ID or Name">
+          <button class="tiny-icon-btn" id="case-btn" type="button" title="Case sensitivity">
+            <img id="case-icon" src="../case-sensitive.svg" alt="Case">
+          </button>
+          <button class="tiny-icon-btn" id="regex-btn" type="button" title="Regex">
+            <img id="regex-icon" src="../regex.svg" alt="Regex">
+          </button>
           <div class="filter-popup hidden" id="filter-popup">
             <button class="filter-item active" data-filter="All">All Mods</button>
             <button class="filter-item" data-filter="Queued">Mods Queued</button>
@@ -56,12 +62,6 @@
             <button class="filter-item" data-filter="Failed">Failed</button>
           </div>
         </div>
-        <button class="tiny-icon-btn" id="case-btn" type="button" title="Case sensitivity">
-          <img id="case-icon" src="../case-sensitive.svg" alt="Case">
-        </button>
-        <button class="tiny-icon-btn" id="regex-btn" type="button" title="Regex">
-          <img id="regex-icon" src="../regex.svg" alt="Regex">
-        </button>
         <div id="import-export-spacer" class="import-export-spacer"></div>
         <div id="import-export-wrap" class="import-export-wrap">
           <button class="icon-btn" id="import-btn" type="button" title="Import Queue"><img src="../import.svg" alt="Import"></button>
