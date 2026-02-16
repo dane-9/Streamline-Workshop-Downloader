@@ -139,8 +139,7 @@ const SETTINGS_DEFAULTS = {
   steamcmd_existing_mod_behavior: "Only Redownload if Updated",
   download_button: true,
   show_searchbar: true,
-  show_regex_button: true,
-  show_case_button: true,
+  show_commands_button: true,
   show_export_import_buttons: true,
   show_sort_indicator: true,
   show_row_numbers: false,
@@ -2289,8 +2288,9 @@ function applyVisibilityConfig(config) {
   searchRow.style.display = config.show_searchbar === false ? "none" : "";
   logWrap.style.display = config.show_logs === false ? "none" : "";
   providerWrap.style.display = config.show_provider === false ? "none" : "";
-  regexBtn.style.display = config.show_regex_button === false ? "none" : "";
-  caseBtn.style.display = config.show_case_button === false ? "none" : "";
+  regexBtn.style.display = "";
+  caseBtn.style.display = "";
+  commandPaletteBtn.style.display = config.show_commands_button === false ? "none" : "";
   downloadNowBtn.style.display = config.download_button === false ? "none" : "";
   const showImportExport = config.show_export_import_buttons !== false;
   importExportWrap.style.display = showImportExport ? "" : "none";
@@ -2668,8 +2668,7 @@ function buildSettingsFormHtml(settings) {
           <div class="form-grid">
             <label class="form-checkbox-row"><input id="st-download-btn" type="checkbox" ${settings.download_button ? "checked" : ""}>Download Button</label>
             <label class="form-checkbox-row"><input id="st-search-bar" type="checkbox" ${settings.show_searchbar ? "checked" : ""}>Search Bar</label>
-            <label class="form-checkbox-row"><input id="st-regex-btn" type="checkbox" ${settings.show_regex_button ? "checked" : ""}>Regex Button</label>
-            <label class="form-checkbox-row"><input id="st-case-btn" type="checkbox" ${settings.show_case_button ? "checked" : ""}>Case Button</label>
+            <label class="form-checkbox-row"><input id="st-commands-btn" type="checkbox" ${settings.show_commands_button !== false ? "checked" : ""}>Commands Button</label>
             <label class="form-checkbox-row"><input id="st-import-export" type="checkbox" ${settings.show_export_import_buttons ? "checked" : ""}>Import/Export Buttons</label>
             <label class="form-checkbox-row"><input id="st-logs" type="checkbox" ${settings.show_logs ? "checked" : ""}>Logs View</label>
             <label class="form-checkbox-row"><input id="st-provider-show" type="checkbox" ${settings.show_provider ? "checked" : ""}>Download Provider</label>
@@ -2753,9 +2752,6 @@ async function openSettingsEditor() {
       const pages = Array.from(root.querySelectorAll("[data-settings-page]"));
       const autoDetect = root.querySelector("#st-auto-detect");
       const autoAdd = root.querySelector("#st-auto-add");
-      const showSearchbar = root.querySelector("#st-search-bar");
-      const showRegex = root.querySelector("#st-regex-btn");
-      const showCase = root.querySelector("#st-case-btn");
       const resetDefaultsBtn = root.querySelector("#st-reset-defaults");
       const setFieldEnabled = (field, enabled) => {
         if (!field) {
@@ -2777,11 +2773,6 @@ async function openSettingsEditor() {
       };
       const syncAutoAdd = () => {
         setFieldEnabled(autoAdd, autoDetect.checked);
-      };
-      const syncSearchDependents = () => {
-        const enabled = !!showSearchbar.checked;
-        setFieldEnabled(showRegex, enabled);
-        setFieldEnabled(showCase, enabled);
       };
       const setSelect = (id, value) => {
         const el = root.querySelector(`#${id}`);
@@ -2811,8 +2802,7 @@ async function openSettingsEditor() {
 
         setCheck("st-download-btn", SETTINGS_DEFAULTS.download_button);
         setCheck("st-search-bar", SETTINGS_DEFAULTS.show_searchbar);
-        setCheck("st-regex-btn", SETTINGS_DEFAULTS.show_regex_button);
-        setCheck("st-case-btn", SETTINGS_DEFAULTS.show_case_button);
+        setCheck("st-commands-btn", SETTINGS_DEFAULTS.show_commands_button);
         setCheck("st-import-export", SETTINGS_DEFAULTS.show_export_import_buttons);
         setCheck("st-logs", SETTINGS_DEFAULTS.show_logs);
         setCheck("st-provider-show", SETTINGS_DEFAULTS.show_provider);
@@ -2826,7 +2816,6 @@ async function openSettingsEditor() {
         setCheck("st-reset-window", SETTINGS_DEFAULTS.reset_window_size_on_startup);
 
         syncAutoAdd();
-        syncSearchDependents();
       };
       pageButtons.forEach((button) => {
         button.addEventListener("click", () => {
@@ -2834,14 +2823,12 @@ async function openSettingsEditor() {
         });
       });
       autoDetect.addEventListener("change", syncAutoAdd);
-      showSearchbar.addEventListener("change", syncSearchDependents);
       resetDefaultsBtn.addEventListener("click", () => {
         resetFormToDefaults();
         addLog("Settings reset to defaults in the dialog. Click Apply to save.", "good");
       });
       setSettingsPage("appearance");
       syncAutoAdd();
-      syncSearchDependents();
     },
     onSubmit: async (root) => {
       const patch = {
@@ -2853,8 +2840,9 @@ async function openSettingsEditor() {
         folder_naming_format: root.querySelector("#st-folder-format").value,
         download_button: root.querySelector("#st-download-btn").checked,
         show_searchbar: root.querySelector("#st-search-bar").checked,
-        show_regex_button: root.querySelector("#st-regex-btn").checked,
-        show_case_button: root.querySelector("#st-case-btn").checked,
+        show_commands_button: root.querySelector("#st-commands-btn").checked,
+        show_regex_button: true,
+        show_case_button: true,
         show_export_import_buttons: root.querySelector("#st-import-export").checked,
         show_logs: root.querySelector("#st-logs").checked,
         show_provider: root.querySelector("#st-provider-show").checked,
