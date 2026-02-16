@@ -30,6 +30,7 @@ body.theme-dark {
   --menu-item-hover-text: #ffffff;
   --fg: #a0a0a0;
   --fg-hover: #e0e0e0;
+  --placeholder-fg: #8a8a8a;
   --control-bg: #333333;
   --control-hover: #555555;
   --control-pressed: #444444;
@@ -75,6 +76,7 @@ body.theme-light {
   --menu-item-hover-text: #000000;
   --fg: #000000;
   --fg-hover: #282828;
+  --placeholder-fg: #5f5f5f;
   --control-bg: #fbfbfb;
   --control-hover: #f7f7f7;
   --control-pressed: #f5f5f5;
@@ -619,8 +621,8 @@ button.control:active,
 }
 
 .line-input::placeholder {
-  color: var(--fg);
-  opacity: 0.95;
+  color: var(--placeholder-fg);
+  opacity: 0.4;
 }
 
 .line-icon-btn {
