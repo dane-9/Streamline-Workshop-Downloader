@@ -1816,6 +1816,8 @@ function syncLogoStyle() {
 
 function applyVisibilityConfig(config) {
   menuBar.style.display = config.show_menu_bar === false ? "none" : "";
+  const menuBarHidden = window.getComputedStyle(menuBar).display === "none";
+  document.body.classList.toggle("menu-bar-hidden", menuBarHidden);
   searchRow.style.display = config.show_searchbar === false ? "none" : "";
   logWrap.style.display = config.show_logs === false ? "none" : "";
   providerWrap.style.display = config.show_provider === false ? "none" : "";

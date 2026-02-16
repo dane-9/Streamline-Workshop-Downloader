@@ -153,17 +153,23 @@ body.window-resizing-ns {
   height: 32px;
   min-height: 32px;
   display: flex;
-  align-items: stretch;
+  align-items: center;
   background: var(--titlebar-bg);
-  border-bottom: 1px solid var(--titlebar-border);
 }
 
 .titlebar-drag {
   flex: 1 1 auto;
   min-width: 0;
+  height: 100%;
+}
+
+.titlebar-left-controls,
+.titlebar-right-controls {
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  align-self: flex-end;
+  gap: 6px;
+  padding: 0 6px;
 }
 
 .titlebar-logo {
@@ -185,6 +191,7 @@ body.window-resizing-ns {
   display: flex;
   align-items: stretch;
   flex: 0 0 auto;
+  margin-left: 8px;
 }
 
 .titlebar-btn {
@@ -192,6 +199,7 @@ body.window-resizing-ns {
   height: 31px;
   border: none;
   background: transparent;
+  color: var(--fg);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -205,11 +213,37 @@ body.window-resizing-ns {
 
 .titlebar-btn.close:hover {
   background: var(--titlebar-close-hover);
+  color: #ffffff;
 }
 
 .titlebar-btn img {
   width: 10px;
   height: 10px;
+  display: none;
+}
+
+#minimize-btn::before,
+#close-btn::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+#minimize-btn::before {
+  -webkit-mask-image: url("../window-minimize.svg");
+  mask-image: url("../window-minimize.svg");
+}
+
+#close-btn::before {
+  -webkit-mask-image: url("../window-close.svg");
+  mask-image: url("../window-close.svg");
 }
 
 .menu-bar {
@@ -348,6 +382,10 @@ body.window-resizing-ns {
   overflow: hidden;
 }
 
+body.menu-bar-hidden .content {
+  padding-top: 6px;
+}
+
 .toolbar-row,
 .input-row,
 .search-row,
@@ -449,12 +487,37 @@ button.control:active,
   height: 28px;
 }
 
-#settings-btn,
-#accounts-btn,
-#appids-btn,
 #import-btn,
 #export-btn {
   height: 28px;
+}
+
+.titlebar-left-controls #settings-btn,
+.titlebar-right-controls #accounts-btn,
+.titlebar-left-controls #appids-btn {
+  height: 27px;
+}
+
+.titlebar-right-controls .account-select {
+  height: 27px;
+  padding: 0 8px 0 0;
+  line-height: 25px;
+}
+
+.titlebar-right-controls #accounts-btn {
+  position: relative;
+}
+
+.titlebar-right-controls #accounts-btn::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 16px;
+  background: var(--titlebar-border);
+  pointer-events: none;
 }
 
 .line-input-wrap {

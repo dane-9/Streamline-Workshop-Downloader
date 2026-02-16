@@ -9,9 +9,16 @@
 <body class="theme-dark">
   <div class="window-root">
     <header class="app-titlebar">
-      <div class="titlebar-drag pywebview-drag-region">
-        <img id="titlebar-logo" class="titlebar-logo" src="../logo.png" alt="">
-        <span class="titlebar-text">Streamline</span>
+      <div class="titlebar-left-controls">
+        <button class="icon-btn" id="settings-btn" title="Settings"><img src="../settings.png" alt="Settings"></button>
+        <button class="text-icon-btn" id="appids-btn"><img src="../update_appids.png" alt="">AppIDs</button>
+      </div>
+      <div class="titlebar-drag pywebview-drag-region"></div>
+      <div class="titlebar-right-controls">
+        <select class="control account-select" id="account-select">
+          <option>Anonymous</option>
+        </select>
+        <button class="icon-btn" id="accounts-btn" title="Accounts"><img src="../accounts.png" alt="Accounts"></button>
       </div>
       <div class="titlebar-actions">
         <button class="titlebar-btn" id="minimize-btn" type="button" title="Minimize">
@@ -68,16 +75,6 @@
     </nav>
 
     <div class="content">
-      <section class="toolbar-row">
-        <button class="icon-btn" id="settings-btn" title="Settings"><img src="../settings.png" alt="Settings"></button>
-        <button class="icon-btn" id="accounts-btn" title="Accounts"><img src="../accounts.png" alt="Accounts"></button>
-        <button class="text-icon-btn" id="appids-btn"><img src="../update_appids.png" alt="">AppIDs</button>
-        <div class="toolbar-spacer"></div>
-        <select class="control account-select" id="account-select">
-          <option>Anonymous</option>
-        </select>
-      </section>
-
       <form id="queue-form" class="input-row">
         <div class="line-input-wrap">
           <button class="line-icon-btn" id="url-help-btn" type="button" title="Workshop Input Help">
