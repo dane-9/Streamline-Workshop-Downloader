@@ -191,7 +191,6 @@ body.window-resizing-ns {
   display: flex;
   align-items: stretch;
   flex: 0 0 auto;
-  margin-left: 8px;
 }
 
 .titlebar-btn {
@@ -373,22 +372,6 @@ button.control:active,
   height: 27px;
   padding: 0 8px 0 0;
   line-height: 25px;
-}
-
-.titlebar-right-controls #accounts-btn {
-  position: relative;
-}
-
-.titlebar-right-controls #accounts-btn::after {
-  content: "";
-  position: absolute;
-  right: -8px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 1px;
-  height: 16px;
-  background: var(--titlebar-border);
-  pointer-events: none;
 }
 
 .line-input-wrap {
@@ -591,12 +574,47 @@ button.control:active,
 }
 
 .import-export-spacer {
-  width: 14px;
+  width: 0;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0 3px;
+  border-left: 1px solid var(--titlebar-border);
 }
 
 .import-export-wrap {
-  display: flex;
-  gap: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 0;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 3px;
+  background: var(--input-bg);
+}
+
+.import-export-wrap #import-btn,
+.import-export-wrap #export-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-bottom: none;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+}
+
+.import-export-wrap #import-btn:hover,
+.import-export-wrap #export-btn:hover {
+  background: var(--control-hover);
+  border: none;
+  border-bottom: none;
+  color: var(--fg-hover);
+}
+
+.import-export-wrap #import-btn:active,
+.import-export-wrap #export-btn:active {
+  background: var(--control-pressed);
 }
 
 .filter-popup {
