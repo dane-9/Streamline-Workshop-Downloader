@@ -17,7 +17,6 @@ const downloadNowBtn = document.getElementById("download-now-btn");
 const urlHelpBtn = document.getElementById("url-help-btn");
 const minimizeBtn = document.getElementById("minimize-btn");
 const closeBtn = document.getElementById("close-btn");
-const menuBar = document.getElementById("menu-bar");
 const searchRow = document.getElementById("search-row");
 const logWrap = document.getElementById("log-wrap");
 const providerWrap = document.getElementById("provider-wrap");
@@ -39,21 +38,6 @@ const commandPaletteList = document.getElementById("command-palette-list");
 const queueTable = document.getElementById("queue-table");
 const queueHeadRow = document.getElementById("queue-head-row");
 const queueTableWrap = document.querySelector(".queue-table-wrap");
-const themeDarkBtn = document.getElementById("theme-dark-btn");
-const themeLightBtn = document.getElementById("theme-light-btn");
-const logoLightBtn = document.getElementById("logo-light-btn");
-const logoDarkBtn = document.getElementById("logo-dark-btn");
-const logoDarkerBtn = document.getElementById("logo-darker-btn");
-const toggleMenuBarBtn = document.getElementById("toggle-menu-bar-btn");
-const toggleSearchBarBtn = document.getElementById("toggle-search-bar-btn");
-const toggleLogsBtn = document.getElementById("toggle-logs-btn");
-const toggleProviderBtn = document.getElementById("toggle-provider-btn");
-const toggleAutoDetectBtn = document.getElementById("toggle-auto-detect-btn");
-const toggleAutoAddBtn = document.getElementById("toggle-auto-add-btn");
-const documentationBtn = document.getElementById("documentation-btn");
-const reportIssueBtn = document.getElementById("report-issue-btn");
-const tutorialBtn = document.getElementById("tutorial-btn");
-const aboutBtn = document.getElementById("about-btn");
 const modalOverlay = document.getElementById("modal-overlay");
 const modalTitle = document.getElementById("modal-title");
 const modalMessage = document.getElementById("modal-message");
@@ -156,7 +140,6 @@ const SETTINGS_DEFAULTS = {
   delete_downloads_on_cancel: false,
   steamcmd_existing_mod_behavior: "Only Redownload if Updated",
   download_button: true,
-  show_menu_bar: true,
   show_searchbar: true,
   show_regex_button: true,
   show_case_button: true,
@@ -451,20 +434,6 @@ function closeMenuPopups() {
   document.querySelectorAll(".menu-btn").forEach((btn) => btn.classList.remove("active"));
 }
 
-function toggleMenuPopup(button) {
-  const menuId = button.dataset.menu;
-  const popup = document.getElementById(menuId);
-  if (!popup) {
-    return;
-  }
-  const opening = !popup.classList.contains("open");
-  closeMenuPopups();
-  if (opening) {
-    popup.classList.add("open");
-    button.classList.add("active");
-  }
-}
-
 function isCommandPaletteOpen() {
   return !!commandPaletteOverlay && !commandPaletteOverlay.classList.contains("hidden");
 }
@@ -474,7 +443,6 @@ function getSharedCommands() {
     ...SETTINGS_DEFAULTS,
     ...(state.config || {})
   };
-  const showMenuBar = config.show_menu_bar !== false;
   const showSearch = config.show_searchbar !== false;
   const showLogs = config.show_logs !== false;
   const showProvider = config.show_provider !== false;
@@ -659,15 +627,6 @@ function getSharedCommands() {
       keywords: "provider visibility dropdown",
       run: async () => {
         await applySettingsPatch({ show_provider: !state.config.show_provider }, "Toggled provider dropdown visibility.");
-      }
-    },
-    {
-      id: "toggle_menu_bar",
-      label: showMenuBar ? "Hide Menu Bar" : "Show Menu Bar",
-      hint: "Appearance",
-      keywords: "menu menubar visibility",
-      run: async () => {
-        await applySettingsPatch({ show_menu_bar: !state.config.show_menu_bar }, "Toggled menu bar visibility.");
       }
     },
     {
@@ -2329,9 +2288,6 @@ function syncLogoStyle() {
 }
 
 function applyVisibilityConfig(config) {
-  menuBar.style.display = config.show_menu_bar === false ? "none" : "";
-  const menuBarHidden = window.getComputedStyle(menuBar).display === "none";
-  document.body.classList.toggle("menu-bar-hidden", menuBarHidden);
   searchRow.style.display = config.show_searchbar === false ? "none" : "";
   logWrap.style.display = config.show_logs === false ? "none" : "";
   providerWrap.style.display = config.show_provider === false ? "none" : "";
@@ -2439,21 +2395,6 @@ function createBrowserQueueItem(url, provider) {
     status: "Queued",
     provider: provider || "Default"
   };
-}
-
-function wireMenuButtons() {
-  document.querySelectorAll(".menu-btn").forEach((btn) => {
-    btn.addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleMenuPopup(btn);
-    });
-  });
-
-  document.addEventListener("click", (event) => {
-    if (!event.target.closest(".menu-root")) {
-      closeMenuPopups();
-    }
-  });
 }
 
 function wireQueueContextMenu() {
@@ -2711,7 +2652,6 @@ function buildSettingsFormHtml(settings) {
           <div class="form-divider"></div>
           <div class="settings-section-subtitle">Show</div>
           <div class="form-grid">
-            <label class="form-checkbox-row"><input id="st-menu-bar" type="checkbox" ${settings.show_menu_bar ? "checked" : ""}>Menu Bar</label>
             <label class="form-checkbox-row"><input id="st-download-btn" type="checkbox" ${settings.download_button ? "checked" : ""}>Download Button</label>
             <label class="form-checkbox-row"><input id="st-search-bar" type="checkbox" ${settings.show_searchbar ? "checked" : ""}>Search Bar</label>
             <label class="form-checkbox-row"><input id="st-regex-btn" type="checkbox" ${settings.show_regex_button ? "checked" : ""}>Regex Button</label>
@@ -2850,7 +2790,6 @@ async function openSettingsEditor() {
         setSelect("st-folder-format", SETTINGS_DEFAULTS.folder_naming_format);
 
         setCheck("st-download-btn", SETTINGS_DEFAULTS.download_button);
-        setCheck("st-menu-bar", SETTINGS_DEFAULTS.show_menu_bar);
         setCheck("st-search-bar", SETTINGS_DEFAULTS.show_searchbar);
         setCheck("st-regex-btn", SETTINGS_DEFAULTS.show_regex_button);
         setCheck("st-case-btn", SETTINGS_DEFAULTS.show_case_button);
@@ -2893,7 +2832,6 @@ async function openSettingsEditor() {
         steamcmd_existing_mod_behavior: root.querySelector("#st-existing").value,
         folder_naming_format: root.querySelector("#st-folder-format").value,
         download_button: root.querySelector("#st-download-btn").checked,
-        show_menu_bar: root.querySelector("#st-menu-bar").checked,
         show_searchbar: root.querySelector("#st-search-bar").checked,
         show_regex_button: root.querySelector("#st-regex-btn").checked,
         show_case_button: root.querySelector("#st-case-btn").checked,
@@ -3386,7 +3324,7 @@ async function openTutorialDialog(options = {}) {
     {
       title: "Command Palette",
       message: "Use Commands for quick access to appearance, tools, and help actions.",
-      selectors: ["#command-palette-btn", "#menu-bar"]
+      selectors: ["#command-palette-btn"]
     },
     {
       title: "Workshop Input",
@@ -3719,24 +3657,6 @@ async function wireControlButtons() {
   bindCommandToButton(exportBtn, "export_queue");
 }
 
-function wireMenuActions() {
-  bindCommandToButton(themeDarkBtn, "theme_dark", { closeMenus: true });
-  bindCommandToButton(themeLightBtn, "theme_light", { closeMenus: true });
-  bindCommandToButton(logoLightBtn, "logo_light", { closeMenus: true });
-  bindCommandToButton(logoDarkBtn, "logo_dark", { closeMenus: true });
-  bindCommandToButton(logoDarkerBtn, "logo_darker", { closeMenus: true });
-  bindCommandToButton(toggleMenuBarBtn, "toggle_menu_bar", { closeMenus: true });
-  bindCommandToButton(toggleSearchBarBtn, "toggle_search_bar", { closeMenus: true });
-  bindCommandToButton(toggleLogsBtn, "toggle_logs", { closeMenus: true });
-  bindCommandToButton(toggleProviderBtn, "toggle_provider", { closeMenus: true });
-  bindCommandToButton(toggleAutoDetectBtn, "toggle_auto_detect", { closeMenus: true });
-  bindCommandToButton(toggleAutoAddBtn, "toggle_auto_add", { closeMenus: true });
-  bindCommandToButton(documentationBtn, "open_documentation", { closeMenus: true });
-  bindCommandToButton(reportIssueBtn, "open_report_issue", { closeMenus: true });
-  bindCommandToButton(tutorialBtn, "show_tutorial", { closeMenus: true });
-  bindCommandToButton(aboutBtn, "show_about", { closeMenus: true });
-}
-
 function wireFilterControls() {
   filterBtn.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -3971,8 +3891,6 @@ async function init() {
   applyWorkshopHelpTooltip();
   updateQueueStatisticsTooltip();
 
-  wireMenuButtons();
-  wireMenuActions();
   wireCommandPalette();
   wireQueueContextMenu();
   wireLogsContextMenu();

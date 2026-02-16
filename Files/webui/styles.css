@@ -246,144 +246,14 @@ body.window-resizing-ns {
   mask-image: url("../window-close.svg");
 }
 
-.menu-bar {
-  height: 25px;
-  display: flex;
-  align-items: center;
-  padding: 0 6px;
-  gap: 0;
-  background: var(--menu-bg);
-  position: relative;
-  z-index: 10;
-}
-
-.menu-root {
-  position: relative;
-}
-
-.menu-btn {
-  border: none;
-  background: transparent;
-  color: var(--menu-text);
-  height: 22px;
-  padding: 2px 6px;
-  margin-left: -4px;
-  cursor: pointer;
-  font: inherit;
-}
-
-.menu-btn:hover,
-.menu-btn.active {
-  color: var(--menu-text-hover);
-}
-
-.menu-popup {
-  position: absolute;
-  left: 0;
-  top: 100%;
-  min-width: 210px;
-  display: none;
-  border: 1px solid var(--menu-border);
-  border-radius: 3px;
-  background: var(--menu-popup-bg);
-  padding: 4px;
-}
-
-.menu-popup.open {
-  display: block;
-}
-
-.menu-item {
-  display: block;
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: var(--menu-text);
-  text-align: left;
-  padding: 5px 8px;
-  border-radius: 3px;
-  font: inherit;
-  cursor: pointer;
-}
-
-.menu-item:hover {
-  background: var(--menu-hover);
-  color: var(--menu-item-hover-text);
-}
-
-.menu-item.disabled {
-  color: gray;
-  cursor: default;
-}
-
-.menu-item.disabled:hover {
-  background: transparent;
-  color: gray;
-}
-
-.menu-submenu {
-  position: relative;
-}
-
-.menu-submenu::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: -10px;
-  width: 12px;
-  height: 100%;
-}
-
-.menu-item-submenu {
-  position: relative;
-  padding-right: 22px;
-}
-
-.menu-item-submenu::after {
-  content: ">";
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  opacity: 0.8;
-}
-
-.menu-subpopup {
-  position: absolute;
-  left: calc(100% - 1px);
-  top: 0;
-  min-width: 170px;
-  display: none;
-  border: 1px solid var(--menu-border);
-  border-radius: 3px;
-  background: var(--menu-popup-bg);
-  padding: 4px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-}
-
-.menu-submenu:hover > .menu-subpopup,
-.menu-submenu:focus-within > .menu-subpopup {
-  display: block;
-}
-
-.menu-sep {
-  height: 1px;
-  background: var(--menu-border);
-  margin: 4px 6px;
-}
-
 .content {
-  padding: 0 6px 6px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   gap: 6px;
   min-height: 0;
   overflow: hidden;
-}
-
-body.menu-bar-hidden .content {
-  padding-top: 6px;
 }
 
 .toolbar-row,

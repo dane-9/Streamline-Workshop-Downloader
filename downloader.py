@@ -30,7 +30,6 @@ DEFAULT_SETTINGS = {
     "delete_downloads_on_cancel": False,
     "steamcmd_existing_mod_behavior": "Only Redownload if Updated",
     "download_button": True,
-    "show_menu_bar": True,
     "show_searchbar": True,
     "show_regex_button": True,
     "show_case_button": True,
