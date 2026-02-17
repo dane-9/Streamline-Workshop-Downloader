@@ -57,6 +57,7 @@ document.body.style.transition = "opacity 220ms ease";
 let started = false;
 let eventPollTimer = null;
 let queueRefreshTimer = null;
+let queueRefreshForceReload = false;
 let browserQueue = [];
 let activeColumnResize = null;
 let searchRenderTimer = null;
@@ -517,7 +518,7 @@ function getSharedCommands() {
         const result = await callApi("import_queue", filePath);
         if (result?.success) {
           addLog(`Queue imported (${result.added} added, ${result.skipped} skipped).`, "good");
-          await refreshQueue();
+          await refreshQueue({ forceReload: true });
         } else {
           addLog(result?.error || "Import failed.", "bad");
         }
@@ -2193,7 +2194,7 @@ async function handleQueueContextAction(action) {
     if (result?.success) {
       addLog(`Removed ${result.removed || 0} mod(s) from queue.`);
       state.selectedModIds.clear();
-      await refreshQueue();
+      await refreshQueue({ forceReload: true });
     } else {
       addLog(result?.error || "Failed to remove selected mods.", "bad");
     }
@@ -2204,7 +2205,7 @@ async function handleQueueContextAction(action) {
     const direction = action.replace("move_", "");
     const result = await callApi("move_mods", selected, direction);
     if (result?.success) {
-      await refreshQueue();
+      await refreshQueue({ forceReload: true });
     } else {
       addLog(result?.error || "Failed to move selected mods.", "bad");
     }
@@ -2221,7 +2222,7 @@ async function handleQueueContextAction(action) {
     const result = await callApi("change_provider_for_mods", selected, provider);
     if (result?.success) {
       addLog(`Provider changed for ${result.changed || 0} mod(s).`);
-      await refreshQueue();
+      await refreshQueue({ forceReload: true });
     } else {
       addLog(result?.error || "Failed to change provider.", "bad");
     }
@@ -2232,7 +2233,7 @@ async function handleQueueContextAction(action) {
     const result = await callApi("reset_status", selected);
     if (result?.success) {
       addLog(`Reset status for ${result.reset || 0} mod(s).`);
-      await refreshQueue();
+      await refreshQueue({ forceReload: true });
     } else {
       addLog(result?.error || "Failed to reset status.", "bad");
     }
@@ -2253,7 +2254,7 @@ async function handleQueueContextAction(action) {
     const result = await callApi("override_appid", selected, appIdInput);
     if (result?.success) {
       addLog(`Overrode AppID for ${result.changed || 0} mod(s) -> ${result.app_id} (${result.game_name}).`);
-      await refreshQueue();
+      await refreshQueue({ forceReload: true });
     } else {
       addLog(result?.error || "Failed to override AppID.", "bad");
     }
@@ -2269,18 +2270,24 @@ function setFilter(filterName) {
   scheduleSearchRender();
 }
 
-function scheduleQueueRefresh() {
+function scheduleQueueRefresh(forceReload = false) {
+  if (forceReload) {
+    queueRefreshForceReload = true;
+  }
   if (queueRefreshTimer) {
     return;
   }
   queueRefreshTimer = window.setTimeout(async () => {
+    const shouldForceReload = queueRefreshForceReload;
+    queueRefreshForceReload = false;
     queueRefreshTimer = null;
-    await refreshQueue();
+    await refreshQueue({ forceReload: shouldForceReload });
   }, 320);
 }
 
-async function refreshQueue() {
+async function refreshQueue(options = {}) {
   if (state.apiAvailable) {
+    const forceReload = !!options.forceReload;
     const rowHeight = Math.max(18, Number(virtualRowHeight) || VIRTUAL_ROW_HEIGHT_FALLBACK);
     const viewportHeight = Math.max(0, queueTableWrap?.clientHeight || 0);
     const scrollTop = Math.max(0, queueTableWrap?.scrollTop || 0);
@@ -2288,7 +2295,7 @@ async function refreshQueue() {
     const currentStart = Math.max(0, Math.floor(scrollTop / rowHeight) - VIRTUAL_OVERSCAN_ROWS);
     const currentEnd = Math.max(currentStart + 1, currentStart + rowsInView + (VIRTUAL_OVERSCAN_ROWS * 2));
 
-    await ensureBackendWindowLoaded(currentStart, currentEnd, { forceReload: true });
+    await ensureBackendWindowLoaded(currentStart, currentEnd, { forceReload });
     lastVirtualStart = -1;
     lastVirtualEnd = -1;
     renderQueueViewport(true);
@@ -3808,7 +3815,7 @@ async function handleAddToQueue(event) {
 
   queueForm.reset();
   setProviderValue(provider);
-  await refreshQueue();
+  await refreshQueue({ forceReload: true });
 }
 
 function getQueueStatusBucket(statusValue) {
@@ -3895,7 +3902,7 @@ function applyQueueStatusEvent(payload) {
   }
 
   if (invalidateQueueView) {
-    scheduleQueueRefresh();
+    scheduleQueueRefresh(true);
     return;
   }
 
@@ -3927,7 +3934,7 @@ async function handleEvent(event) {
   }
 
   if (type === "queue") {
-    scheduleQueueRefresh();
+    scheduleQueueRefresh(true);
     return;
   }
   if (type === "queue_status") {
@@ -4121,7 +4128,7 @@ async function init() {
       syncStartButton();
       addLog("Queued and started download.", "good");
       queueForm.reset();
-      await refreshQueue();
+      await refreshQueue({ forceReload: true });
     } catch {
       addLog("Download-now is only available from desktop app.", "bad");
     }
@@ -4206,7 +4213,7 @@ async function init() {
       }
       state.config.download_provider = provider;
       if (shouldOverride) {
-        await refreshQueue();
+        await refreshQueue({ forceReload: true });
         addLog(`Provider updated for ${result.changed || 0} queued mods.`);
       }
     } catch {
@@ -4251,7 +4258,7 @@ async function init() {
   });
 
   setFilter("All");
-  await refreshQueue();
+  await refreshQueue({ forceReload: true });
   revealAppWindow();
 }
 
