@@ -68,6 +68,7 @@ let commandPaletteResults = [];
 let commandPaletteSelectedIndex = 0;
 let commandPaletteLastFocusedElement = null;
 let lastShiftTapAt = 0;
+const animatedSelectControllers = new Map();
 
 const MAX_LOG_LINES = 500;
 const SEARCH_RENDER_DEBOUNCE_MS = 180;
@@ -169,10 +170,10 @@ const QUEUE_COLUMNS = [
 ];
 
 function syncProviderDisplay() {
-  if (!providerDisplayName) {
-    return;
+  if (providerDisplayName) {
+    providerDisplayName.textContent = providerSelect?.value || "Default";
   }
-  providerDisplayName.textContent = providerSelect?.value || "Default";
+  syncAnimatedSelect("provider");
 }
 
 function setProviderValue(value) {
@@ -300,6 +301,7 @@ function showFormModal({
     modalInput.value = "";
     modalForm.classList.remove("hidden");
     modalForm.innerHTML = html || "";
+    initAllAnimatedSelects(modalForm);
     modalOkBtn.textContent = okLabel;
     modalCancelBtn.textContent = cancelLabel;
     modalCancelBtn.style.display = showCancel ? "" : "none";
@@ -308,6 +310,7 @@ function showFormModal({
     const context = {
       setFormHtml: (newHtml) => {
         modalForm.innerHTML = newHtml || "";
+        initAllAnimatedSelects(modalForm);
       }
     };
 
@@ -530,6 +533,7 @@ function closeMenuPopups() {
   document.querySelectorAll(".menu-popup").forEach((menu) => menu.classList.remove("open"));
   document.querySelectorAll(".menu-btn").forEach((btn) => btn.classList.remove("active"));
   hideCommandSplitMenu();
+  animatedSelectControllers.forEach((controller) => controller?.close?.());
 }
 
 function isCommandPaletteOpen() {
@@ -539,6 +543,289 @@ function isCommandPaletteOpen() {
 function hideCommandSplitMenu() {
   commandsSplitMenu?.classList.add("hidden");
   commandPaletteBtn?.classList.remove("active");
+}
+
+function syncAnimatedSelect(selectId) {
+  const controller = animatedSelectControllers.get(String(selectId || ""));
+  controller?.sync?.();
+}
+
+function destroyAnimatedSelect(selectId) {
+  const id = String(selectId || "");
+  if (!id) {
+    return;
+  }
+  const controller = animatedSelectControllers.get(id);
+  if (!controller) {
+    return;
+  }
+  try {
+    controller.close?.();
+  } catch {
+    // ignore close failures
+  }
+  try {
+    controller.observer?.disconnect?.();
+  } catch {
+    // ignore observer disconnect failures
+  }
+  if (controller.trigger instanceof HTMLElement) {
+    controller.trigger.remove();
+  }
+  if (controller.menu instanceof HTMLElement) {
+    controller.menu.remove();
+  }
+  if (controller.selectEl instanceof HTMLSelectElement) {
+    controller.selectEl.classList.remove("animated-select-native");
+    if (controller.selectEl.getAttribute("tabindex") === "-1") {
+      controller.selectEl.removeAttribute("tabindex");
+    }
+    const wrap = controller.selectEl.parentElement;
+    if (wrap instanceof HTMLElement && !wrap.querySelector(".animated-select-trigger")) {
+      wrap.classList.remove("custom-select-enabled");
+    }
+  }
+  animatedSelectControllers.delete(id);
+}
+
+function pruneAnimatedSelectControllers() {
+  Array.from(animatedSelectControllers.entries()).forEach(([id, controller]) => {
+    if (!(controller?.selectEl instanceof HTMLSelectElement) || !controller.selectEl.isConnected) {
+      destroyAnimatedSelect(id);
+    }
+  });
+}
+
+function initAnimatedSelect(selectEl, options = {}) {
+  if (!(selectEl instanceof HTMLSelectElement)) {
+    return null;
+  }
+  const id = String(options.id || selectEl.id || selectEl.dataset.animatedSelectId || "");
+  if (!id) {
+    return null;
+  }
+  if (!selectEl.dataset.animatedSelectId) {
+    selectEl.dataset.animatedSelectId = id;
+  }
+  const existing = animatedSelectControllers.get(id);
+  if (existing) {
+    if (existing.selectEl === selectEl) {
+      existing.sync();
+      return existing;
+    }
+    if (!(existing.selectEl instanceof HTMLSelectElement) || !existing.selectEl.isConnected) {
+      destroyAnimatedSelect(id);
+    } else {
+      return existing;
+    }
+  }
+
+  const wrap = selectEl.parentElement;
+  if (!(wrap instanceof HTMLElement)) {
+    return null;
+  }
+
+  const preexistingTrigger = wrap.querySelector(".animated-select-trigger");
+  if (preexistingTrigger) {
+    preexistingTrigger.remove();
+  }
+  const preexistingMenu = wrap.querySelector(".animated-select-menu");
+  if (preexistingMenu) {
+    preexistingMenu.remove();
+  }
+
+  wrap.classList.add("custom-select-enabled");
+  selectEl.classList.add("animated-select-native");
+  selectEl.setAttribute("tabindex", "-1");
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "animated-select-trigger control";
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+
+  const label = document.createElement("span");
+  label.className = "animated-select-label";
+  if (options.prefix) {
+    const prefix = document.createElement("span");
+    prefix.className = "animated-select-prefix";
+    prefix.textContent = String(options.prefix);
+    label.appendChild(prefix);
+  }
+  const value = document.createElement("span");
+  value.className = "animated-select-value";
+  label.appendChild(value);
+  trigger.appendChild(label);
+
+  const menu = document.createElement("div");
+  menu.className = "animated-select-menu hidden";
+  menu.setAttribute("role", "listbox");
+  menu.setAttribute("aria-label", String(options.ariaLabel || selectEl.getAttribute("aria-label") || id));
+
+  wrap.appendChild(trigger);
+  wrap.appendChild(menu);
+
+  const controller = {
+    id,
+    selectEl,
+    trigger,
+    menu,
+    observer: null,
+    open: false,
+    close: () => {
+      if (!controller.open) {
+        return;
+      }
+      controller.open = false;
+      trigger.classList.remove("open");
+      trigger.setAttribute("aria-expanded", "false");
+      menu.classList.add("hidden");
+    },
+    renderOptions: () => {
+      menu.innerHTML = "";
+      Array.from(selectEl.options).forEach((option) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "animated-select-option";
+        item.textContent = option.textContent || option.value || "";
+        item.dataset.value = option.value;
+        item.setAttribute("role", "option");
+        if (option.selected) {
+          item.classList.add("active");
+          item.setAttribute("aria-selected", "true");
+        } else {
+          item.setAttribute("aria-selected", "false");
+        }
+        item.disabled = !!option.disabled;
+        item.addEventListener("click", () => {
+          if (option.disabled) {
+            return;
+          }
+          const changed = selectEl.value !== option.value;
+          selectEl.value = option.value;
+          controller.sync();
+          controller.close();
+          if (changed) {
+            selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+          trigger.focus();
+        });
+        menu.appendChild(item);
+      });
+    },
+    sync: () => {
+      const selectedOption = selectEl.selectedOptions?.[0] || selectEl.options?.[selectEl.selectedIndex] || null;
+      value.textContent = selectedOption?.textContent || selectedOption?.value || "";
+      trigger.disabled = !!selectEl.disabled;
+      controller.renderOptions();
+    },
+    toggle: () => {
+      if (controller.open) {
+        controller.close();
+        return;
+      }
+      animatedSelectControllers.forEach((candidate, candidateId) => {
+        if (candidateId !== id) {
+          candidate?.close?.();
+        }
+      });
+      controller.open = true;
+      trigger.classList.add("open");
+      trigger.setAttribute("aria-expanded", "true");
+      controller.renderOptions();
+      menu.classList.remove("hidden");
+    }
+  };
+
+  trigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    controller.toggle();
+  });
+
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
+      event.preventDefault();
+      controller.toggle();
+      const active = menu.querySelector(".animated-select-option.active, .animated-select-option:not(:disabled)");
+      if (active instanceof HTMLElement) {
+        active.focus();
+      }
+      return;
+    }
+    if (event.key === "Escape") {
+      controller.close();
+    }
+  });
+
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      controller.close();
+      trigger.focus();
+    }
+  });
+
+  const observer = new MutationObserver(() => controller.sync());
+  observer.observe(selectEl, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
+  controller.observer = observer;
+
+  if (!document.body.dataset.animatedSelectBound) {
+    document.body.dataset.animatedSelectBound = "1";
+    document.addEventListener("mousedown", (event) => {
+      if (event.target instanceof Element && event.target.closest(".custom-select-enabled")) {
+        return;
+      }
+      animatedSelectControllers.forEach((candidate) => candidate?.close?.());
+    });
+    document.addEventListener("scroll", () => {
+      animatedSelectControllers.forEach((candidate) => candidate?.close?.());
+    }, true);
+    window.addEventListener("resize", () => {
+      animatedSelectControllers.forEach((candidate) => candidate?.close?.());
+    });
+  }
+
+  animatedSelectControllers.set(id, controller);
+  controller.sync();
+  return controller;
+}
+
+let autoAnimatedSelectCounter = 0;
+
+function initAnimatedSelectsIn(root, optionsResolver = null) {
+  pruneAnimatedSelectControllers();
+  const scope = root instanceof Element || root instanceof Document ? root : document;
+  const selects = Array.from(scope.querySelectorAll("select"));
+  selects.forEach((selectEl) => {
+    if (!(selectEl instanceof HTMLSelectElement)) {
+      return;
+    }
+    const forcedId = String(selectEl.id || selectEl.dataset.animatedSelectId || `auto-select-${++autoAnimatedSelectCounter}`);
+    selectEl.dataset.animatedSelectId = forcedId;
+    const resolved = typeof optionsResolver === "function" ? (optionsResolver(selectEl) || {}) : {};
+    const initOptions = {
+      id: forcedId,
+      ariaLabel: selectEl.getAttribute("aria-label") || selectEl.name || forcedId,
+      ...resolved
+    };
+    initAnimatedSelect(selectEl, initOptions);
+  });
+}
+
+function resolveAnimatedSelectOptions(selectEl) {
+  const id = String(selectEl?.id || "");
+  if (id === "provider") {
+    return { prefix: "Provider:", ariaLabel: "Provider" };
+  }
+  if (id === "account-select") {
+    return { ariaLabel: "Account" };
+  }
+  return {};
+}
+
+function initAllAnimatedSelects(root = document) {
+  initAnimatedSelectsIn(root, resolveAnimatedSelectOptions);
 }
 
 function getSharedCommands() {
@@ -2511,6 +2798,7 @@ async function refreshAccounts(activeFromConfig = "") {
     }
     accountSelect.value = active;
   }
+  syncAnimatedSelect("account-select");
 }
 
 async function useBootstrapData(data) {
@@ -4556,6 +4844,7 @@ async function init() {
     return;
   }
   started = true;
+  initAllAnimatedSelects(document);
   applyWorkshopHelpTooltip();
   updateQueueStatisticsTooltip();
 
