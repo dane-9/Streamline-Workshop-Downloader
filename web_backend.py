@@ -2802,12 +2802,20 @@ class StreamlineWebBackend:
         username = (username or "").strip()
         if not username:
             return {"success": False, "error": "Username is required."}
+        steamid64 = (steamid64 or "").strip()
         accounts = [self._normalize_account_record(acc) for acc in self.config.get("steam_accounts", [])]
-        if any((acc.get("username", "").lower() == username.lower()) for acc in accounts):
+        existing = next((acc for acc in accounts if acc.get("username", "").lower() == username.lower()), None)
+        if existing:
+            current_steamid64 = str(existing.get("steamid64", "")).strip()
+            if steamid64 and current_steamid64 != steamid64:
+                existing["steamid64"] = steamid64
+                self.config["steam_accounts"] = accounts
+                self.save_config()
+                return {"success": True, "updated": True}
             return {"success": False, "error": "Account already exists."}
         accounts.append({
             "username": username,
-            "steamid64": (steamid64 or "").strip(),
+            "steamid64": steamid64,
         })
         self.config["steam_accounts"] = accounts
         self.save_config()

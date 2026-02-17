@@ -270,8 +270,8 @@ class WebMainGuiApi:
     def get_accounts(self):
         return self.backend.get_accounts()
 
-    def add_account(self, username):
-        return self.backend.add_account(username)
+    def add_account(self, username, steamid64=""):
+        return self.backend.add_account(username, steamid64)
 
     def remove_account(self, username):
         return self.backend.remove_account(username)

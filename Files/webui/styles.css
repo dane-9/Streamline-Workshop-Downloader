@@ -1309,6 +1309,10 @@ button.control:active,
   line-height: 1.4;
 }
 
+.confirm-keyword-input {
+  width: 100%;
+}
+
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
@@ -1588,6 +1592,124 @@ select.form-control:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.accounts-manager-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 10px;
+}
+
+.accounts-add-row {
+  grid-template-columns: 1fr auto;
+  align-items: end;
+}
+
+.accounts-add-action {
+  min-width: 140px;
+}
+
+.accounts-add-action .modal-btn {
+  width: 100%;
+}
+
+.accounts-add-row #acc-username,
+.accounts-add-row #acc-add {
+  height: 32px;
+}
+
+.accounts-manager-list-btn {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  border-radius: 3px;
+  padding: 6px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.accounts-manager-list-btn:hover {
+  background: var(--menu-hover);
+}
+
+.accounts-manager-list-btn.active {
+  border-color: var(--selection);
+  background: color-mix(in srgb, var(--selection) 16%, transparent);
+}
+
+.accounts-manager-row-main {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accounts-manager-row-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.accounts-manager-pill {
+  border: 1px solid var(--menu-border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  line-height: 1.4;
+}
+
+.accounts-manager-pill.active {
+  border-color: var(--selection);
+  color: var(--selection);
+}
+
+.accounts-manager-pill.saved {
+  opacity: 0.8;
+}
+
+.accounts-manager-steamid {
+  max-width: 148px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accounts-manager-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 0.9fr);
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.accounts-manager-actions .modal-btn {
+  min-width: 0;
+  width: 100%;
+}
+
+.accounts-manager-actions #acc-login-selected {
+  white-space: nowrap;
+}
+
+.accounts-footer-purge-btn {
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--menu-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0 2px;
+}
+
+.accounts-footer-purge-btn:hover {
+  color: var(--fg-hover);
+  background: transparent;
 }
 
 .modal-actions {

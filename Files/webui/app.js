@@ -395,6 +395,73 @@ function showConfirmDialog({
   });
 }
 
+function showKeywordConfirmDialog({
+  title = "Confirm",
+  message = "",
+  keyword = "PURGE",
+  okLabel = "Confirm",
+  cancelLabel = "Cancel"
+}) {
+  return new Promise((resolve) => {
+    const expected = String(keyword || "").trim();
+    const overlay = document.createElement("div");
+    overlay.className = "confirm-overlay";
+    overlay.innerHTML = `
+      <div class="confirm-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+        <h3 class="confirm-title">${escapeHtml(title)}</h3>
+        <p class="confirm-message">${escapeHtml(message)}</p>
+        <input class="form-control confirm-keyword-input" type="text" placeholder="${escapeHtml(expected)}">
+        <div class="confirm-actions" style="margin-top:10px;">
+          <button type="button" class="control modal-btn" data-confirm-action="cancel">${escapeHtml(cancelLabel)}</button>
+          <button type="button" class="control modal-btn primary" data-confirm-action="ok" disabled>${escapeHtml(okLabel)}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const okBtn = overlay.querySelector("[data-confirm-action='ok']");
+    const cancelBtn = overlay.querySelector("[data-confirm-action='cancel']");
+    const input = overlay.querySelector(".confirm-keyword-input");
+
+    const cleanup = (value) => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      overlay.remove();
+      resolve(!!value);
+    };
+
+    const updateState = () => {
+      if (!okBtn || !input) {
+        return;
+      }
+      okBtn.disabled = String(input.value || "").trim() !== expected;
+    };
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cleanup(false);
+        return;
+      }
+      if (event.key === "Enter" && !okBtn?.disabled) {
+        event.preventDefault();
+        cleanup(true);
+      }
+    };
+
+    input?.addEventListener("input", updateState);
+    overlay.addEventListener("mousedown", (event) => {
+      if (event.target === overlay) {
+        cleanup(false);
+      }
+    });
+    okBtn?.addEventListener("click", () => cleanup(true));
+    cancelBtn?.addEventListener("click", () => cleanup(false));
+    document.addEventListener("keydown", onKeyDown, true);
+    updateState();
+    input?.focus();
+  });
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -2976,32 +3043,75 @@ async function applySettingsPatch(patch, successMessage = "Settings updated.") {
   return true;
 }
 
-function buildAccountsFormHtml(data) {
-  const accounts = data?.accounts || [];
+function buildAccountsFormHtml(data, selectedUsername = "") {
+  const accounts = Array.isArray(data?.accounts) ? data.accounts : [];
+  const activeAccount = String(data?.active || "Anonymous").trim();
+  const preferred = String(selectedUsername || "").trim();
+
+  const hasPreferred = preferred && accounts.some((acc) => String(acc?.username || "").trim() === preferred);
+  const hasActive = activeAccount && accounts.some((acc) => String(acc?.username || "").trim() === activeAccount);
+  const resolvedSelected = hasPreferred
+    ? preferred
+    : (hasActive ? activeAccount : String(accounts[0]?.username || "").trim());
+
+  const selectedAccount = accounts.find((acc) => String(acc?.username || "").trim() === resolvedSelected) || null;
+  const selectedName = selectedAccount ? String(selectedAccount.username || "").trim() : "";
+  const selectedSteamId = selectedAccount ? String(selectedAccount.steamid64 || "").trim() : "";
+
   const rows = accounts.length
-    ? accounts.map((acc) => `
-      <div class="accounts-item">
-        <span class="accounts-name">${escapeHtml(acc.username)}</span>
-        <div class="form-actions-inline">
-          <button class="control modal-btn" type="button" data-account-action="remove" data-username="${escapeHtml(acc.username)}">Remove</button>
-        </div>
-      </div>
-    `).join("")
+    ? accounts.map((acc) => {
+      const username = String(acc?.username || "").trim();
+      const steamid64 = String(acc?.steamid64 || "").trim();
+      const isActive = username === activeAccount;
+      const isSelected = username === resolvedSelected;
+      return `
+        <button
+          type="button"
+          class="accounts-manager-list-btn ${isSelected ? "active" : ""}"
+          data-account-action="select"
+          data-username="${escapeHtml(username)}"
+        >
+          <span class="accounts-manager-row-main">${escapeHtml(username)}</span>
+          <span class="accounts-manager-row-meta">
+            <span class="accounts-manager-pill ${isActive ? "active" : "saved"}">${isActive ? "Active" : "Saved"}</span>
+            <span class="accounts-manager-steamid">${steamid64 ? escapeHtml(steamid64) : "No SteamID64"}</span>
+          </span>
+        </button>
+      `;
+    }).join("")
     : `<p style="margin:4px 0;">No accounts configured.</p>`;
 
   return `
-    <div class="form-grid">
+    <div class="form-grid accounts-add-row">
       <div class="form-block">
-        <label for="acc-username">Username</label>
-        <input id="acc-username" class="form-control" type="text" placeholder="Steam username">
+        <label for="acc-username">Add Account (Steam username)</label>
+        <input id="acc-username" class="form-control" type="text" placeholder="Example: mySteamUser">
+      </div>
+      <div class="form-block accounts-add-action">
+        <label>&nbsp;</label>
+        <button id="acc-add" class="control modal-btn primary" type="button">Authenticate</button>
       </div>
     </div>
-    <div class="form-actions-inline">
-      <button id="acc-add" class="control modal-btn primary" type="button">Add Account</button>
-      <button id="acc-purge" class="control modal-btn" type="button">Purge All</button>
-    </div>
     <div class="form-divider"></div>
-    <div class="accounts-list">${rows}</div>
+    <div class="accounts-manager-grid">
+      <div class="form-block">
+        <label>Saved Accounts (${accounts.length})</label>
+        <div class="accounts-list">${rows}</div>
+      </div>
+      <div class="form-block">
+        <label>Selected Account</label>
+        <input id="acc-selected-username" class="form-control" type="text" readonly value="${escapeHtml(selectedName || "None")}">
+        <label style="margin-top: 8px;">SteamID64</label>
+        <input id="acc-selected-steamid" class="form-control" type="text" readonly value="${escapeHtml(selectedSteamId || "Unavailable")}">
+        <label style="margin-top: 8px;">Status</label>
+        <input id="acc-selected-status" class="form-control" type="text" readonly value="${escapeHtml(selectedName ? (selectedName === activeAccount ? "Active" : "Saved") : "No selection")}">
+        <div class="form-actions-inline accounts-manager-actions" style="margin-top: 10px;">
+          <button id="acc-set-active" class="control modal-btn primary" type="button" ${(!selectedName || selectedName === activeAccount) ? "disabled" : ""}>Set Active</button>
+          <button id="acc-login-selected" class="control modal-btn" type="button" ${selectedName ? "" : "disabled"}>Re-authenticate</button>
+          <button id="acc-remove-selected" class="control modal-btn" type="button" ${selectedName ? "" : "disabled"}>Remove</button>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -3134,14 +3244,19 @@ async function openSteamcmdLoginTerminal(username) {
         }
       });
 
-      const ensureAccountInList = async (candidateName) => {
+      const ensureAccountInList = async (candidateName, detectedSteamId64 = "") => {
         const normalized = (candidateName || username || "").trim();
         if (!normalized) {
           return false;
         }
-        const result = await callApi("add_account", normalized);
+        const steamid64 = String(detectedSteamId64 || "").trim();
+        const result = await callApi("add_account", normalized, steamid64);
         if (result?.success) {
-          addLog(`Added account '${normalized}'.`, "good");
+          if (result?.updated) {
+            addLog(`Updated SteamID64 for account '${normalized}'.`, "good");
+          } else {
+            addLog(`Added account '${normalized}'.`, "good");
+          }
           return true;
         }
         const errText = String(result?.error || "").toLowerCase();
@@ -3210,7 +3325,7 @@ async function openSteamcmdLoginTerminal(username) {
           if (!autoCloseTriggered) {
             autoCloseTriggered = true;
             try {
-              await ensureAccountInList(accountLabel || username);
+              await ensureAccountInList(accountLabel || username, res.detected_steamid64 || "");
               await refreshAccounts(accountLabel || username);
             } catch (error) {
               addLog(error?.message || "Failed to refresh account list after login.", "bad");
@@ -3258,71 +3373,151 @@ async function openSteamcmdLoginTerminal(username) {
 
 async function openAccountsManager() {
   let accountData = await callApi("get_accounts");
+  let footerPurgeBtn = null;
+  const resolveSelectedUsername = (data, preferred = "") => {
+    const accounts = Array.isArray(data?.accounts) ? data.accounts : [];
+    if (!accounts.length) {
+      return "";
+    }
+    const preferredName = String(preferred || "").trim();
+    if (preferredName && accounts.some((acc) => String(acc?.username || "").trim() === preferredName)) {
+      return preferredName;
+    }
+    const activeName = String(data?.active || "").trim();
+    if (activeName && accounts.some((acc) => String(acc?.username || "").trim() === activeName)) {
+      return activeName;
+    }
+    return String(accounts[0]?.username || "").trim();
+  };
+  let selectedUsername = resolveSelectedUsername(accountData);
 
-  await showFormModal({
-    title: "Accounts Manager",
-    message: "Manage Steam accounts. Add Account opens SteamCMD authentication for the entered username.",
-    html: buildAccountsFormHtml(accountData),
-    okLabel: "Close",
-    showCancel: false,
-    onMount: (root, context) => {
-      const bindActions = () => {
-        const usernameInput = root.querySelector("#acc-username");
-        const addBtn = root.querySelector("#acc-add");
-        const purgeBtn = root.querySelector("#acc-purge");
-
-        const refreshAccountsModal = async (successMessage = "") => {
-          accountData = await callApi("get_accounts");
-          context.setFormHtml(buildAccountsFormHtml(accountData));
-          root = modalForm;
-          bindActions();
-          await refreshAccounts(accountData?.active || "Anonymous");
-          if (successMessage) {
-            addLog(successMessage, "good");
+  try {
+    await showFormModal({
+      title: "Accounts Manager",
+      message: "Manage saved accounts, choose the active account, and re-authenticate through SteamCMD.",
+      html: buildAccountsFormHtml(accountData, selectedUsername),
+      okLabel: "Close",
+      showCancel: false,
+      onMount: (root, context) => {
+        const setFooterPurgeVisible = (visible) => {
+          if (footerPurgeBtn) {
+            footerPurgeBtn.style.display = visible ? "" : "none";
           }
         };
 
-        addBtn.addEventListener("click", async () => {
-          const username = (usernameInput.value || "").trim();
-          if (!username) {
-            addLog("Username is required to add account.", "bad");
-            return;
-          }
-          const result = await callApi("launch_steamcmd_login", username);
-          if (!result?.success) {
-            addLog(result?.error || `Failed to open SteamCMD login for '${username}'.`, "bad");
-            return;
-          }
-          if (result.mode === "conpty") {
-            addLog(`Opened embedded SteamCMD terminal for '${username}'.`, "good");
-            await openSteamcmdLoginTerminal(username);
-            await refreshAccountsModal(`Completed SteamCMD login flow for '${username}'.`);
-            return;
-          }
-          await refreshAccountsModal(`Opened SteamCMD login for '${username}'.`);
-        });
+        const bindActions = () => {
+          const usernameInput = root.querySelector("#acc-username");
+          const addBtn = root.querySelector("#acc-add");
+          const setActiveBtn = root.querySelector("#acc-set-active");
+          const reloginBtn = root.querySelector("#acc-login-selected");
+          const removeBtn = root.querySelector("#acc-remove-selected");
 
-        purgeBtn.addEventListener("click", async () => {
-          const confirmed = await showConfirmDialog({
-            title: "Purge Accounts",
-            message: "Purge all configured accounts?",
-            okLabel: "Purge",
-            cancelLabel: "Cancel"
+          const rerenderAccountsModal = () => {
+            context.setFormHtml(buildAccountsFormHtml(accountData, selectedUsername));
+            root = modalForm;
+            bindActions();
+          };
+
+          const refreshAccountsModal = async (successMessage = "", preferredSelection = selectedUsername) => {
+            accountData = await callApi("get_accounts");
+            selectedUsername = resolveSelectedUsername(accountData, preferredSelection);
+            rerenderAccountsModal();
+            await refreshAccounts(accountData?.active || "Anonymous");
+            if (successMessage) {
+              addLog(successMessage, "good");
+            }
+          };
+
+          const selectAccount = (username) => {
+            selectedUsername = String(username || "").trim();
+            rerenderAccountsModal();
+          };
+
+          root.querySelectorAll("[data-account-action='select']").forEach((button) => {
+            button.addEventListener("click", () => {
+              selectAccount(button.dataset.username || "");
+            });
           });
-          if (!confirmed) {
-            return;
-          }
-          const result = await callApi("purge_accounts");
-          if (!result?.success) {
-            addLog(result?.error || "Failed to purge accounts.", "bad");
-            return;
-          }
-          await refreshAccountsModal("Purged all accounts.");
-        });
 
-        root.querySelectorAll("[data-account-action='remove']").forEach((button) => {
-          button.addEventListener("click", async () => {
-            const username = button.dataset.username || "";
+          addBtn.addEventListener("click", async () => {
+            const username = (usernameInput.value || "").trim();
+            if (!username) {
+              addLog("Username is required to add account.", "bad");
+              return;
+            }
+            const result = await callApi("launch_steamcmd_login", username);
+            if (!result?.success) {
+              addLog(result?.error || `Failed to open SteamCMD login for '${username}'.`, "bad");
+              return;
+            }
+            if (result.mode === "conpty") {
+              addLog(`Opened embedded SteamCMD terminal for '${username}'.`, "good");
+              setFooterPurgeVisible(false);
+              try {
+                await openSteamcmdLoginTerminal(username);
+              } finally {
+                setFooterPurgeVisible(true);
+              }
+              await refreshAccountsModal(`Completed SteamCMD login flow for '${username}'.`, username);
+              return;
+            }
+            await refreshAccountsModal(`Opened SteamCMD login for '${username}'.`, username);
+          });
+
+          setActiveBtn?.addEventListener("click", async () => {
+            const username = String(selectedUsername || "").trim();
+            if (!username) {
+              addLog("Select an account first.", "bad");
+              return;
+            }
+            const result = await callApi("set_active_account", username);
+            if (!result?.success) {
+              addLog(result?.error || `Failed to set active account '${username}'.`, "bad");
+              return;
+            }
+            await refreshAccountsModal(`Active account set to '${username}'.`, username);
+          });
+
+          reloginBtn?.addEventListener("click", async () => {
+            const username = String(selectedUsername || "").trim();
+            if (!username) {
+              addLog("Select an account first.", "bad");
+              return;
+            }
+            const result = await callApi("launch_steamcmd_login", username);
+            if (!result?.success) {
+              addLog(result?.error || `Failed to open SteamCMD login for '${username}'.`, "bad");
+              return;
+            }
+            if (result.mode === "conpty") {
+              addLog(`Opened embedded SteamCMD terminal for '${username}'.`, "good");
+              setFooterPurgeVisible(false);
+              try {
+                await openSteamcmdLoginTerminal(username);
+              } finally {
+                setFooterPurgeVisible(true);
+              }
+              await refreshAccountsModal(`Completed SteamCMD login flow for '${username}'.`, username);
+              return;
+            }
+            await refreshAccountsModal(`Opened SteamCMD login for '${username}'.`, username);
+          });
+
+          removeBtn?.addEventListener("click", async () => {
+            const username = String(selectedUsername || "").trim();
+            if (!username) {
+              addLog("Select an account first.", "bad");
+              return;
+            }
+            const confirmed = await showConfirmDialog({
+              title: "Remove Account",
+              message: `Remove account '${username}'?`,
+              okLabel: "Remove",
+              cancelLabel: "Cancel"
+            });
+            if (!confirmed) {
+              return;
+            }
             const result = await callApi("remove_account", username);
             if (!result?.success) {
               addLog(result?.error || `Failed to remove '${username}'.`, "bad");
@@ -3330,14 +3525,52 @@ async function openAccountsManager() {
             }
             await refreshAccountsModal(`Removed account '${username}'.`);
           });
-        });
+        };
 
-      };
+        bindActions();
 
-      bindActions();
-    },
-    onSubmit: () => true
-  });
+        const actionsRow = modalOkBtn?.parentElement;
+        if (actionsRow && !actionsRow.querySelector("#acc-footer-purge")) {
+          const purgeBtn = document.createElement("button");
+          purgeBtn.id = "acc-footer-purge";
+          purgeBtn.type = "button";
+          purgeBtn.className = "control modal-btn accounts-footer-purge-btn";
+          purgeBtn.textContent = "Purge all accounts...";
+          purgeBtn.addEventListener("click", async () => {
+            const confirmed = await showKeywordConfirmDialog({
+              title: "Purge All Accounts",
+              message: "Type PURGE to remove all saved accounts and reset active account.",
+              keyword: "PURGE",
+              okLabel: "Purge",
+              cancelLabel: "Cancel"
+            });
+            if (!confirmed) {
+              return;
+            }
+            const result = await callApi("purge_accounts");
+            if (!result?.success) {
+              addLog(result?.error || "Failed to purge accounts.", "bad");
+              return;
+            }
+            accountData = await callApi("get_accounts");
+            selectedUsername = resolveSelectedUsername(accountData, "");
+            context.setFormHtml(buildAccountsFormHtml(accountData, selectedUsername));
+            root = modalForm;
+            bindActions();
+            await refreshAccounts(accountData?.active || "Anonymous");
+            addLog("Purged all accounts.", "good");
+          });
+          actionsRow.insertBefore(purgeBtn, modalOkBtn);
+          footerPurgeBtn = purgeBtn;
+        }
+      },
+      onSubmit: () => true
+    });
+  } finally {
+    if (footerPurgeBtn && footerPurgeBtn.parentElement) {
+      footerPurgeBtn.parentElement.removeChild(footerPurgeBtn);
+    }
+  }
 }
 
 async function openAppIdsManager() {
