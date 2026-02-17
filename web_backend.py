@@ -303,7 +303,7 @@ class StreamlineWebBackend:
         self.log("Web backend initialized.", tone="good")
 
     def _emit_event(self, event_type: str, payload: dict):
-        if event_type in {"queue", "queue_status"}:
+        if event_type == "queue":
             with self.state_lock:
                 self._queue_revision += 1
         with self.events_lock:
@@ -1976,18 +1976,41 @@ class StreamlineWebBackend:
             return False
         mod_id = str(mod.get("mod_id", "")).strip()
         changed = False
+        status_changed = False
+        previous_status = ""
+        invalidate_queue_view = False
         with self.state_lock:
             if mod.get("status") != status:
+                previous_status = str(mod.get("status", ""))
                 mod["status"] = status
                 changed = True
+                status_changed = True
+
+                # Status-only changes usually do not require rebuilding the full queue query cache.
+                # Rebuild is only needed when the cached view depends on status membership/order.
+                cache = self._queue_query_cache if isinstance(self._queue_query_cache, dict) else None
+                if cache is not None:
+                    cached_filter = str(cache.get("filter_name", "All") or "All")
+                    cached_sort_key = str(cache.get("sort_key", "") or "")
+                    if cached_filter != "All" or cached_sort_key == "status":
+                        self._queue_revision += 1
+                        invalidate_queue_view = True
             if retry_count is not None:
                 retry_value = max(0, int(retry_count))
                 current_retry = int(mod.get("retry_count", 0) or 0)
                 if current_retry != retry_value:
                     mod["retry_count"] = retry_value
                     changed = True
-        if changed and mod_id:
-            self._emit_event("queue_status", {"mod_id": mod_id, "status": status})
+        if status_changed and mod_id:
+            self._emit_event(
+                "queue_status",
+                {
+                    "mod_id": mod_id,
+                    "status": status,
+                    "previous_status": previous_status if status_changed else str(status),
+                    "invalidate_queue_view": invalidate_queue_view,
+                },
+            )
         return changed
 
     def _cleanup_appworkshop_acf_files(self):

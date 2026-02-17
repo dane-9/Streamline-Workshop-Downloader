@@ -3811,6 +3811,107 @@ async function handleAddToQueue(event) {
   await refreshQueue();
 }
 
+function getQueueStatusBucket(statusValue) {
+  const status = String(statusValue || "");
+  if (status === "Queued") {
+    return "queued";
+  }
+  if (status === "Downloaded") {
+    return "downloaded";
+  }
+  if (status === "Downloading") {
+    return "downloading";
+  }
+  if (status.includes("Failed")) {
+    return "failed";
+  }
+  return "";
+}
+
+function applyQueueStatusDelta(previousStatus, nextStatus) {
+  const previousBucket = getQueueStatusBucket(previousStatus);
+  const nextBucket = getQueueStatusBucket(nextStatus);
+  if (!previousBucket && !nextBucket) {
+    return;
+  }
+  if (previousBucket === nextBucket) {
+    return;
+  }
+
+  if (previousBucket) {
+    const previousValue = Number(state.queueStats[previousBucket] || 0);
+    state.queueStats[previousBucket] = Math.max(0, previousValue - 1);
+  }
+  if (nextBucket) {
+    const nextValue = Number(state.queueStats[nextBucket] || 0);
+    state.queueStats[nextBucket] = Math.max(0, nextValue + 1);
+  }
+}
+
+function applyQueueStatusEvent(payload) {
+  const modId = String(payload?.mod_id || "").trim();
+  if (!modId) {
+    return;
+  }
+
+  const nextStatus = String(payload?.status || "Queued");
+  const invalidateQueueView = !!payload?.invalidate_queue_view;
+  let previousStatus = payload?.previous_status !== undefined && payload?.previous_status !== null
+    ? String(payload.previous_status)
+    : "";
+  let touched = false;
+
+  const updateItemStatus = (item) => {
+    if (!item || String(item.mod_id) !== modId) {
+      return false;
+    }
+    if (!previousStatus) {
+      previousStatus = String(item.status || "");
+    }
+    item.status = nextStatus;
+    return true;
+  };
+
+  if (Array.isArray(state.queue) && state.queue.length) {
+    for (const item of state.queue) {
+      if (updateItemStatus(item)) {
+        touched = true;
+        break;
+      }
+    }
+  }
+
+  if (Array.isArray(virtualBackendPageItems) && virtualBackendPageItems.length) {
+    for (const item of virtualBackendPageItems) {
+      if (updateItemStatus(item)) {
+        touched = true;
+        break;
+      }
+    }
+  }
+
+  if (previousStatus || touched) {
+    applyQueueStatusDelta(previousStatus, nextStatus);
+  }
+
+  if (invalidateQueueView) {
+    scheduleQueueRefresh();
+    return;
+  }
+
+  if (virtualBackendEnabled) {
+    renderQueueViewport(true);
+    updateSearchPlaceholder();
+    return;
+  }
+
+  if (touched) {
+    renderQueue();
+  } else {
+    updateSearchPlaceholder();
+  }
+}
+
 async function handleEvent(event) {
   if (!event || typeof event.id !== "number") {
     return;
@@ -3825,8 +3926,12 @@ async function handleEvent(event) {
     return;
   }
 
-  if (type === "queue" || type === "queue_status") {
+  if (type === "queue") {
     scheduleQueueRefresh();
+    return;
+  }
+  if (type === "queue_status") {
+    applyQueueStatusEvent(payload);
     return;
   }
 
