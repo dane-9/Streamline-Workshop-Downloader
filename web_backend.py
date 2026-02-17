@@ -1867,34 +1867,103 @@ class StreamlineWebBackend:
             snapshot = dict(logs)
         self._save_mod_download_logs(snapshot)
 
+    def _fetch_published_file_details_batch(self, mod_ids, timeout=20, chunk_size=100):
+        normalized_ids = []
+        seen = set()
+        for mod_id in (mod_ids or []):
+            key = str(mod_id or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            normalized_ids.append(key)
+        if not normalized_ids:
+            return {}
+
+        url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
+        details_by_id = {}
+        safe_chunk_size = max(1, int(chunk_size or 1))
+
+        for start in range(0, len(normalized_ids), safe_chunk_size):
+            chunk = normalized_ids[start:start + safe_chunk_size]
+            payload = {"itemcount": len(chunk)}
+            for index, mod_id in enumerate(chunk):
+                payload[f"publishedfileids[{index}]"] = mod_id
+
+            try:
+                response = requests.post(url, data=payload, timeout=timeout)
+                details = response.json().get("response", {}).get("publishedfiledetails", [])
+            except Exception:
+                continue
+
+            if not isinstance(details, list):
+                continue
+
+            for index, entry in enumerate(details):
+                if not isinstance(entry, dict):
+                    continue
+                entry_mod_id = str(entry.get("publishedfileid", "")).strip()
+                if not entry_mod_id and index < len(chunk):
+                    entry_mod_id = chunk[index]
+                if entry_mod_id:
+                    details_by_id[entry_mod_id] = entry
+
+        return details_by_id
+
+    def _get_remote_mod_update_timestamps_bulk(self, mod_ids):
+        normalized_ids = []
+        seen = set()
+        for mod_id in (mod_ids or []):
+            key = str(mod_id or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            normalized_ids.append(key)
+        if not normalized_ids:
+            return {}
+
+        now = time.time()
+        values = {}
+        missing = []
+
+        with self._remote_update_cache_lock:
+            for key in normalized_ids:
+                cached = self._remote_mod_update_cache.get(key)
+                if isinstance(cached, dict):
+                    fetched_at = float(cached.get("fetched_at", 0.0) or 0.0)
+                    if (now - fetched_at) <= self._remote_mod_update_cache_ttl_sec:
+                        values[key] = cached.get("value")
+                        continue
+                missing.append(key)
+
+        if missing:
+            details_map = self._fetch_published_file_details_batch(missing, timeout=20, chunk_size=100)
+            fetched_at = time.time()
+            cache_updates = {}
+            for key in missing:
+                value = None
+                details = details_map.get(key)
+                if isinstance(details, dict):
+                    ts = details.get("time_updated")
+                    try:
+                        value = int(ts) if ts is not None else None
+                    except Exception:
+                        value = None
+                values[key] = value
+                cache_updates[key] = {"fetched_at": fetched_at, "value": value}
+
+            with self._remote_update_cache_lock:
+                self._remote_mod_update_cache.update(cache_updates)
+                if len(self._remote_mod_update_cache) > 6000:
+                    self._remote_mod_update_cache = dict(list(self._remote_mod_update_cache.items())[-3000:])
+
+        return values
+
     def _get_remote_mod_update_timestamp(self, mod_id):
         key = str(mod_id or "").strip()
         if not key:
             return None
-        now = time.time()
-        with self._remote_update_cache_lock:
-            cached = self._remote_mod_update_cache.get(key)
-            if isinstance(cached, dict):
-                fetched_at = float(cached.get("fetched_at", 0.0) or 0.0)
-                if (now - fetched_at) <= self._remote_mod_update_cache_ttl_sec:
-                    return cached.get("value")
-
-        value = None
-        try:
-            url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
-            payload = {"itemcount": 1, "publishedfileids[0]": key}
-            response = requests.post(url, data=payload, timeout=20)
-            details = response.json().get("response", {}).get("publishedfiledetails", [{}])[0]
-            ts = details.get("time_updated")
-            value = int(ts) if ts is not None else None
-        except Exception:
-            value = None
-
-        with self._remote_update_cache_lock:
-            self._remote_mod_update_cache[key] = {"fetched_at": now, "value": value}
-            if len(self._remote_mod_update_cache) > 6000:
-                self._remote_mod_update_cache = dict(list(self._remote_mod_update_cache.items())[-3000:])
-        return value
+        values = self._get_remote_mod_update_timestamps_bulk([key])
+        return values.get(key)
 
     def _mark_session_downloaded(self, mod):
         mod_id = str(mod.get("mod_id", "")).strip()
@@ -2039,13 +2108,11 @@ class StreamlineWebBackend:
             return ["anonymous"]
         return [username]
 
-    def _download_mod_webapi(self, mod):
+    def _download_mod_webapi(self, mod, file_details=None):
         mod_id = str(mod["mod_id"])
         try:
-            url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
-            payload = {"itemcount": 1, "publishedfileids[0]": mod_id}
-            response = requests.post(url, data=payload, timeout=30)
-            file_details = response.json().get("response", {}).get("publishedfiledetails", [{}])[0]
+            if not isinstance(file_details, dict):
+                file_details = self._fetch_published_file_details_batch([mod_id], timeout=30, chunk_size=1).get(mod_id, {})
             file_url = file_details.get("file_url")
             if not file_url:
                 return False
@@ -2076,13 +2143,19 @@ class StreamlineWebBackend:
         if not webapi_mods:
             return
 
+        details_by_mod_id = self._fetch_published_file_details_batch(
+            [str(mod.get("mod_id", "")).strip() for mod in webapi_mods],
+            timeout=30,
+            chunk_size=100,
+        )
         max_workers = max(1, min(6, len(webapi_mods)))
 
         def download_one(mod):
             if cancel_is_immediate and self.canceled:
                 return
             self._set_mod_status(mod, "Downloading")
-            success = self._download_mod_webapi(mod)
+            mod_id = str(mod.get("mod_id", "")).strip()
+            success = self._download_mod_webapi(mod, details_by_mod_id.get(mod_id))
             if success:
                 self._set_mod_status(mod, "Downloaded")
                 return
@@ -2106,7 +2179,27 @@ class StreamlineWebBackend:
 
         existing_mod_behavior = self.config.get("steamcmd_existing_mod_behavior", "Only Redownload if Updated")
         download_logs = self._load_mod_download_logs()
+        prechecked = []
+        remote_check_mod_ids = []
+        if existing_mod_behavior == "Only Redownload if Updated":
+            for mod in mods:
+                app_id = mod.get("app_id")
+                if not app_id:
+                    continue
+                mod_id = str(mod.get("mod_id", "")).strip()
+                folder_exists = self._check_mod_folder_exists(mod)
+                local_ts = 0.0
+                if folder_exists:
+                    local_ts = float(download_logs.get(mod_id, {}).get("timestamp", 0) or 0)
+                    if local_ts > 0:
+                        remote_check_mod_ids.append(mod_id)
+                prechecked.append((mod, folder_exists, local_ts))
+            remote_timestamps = self._get_remote_mod_update_timestamps_bulk(remote_check_mod_ids) if remote_check_mod_ids else {}
+        else:
+            remote_timestamps = {}
+
         download_candidates = []
+        prechecked_index = 0
         for mod in mods:
             app_id = mod.get("app_id")
             if not app_id:
@@ -2114,15 +2207,21 @@ class StreamlineWebBackend:
                 continue
 
             should_download = True
-            if self._check_mod_folder_exists(mod):
+            if existing_mod_behavior == "Only Redownload if Updated":
+                _, folder_exists, local_ts = prechecked[prechecked_index]
+                prechecked_index += 1
+            else:
+                folder_exists = self._check_mod_folder_exists(mod)
+                local_ts = 0.0
+
+            if folder_exists:
                 if existing_mod_behavior == "Skip Existing Mods":
                     should_download = False
                 elif existing_mod_behavior == "Always Redownload":
                     self._delete_existing_mod_folder(mod)
                 else:
                     mod_id = str(mod.get("mod_id"))
-                    local_ts = float(download_logs.get(mod_id, {}).get("timestamp", 0) or 0)
-                    remote_ts = self._get_remote_mod_update_timestamp(mod_id)
+                    remote_ts = remote_timestamps.get(mod_id)
                     if local_ts and remote_ts and remote_ts <= local_ts:
                         should_download = False
                     else:
