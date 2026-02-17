@@ -1697,6 +1697,10 @@ select.form-control:hover {
   white-space: nowrap;
 }
 
+.accounts-copy-field {
+  cursor: copy;
+}
+
 .accounts-footer-purge-btn {
   min-width: 0;
   border: none;

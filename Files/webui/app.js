@@ -201,6 +201,32 @@ function addLog(text, tone = "") {
   }
 }
 
+async function copyTextToClipboard(text) {
+  const value = String(text || "");
+  if (!value) {
+    return false;
+  }
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    try {
+      const temp = document.createElement("textarea");
+      temp.value = value;
+      temp.style.position = "fixed";
+      temp.style.opacity = "0";
+      document.body.appendChild(temp);
+      temp.focus();
+      temp.select();
+      const ok = document.execCommand("copy");
+      temp.remove();
+      return !!ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 function showInputModal({ title, message, defaultValue = "", rows = 8, okLabel = "OK" }) {
   return new Promise((resolve) => {
     modalTitle.textContent = title || "Dialog";
@@ -3102,7 +3128,7 @@ function buildAccountsFormHtml(data, selectedUsername = "") {
         <label>Selected Account</label>
         <input id="acc-selected-username" class="form-control" type="text" readonly value="${escapeHtml(selectedName || "None")}">
         <label style="margin-top: 8px;">SteamID64</label>
-        <input id="acc-selected-steamid" class="form-control" type="text" readonly value="${escapeHtml(selectedSteamId || "Unavailable")}">
+        <input id="acc-selected-steamid" class="form-control accounts-copy-field" type="text" readonly value="${escapeHtml(selectedSteamId || "Unavailable")}" title="${selectedName ? "Click to copy SteamID64" : "No account selected"}">
         <label style="margin-top: 8px;">Status</label>
         <input id="acc-selected-status" class="form-control" type="text" readonly value="${escapeHtml(selectedName ? (selectedName === activeAccount ? "Active" : "Saved") : "No selection")}">
         <div class="form-actions-inline accounts-manager-actions" style="margin-top: 10px;">
@@ -3183,31 +3209,6 @@ async function openSteamcmdLoginTerminal(username) {
         return outputEl.contains(range.startContainer) || outputEl.contains(range.endContainer);
       };
 
-      const copyText = async (text) => {
-        if (!text) {
-          return false;
-        }
-        try {
-          await navigator.clipboard.writeText(text);
-          return true;
-        } catch {
-          try {
-            const temp = document.createElement("textarea");
-            temp.value = text;
-            temp.style.position = "fixed";
-            temp.style.opacity = "0";
-            document.body.appendChild(temp);
-            temp.focus();
-            temp.select();
-            const ok = document.execCommand("copy");
-            temp.remove();
-            return !!ok;
-          } catch {
-            return false;
-          }
-        }
-      };
-
       const appendOutput = (text) => {
         if (!text) {
           return;
@@ -3235,7 +3236,7 @@ async function openSteamcmdLoginTerminal(username) {
           const selection = window.getSelection();
           const selectedText = selection ? selection.toString() : "";
           if (selectedText && hasSelectionInsideOutput()) {
-            const copied = await copyText(selectedText);
+            const copied = await copyTextToClipboard(selectedText);
             if (copied) {
               event.preventDefault();
               statusEl.textContent = `Copied ${selectedText.length} characters from SteamCMD output.`;
@@ -3407,6 +3408,7 @@ async function openAccountsManager() {
 
         const bindActions = () => {
           const usernameInput = root.querySelector("#acc-username");
+          const selectedSteamIdInput = root.querySelector("#acc-selected-steamid");
           const addBtn = root.querySelector("#acc-add");
           const setActiveBtn = root.querySelector("#acc-set-active");
           const reloginBtn = root.querySelector("#acc-login-selected");
@@ -3524,6 +3526,28 @@ async function openAccountsManager() {
               return;
             }
             await refreshAccountsModal(`Removed account '${username}'.`);
+          });
+
+          selectedSteamIdInput?.addEventListener("click", async () => {
+            const username = String(selectedUsername || "").trim();
+            if (!username) {
+              addLog("Select an account first.", "bad");
+              return;
+            }
+            const accounts = Array.isArray(accountData?.accounts) ? accountData.accounts : [];
+            const selected = accounts.find((acc) => String(acc?.username || "").trim() === username) || null;
+            const steamid64 = String(selected?.steamid64 || "").trim();
+            const textToCopy = steamid64 || username;
+            const copied = await copyTextToClipboard(textToCopy);
+            if (!copied) {
+              addLog("Failed to copy to clipboard.", "bad");
+              return;
+            }
+            if (steamid64) {
+              addLog(`Copied SteamID64 for '${username}'.`, "good");
+            } else {
+              addLog(`No SteamID64 for '${username}', copied username instead.`, "good");
+            }
           });
         };
 
