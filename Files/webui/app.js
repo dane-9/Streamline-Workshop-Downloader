@@ -18,6 +18,7 @@ const closeBtn = document.getElementById("close-btn");
 const searchRow = document.getElementById("search-row");
 const logWrap = document.getElementById("log-wrap");
 const providerWrap = document.getElementById("provider-wrap");
+const inputRowActions = document.querySelector(".input-row-zone-right");
 const importExportWrap = document.getElementById("import-export-wrap");
 const importExportSpacer = document.getElementById("import-export-spacer");
 const itemUrlInput = document.getElementById("item-url");
@@ -2365,7 +2366,9 @@ function applyVisibilityConfig(config) {
   caseBtn.style.display = "";
   commandPaletteBtn.style.display = "";
   settingsCommandShell?.classList.remove("commands-toggle-hidden");
-  downloadNowBtn.style.display = config.download_button === false ? "none" : "";
+  const showDownloadButton = config.download_button !== false;
+  downloadNowBtn.style.display = showDownloadButton ? "" : "none";
+  inputRowActions?.classList.toggle("download-hidden", !showDownloadButton);
   const showImportExport = config.show_export_import_buttons !== false;
   importExportWrap.style.display = showImportExport ? "" : "none";
   importExportSpacer.style.display = showImportExport ? "" : "none";

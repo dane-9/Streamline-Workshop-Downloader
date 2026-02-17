@@ -690,6 +690,10 @@ button.control:active,
   border-left: 1px solid var(--menu-border);
 }
 
+.input-row-zone-right.download-hidden #add-to-queue-btn {
+  border-left: none;
+}
+
 .input-row-zone-right #add-to-queue-btn {
   font-weight: 600;
 }
