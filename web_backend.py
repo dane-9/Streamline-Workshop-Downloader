@@ -1732,13 +1732,56 @@ class StreamlineWebBackend:
             self._folder_name_for_mod(mod, allow_remote_lookup=allow_remote_lookup),
         )
 
-    def _check_mod_folder_exists(self, mod):
+    def _build_steamcmd_app_folder_index(self, app_id, mod_ids):
+        app_key = str(app_id or "").strip()
+        if not app_key:
+            return {}
+
+        normalized_mod_ids = []
+        seen = set()
+        for mod_id in (mod_ids or []):
+            key = str(mod_id or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            normalized_mod_ids.append(key)
+        if not normalized_mod_ids:
+            return {}
+
+        app_dir = os.path.join(self.steamcmd_download_path, app_key)
+        if not os.path.isdir(app_dir):
+            return {}
+
+        index = {}
+        try:
+            for folder_name in os.listdir(app_dir):
+                folder_path = os.path.join(app_dir, folder_name)
+                if not os.path.isdir(folder_path):
+                    continue
+                for mod_id in normalized_mod_ids:
+                    if mod_id in index:
+                        continue
+                    if mod_id in folder_name:
+                        index[mod_id] = folder_path
+        except Exception:
+            return index
+        return index
+
+    def _check_mod_folder_exists(self, mod, app_folder_index=None):
         target_path = self._get_steamcmd_target_path(mod, allow_remote_lookup=False)
         if os.path.isdir(target_path):
             return True
 
         app_id = str(mod.get("app_id", ""))
         mod_id = str(mod.get("mod_id", ""))
+        if isinstance(app_folder_index, dict):
+            indexed_path = app_folder_index.get(mod_id)
+            if indexed_path and os.path.isdir(indexed_path):
+                return True
+            if indexed_path:
+                app_folder_index.pop(mod_id, None)
+            return False
+
         app_dir = os.path.join(self.steamcmd_download_path, app_id)
         if not os.path.isdir(app_dir):
             return False
@@ -1748,14 +1791,23 @@ class StreamlineWebBackend:
                 return True
         return False
 
-    def _delete_existing_mod_folder(self, mod):
+    def _delete_existing_mod_folder(self, mod, app_folder_index=None):
         target_path = self._get_steamcmd_target_path(mod, allow_remote_lookup=False)
+        mod_id = str(mod.get("mod_id", ""))
         if os.path.isdir(target_path):
             shutil.rmtree(target_path, ignore_errors=True)
+            if isinstance(app_folder_index, dict):
+                app_folder_index.pop(mod_id, None)
             return True
 
         app_id = str(mod.get("app_id", ""))
-        mod_id = str(mod.get("mod_id", ""))
+        if isinstance(app_folder_index, dict):
+            indexed_path = app_folder_index.get(mod_id)
+            if indexed_path and os.path.isdir(indexed_path):
+                shutil.rmtree(indexed_path, ignore_errors=True)
+            app_folder_index.pop(mod_id, None)
+            return True
+
         app_dir = os.path.join(self.steamcmd_download_path, app_id)
         if not os.path.isdir(app_dir):
             return True
@@ -2202,6 +2254,18 @@ class StreamlineWebBackend:
 
         existing_mod_behavior = self.config.get("steamcmd_existing_mod_behavior", "Only Redownload if Updated")
         download_logs = self._load_mod_download_logs()
+        app_mod_ids = {}
+        for mod in mods:
+            app_id = str(mod.get("app_id", "")).strip()
+            mod_id = str(mod.get("mod_id", "")).strip()
+            if not app_id or not mod_id:
+                continue
+            app_mod_ids.setdefault(app_id, set()).add(mod_id)
+        app_folder_indexes = {
+            app_id: self._build_steamcmd_app_folder_index(app_id, mod_ids)
+            for app_id, mod_ids in app_mod_ids.items()
+        }
+
         prechecked = []
         remote_check_mod_ids = []
         if existing_mod_behavior == "Only Redownload if Updated":
@@ -2209,8 +2273,9 @@ class StreamlineWebBackend:
                 app_id = mod.get("app_id")
                 if not app_id:
                     continue
+                app_id = str(app_id).strip()
                 mod_id = str(mod.get("mod_id", "")).strip()
-                folder_exists = self._check_mod_folder_exists(mod)
+                folder_exists = self._check_mod_folder_exists(mod, app_folder_indexes.get(app_id))
                 local_ts = 0.0
                 if folder_exists:
                     local_ts = float(download_logs.get(mod_id, {}).get("timestamp", 0) or 0)
@@ -2228,27 +2293,29 @@ class StreamlineWebBackend:
             if not app_id:
                 self._set_mod_status(mod, "Failed: No AppID")
                 continue
+            app_id = str(app_id).strip()
+            app_folder_index = app_folder_indexes.get(app_id)
 
             should_download = True
             if existing_mod_behavior == "Only Redownload if Updated":
                 _, folder_exists, local_ts = prechecked[prechecked_index]
                 prechecked_index += 1
             else:
-                folder_exists = self._check_mod_folder_exists(mod)
+                folder_exists = self._check_mod_folder_exists(mod, app_folder_index)
                 local_ts = 0.0
 
             if folder_exists:
                 if existing_mod_behavior == "Skip Existing Mods":
                     should_download = False
                 elif existing_mod_behavior == "Always Redownload":
-                    self._delete_existing_mod_folder(mod)
+                    self._delete_existing_mod_folder(mod, app_folder_index)
                 else:
                     mod_id = str(mod.get("mod_id"))
                     remote_ts = remote_timestamps.get(mod_id)
                     if local_ts and remote_ts and remote_ts <= local_ts:
                         should_download = False
                     else:
-                        self._delete_existing_mod_folder(mod)
+                        self._delete_existing_mod_folder(mod, app_folder_index)
 
             if should_download:
                 download_candidates.append(mod)
