@@ -1232,6 +1232,80 @@ function executeCommandPaletteAction(index = commandPaletteSelectedIndex) {
   void runCommandById(action.id);
 }
 
+function focusCommandPaletteInput({ selectAll = false } = {}) {
+  if (!commandPaletteInput) {
+    return;
+  }
+
+  let attempts = 0;
+  const maxAttempts = 8;
+  const applyFocus = () => {
+    if (!isCommandPaletteOpen()) {
+      return;
+    }
+    try {
+      commandPaletteInput.focus();
+    } catch {
+      return;
+    }
+    if (selectAll) {
+      if (commandPaletteInput.value.length > 0) {
+        commandPaletteInput.select();
+      } else {
+        commandPaletteInput.setSelectionRange(0, 0);
+      }
+    }
+    if (document.activeElement !== commandPaletteInput && attempts < maxAttempts) {
+      attempts += 1;
+      window.setTimeout(applyFocus, 16);
+    }
+  };
+
+  applyFocus();
+  window.requestAnimationFrame(applyFocus);
+  window.setTimeout(applyFocus, 0);
+}
+
+function applyCommandPaletteInputKey(rawKey) {
+  if (!commandPaletteInput) {
+    return false;
+  }
+  const keyText = String(rawKey || "");
+  const key = keyText.toLowerCase();
+  const valueLength = commandPaletteInput.value.length;
+  const start = Number.isInteger(commandPaletteInput.selectionStart) ? commandPaletteInput.selectionStart : valueLength;
+  const end = Number.isInteger(commandPaletteInput.selectionEnd) ? commandPaletteInput.selectionEnd : start;
+
+  if (keyText.length === 1) {
+    commandPaletteInput.setRangeText(keyText, start, end, "end");
+    commandPaletteInput.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+  if (key === "backspace") {
+    if (start !== end) {
+      commandPaletteInput.setRangeText("", start, end, "end");
+    } else if (start > 0) {
+      commandPaletteInput.setRangeText("", start - 1, start, "end");
+    } else {
+      return false;
+    }
+    commandPaletteInput.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+  if (key === "delete") {
+    if (start !== end) {
+      commandPaletteInput.setRangeText("", start, end, "end");
+    } else if (start < valueLength) {
+      commandPaletteInput.setRangeText("", start, start + 1, "end");
+    } else {
+      return false;
+    }
+    commandPaletteInput.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+  return false;
+}
+
 function openCommandPalette() {
   if (!commandPaletteOverlay || !commandPaletteInput || !commandPaletteList) {
     return;
@@ -1251,7 +1325,7 @@ function openCommandPalette() {
   commandPaletteInput.value = "";
   commandPaletteOverlay.classList.remove("hidden");
   renderCommandPaletteList();
-  commandPaletteInput.focus();
+  focusCommandPaletteInput({ selectAll: true });
 }
 
 function wireCommandPalette() {
@@ -1321,7 +1395,6 @@ function wireCommandSplitMenu() {
     event.preventDefault();
     event.stopPropagation();
     hideCommandSplitMenu();
-    commandPaletteBtn.focus();
     openCommandPalette();
   });
 
@@ -2366,7 +2439,8 @@ function wireQueueRowInteractions() {
 
 function wireGlobalShortcuts() {
   document.addEventListener("keydown", (event) => {
-    const key = String(event.key || "").toLowerCase();
+    const rawKey = String(event.key || "");
+    const key = rawKey.toLowerCase();
     const hasModifier = event.ctrlKey || event.metaKey;
 
     if (key !== "shift") {
@@ -2387,6 +2461,38 @@ function wireGlobalShortcuts() {
         openCommandPalette();
       }
       return;
+    }
+
+    if (isCommandPaletteOpen() && commandPaletteInput && event.target !== commandPaletteInput) {
+      if (hasModifier && !event.altKey && key === "a") {
+        event.preventDefault();
+        focusCommandPaletteInput({ selectAll: true });
+        return;
+      }
+      if (!hasModifier && !event.altKey) {
+        if (key === "arrowdown") {
+          event.preventDefault();
+          setCommandPaletteSelection(commandPaletteSelectedIndex + 1);
+          focusCommandPaletteInput();
+          return;
+        }
+        if (key === "arrowup") {
+          event.preventDefault();
+          setCommandPaletteSelection(commandPaletteSelectedIndex - 1);
+          focusCommandPaletteInput();
+          return;
+        }
+        if (key === "enter") {
+          event.preventDefault();
+          executeCommandPaletteAction(commandPaletteSelectedIndex);
+          return;
+        }
+        if (applyCommandPaletteInputKey(rawKey)) {
+          event.preventDefault();
+          focusCommandPaletteInput();
+          return;
+        }
+      }
     }
 
     if (!hasModifier || event.altKey) {
@@ -2427,7 +2533,7 @@ function wireGlobalShortcuts() {
       if (!isCommandPaletteOpen()) {
         openCommandPalette();
       } else {
-        commandPaletteInput?.focus();
+        focusCommandPaletteInput({ selectAll: true });
       }
       return;
     }
