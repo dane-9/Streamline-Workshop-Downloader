@@ -279,6 +279,9 @@ class WebMainGuiApi:
     def purge_accounts(self):
         return self.backend.purge_accounts()
 
+    def reorder_accounts(self, usernames):
+        return self.backend.reorder_accounts(usernames)
+
     def set_active_account(self, username):
         return self.backend.set_active_account(username)
 

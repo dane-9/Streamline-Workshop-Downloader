@@ -3091,18 +3091,27 @@ function buildAccountsFormHtml(data, selectedUsername = "") {
       const isActive = username === activeAccount;
       const isSelected = username === resolvedSelected;
       return `
-        <button
-          type="button"
-          class="accounts-manager-list-btn ${isSelected ? "active" : ""}"
-          data-account-action="select"
-          data-username="${escapeHtml(username)}"
-        >
-          <span class="accounts-manager-row-main">${escapeHtml(username)}</span>
-          <span class="accounts-manager-row-meta">
-            <span class="accounts-manager-pill ${isActive ? "active" : "saved"}">${isActive ? "Active" : "Saved"}</span>
-            <span class="accounts-manager-steamid">${steamid64 ? escapeHtml(steamid64) : "No SteamID64"}</span>
-          </span>
-        </button>
+        <div class="accounts-manager-row ${isSelected ? "active" : ""}" data-account-username="${escapeHtml(username)}">
+          <button
+            type="button"
+            class="accounts-manager-drag-handle"
+            data-account-action="drag"
+            data-username="${escapeHtml(username)}"
+            title="Drag to reorder"
+            aria-label="Drag to reorder ${escapeHtml(username)}"
+          >&#8942;&#8942;</button>
+          <button
+            type="button"
+            class="accounts-manager-list-btn"
+            data-account-action="select"
+            data-username="${escapeHtml(username)}"
+          >
+            <span class="accounts-manager-row-main">${escapeHtml(username)}</span>
+            <span class="accounts-manager-row-meta">
+              <span class="accounts-manager-pill ${isActive ? "active" : "saved"}">${isActive ? "Active" : "Saved"}</span>
+            </span>
+          </button>
+        </div>
       `;
     }).join("")
     : `<p style="margin:4px 0;">No accounts configured.</p>`;
@@ -3430,14 +3439,223 @@ async function openAccountsManager() {
             }
           };
 
+          const reorderAccounts = async (orderedUsernames) => {
+            const accounts = Array.isArray(accountData?.accounts) ? accountData.accounts : [];
+            const currentOrdered = accounts
+              .map((acc) => String(acc?.username || "").trim())
+              .filter((name) => !!name);
+            if (currentOrdered.length < 2) {
+              return;
+            }
+
+            const seen = new Set();
+            const normalized = [];
+            for (const rawName of orderedUsernames || []) {
+              const name = String(rawName || "").trim();
+              if (!name || seen.has(name)) {
+                continue;
+              }
+              seen.add(name);
+              normalized.push(name);
+            }
+            if (!normalized.length) {
+              return;
+            }
+
+            const changed = normalized.length !== currentOrdered.length
+              || normalized.some((name, index) => name !== currentOrdered[index]);
+            if (!changed) {
+              return;
+            }
+
+            const result = await callApi("reorder_accounts", normalized);
+            if (!result?.success) {
+              addLog(result?.error || "Failed to reorder accounts.", "bad");
+              return;
+            }
+            await refreshAccountsModal("Reordered accounts.", selectedUsername);
+          };
+
           const selectAccount = (username) => {
             selectedUsername = String(username || "").trim();
             rerenderAccountsModal();
           };
 
+          const listEl = root.querySelector(".accounts-list");
+          let pointerDrag = null;
+
           root.querySelectorAll("[data-account-action='select']").forEach((button) => {
             button.addEventListener("click", () => {
               selectAccount(button.dataset.username || "");
+            });
+          });
+
+          root.querySelectorAll("[data-account-action='drag']").forEach((handle) => {
+            handle.addEventListener("pointerdown", (event) => {
+              if (!listEl || event.button !== 0 || pointerDrag) {
+                return;
+              }
+              const row = handle.closest(".accounts-manager-row");
+              if (!(row instanceof HTMLElement)) {
+                return;
+              }
+              const username = String(row.dataset.accountUsername || "").trim();
+              if (!username) {
+                return;
+              }
+
+              event.preventDefault();
+
+              const rowRect = row.getBoundingClientRect();
+              const rowOffsetTop = row.offsetTop;
+              const rowOffsetLeft = row.offsetLeft;
+              const rowWidth = row.offsetWidth;
+              const placeholder = document.createElement("div");
+              placeholder.className = "accounts-manager-row-placeholder";
+              placeholder.style.height = `${Math.max(32, Math.round(rowRect.height))}px`;
+
+              listEl.insertBefore(placeholder, row.nextSibling);
+
+              row.classList.add("dragging-live");
+              row.style.position = "absolute";
+              row.style.left = `${Math.round(rowOffsetLeft)}px`;
+              row.style.top = `${Math.round(rowOffsetTop)}px`;
+              row.style.width = `${Math.round(rowWidth)}px`;
+
+              listEl.classList.add("is-pointer-dragging");
+
+              const drag = {
+                handle,
+                row,
+                username,
+                pointerId: event.pointerId,
+                offsetY: event.clientY - rowRect.top,
+                placeholder,
+                initialOrder: (Array.isArray(accountData?.accounts) ? accountData.accounts : [])
+                  .map((acc) => String(acc?.username || "").trim())
+                  .filter((name) => !!name),
+                onMove: null,
+                onUp: null
+              };
+
+              const movePlaceholderForY = (clientY) => {
+                const siblings = Array.from(listEl.querySelectorAll(".accounts-manager-row"));
+                let beforeNode = null;
+                for (const sibling of siblings) {
+                  if (sibling === drag.row) {
+                    continue;
+                  }
+                  const rect = sibling.getBoundingClientRect();
+                  if (clientY < rect.top + (rect.height / 2)) {
+                    beforeNode = sibling;
+                    break;
+                  }
+                }
+                if (beforeNode) {
+                  if (drag.placeholder.nextElementSibling !== beforeNode) {
+                    listEl.insertBefore(drag.placeholder, beforeNode);
+                  }
+                } else if (drag.placeholder !== listEl.lastElementChild) {
+                  listEl.appendChild(drag.placeholder);
+                }
+              };
+
+              const applyPointerPosition = (clientY) => {
+                const listRect = listEl.getBoundingClientRect();
+                const rawTop = clientY - listRect.top + listEl.scrollTop - drag.offsetY;
+                const slotElements = Array.from(listEl.querySelectorAll(".accounts-manager-row, .accounts-manager-row-placeholder"))
+                  .filter((el) => el !== drag.row);
+                let minTop = 0;
+                let maxTop = Math.max(0, listEl.scrollHeight - drag.row.offsetHeight);
+                if (slotElements.length) {
+                  const slotTops = slotElements.map((el) => el.offsetTop);
+                  minTop = Math.min(...slotTops);
+                  maxTop = Math.max(...slotTops);
+                }
+                const nextTop = Math.max(minTop, Math.min(maxTop, rawTop));
+                drag.row.style.top = `${Math.round(nextTop)}px`;
+              };
+
+              const autoScrollList = (clientY) => {
+                const rect = listEl.getBoundingClientRect();
+                const edge = 26;
+                if (clientY < rect.top + edge) {
+                  listEl.scrollTop -= 14;
+                } else if (clientY > rect.bottom - edge) {
+                  listEl.scrollTop += 14;
+                }
+              };
+
+              const cleanupDrag = () => {
+                if (drag.onMove) {
+                  window.removeEventListener("pointermove", drag.onMove);
+                }
+                if (drag.onUp) {
+                  window.removeEventListener("pointerup", drag.onUp);
+                  window.removeEventListener("pointercancel", drag.onUp);
+                }
+                try {
+                  if (drag.handle.hasPointerCapture(drag.pointerId)) {
+                    drag.handle.releasePointerCapture(drag.pointerId);
+                  }
+                } catch {
+                  // ignore pointer-capture release failures
+                }
+              };
+
+              drag.onMove = (moveEvent) => {
+                if (pointerDrag !== drag) {
+                  return;
+                }
+                moveEvent.preventDefault();
+                autoScrollList(moveEvent.clientY);
+                applyPointerPosition(moveEvent.clientY);
+                movePlaceholderForY(moveEvent.clientY);
+              };
+
+              drag.onUp = async (upEvent) => {
+                if (pointerDrag !== drag) {
+                  return;
+                }
+                if (upEvent.cancelable) {
+                  upEvent.preventDefault();
+                }
+                cleanupDrag();
+
+                if (drag.placeholder.parentElement) {
+                  drag.placeholder.parentElement.insertBefore(drag.row, drag.placeholder);
+                } else {
+                  listEl.appendChild(drag.row);
+                }
+
+                drag.row.classList.remove("dragging-live");
+                drag.row.removeAttribute("style");
+                drag.placeholder.remove();
+                listEl.classList.remove("is-pointer-dragging");
+
+                pointerDrag = null;
+
+                const finalOrder = Array.from(listEl.querySelectorAll(".accounts-manager-row"))
+                  .map((el) => String(el.dataset.accountUsername || "").trim())
+                  .filter((name) => !!name);
+                const changed = finalOrder.length !== drag.initialOrder.length
+                  || finalOrder.some((name, index) => name !== drag.initialOrder[index]);
+                if (!changed) {
+                  return;
+                }
+                await reorderAccounts(finalOrder);
+              };
+
+              pointerDrag = drag;
+
+              try {
+                handle.setPointerCapture(event.pointerId);
+              } catch {
+                // ignore pointer-capture failures
+              }
+              window.addEventListener("pointermove", drag.onMove);
+              window.addEventListener("pointerup", drag.onUp);
+              window.addEventListener("pointercancel", drag.onUp);
             });
           });
 

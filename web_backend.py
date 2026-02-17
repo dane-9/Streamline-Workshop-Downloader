@@ -2835,6 +2835,52 @@ class StreamlineWebBackend:
         self.save_config()
         return {"success": True}
 
+    def reorder_accounts(self, usernames):
+        accounts = [self._normalize_account_record(acc) for acc in self.config.get("steam_accounts", [])]
+        if not isinstance(usernames, list):
+            return {"success": False, "error": "Invalid account order payload."}
+        if not accounts:
+            return {"success": True}
+
+        seen = set()
+        requested = []
+        for value in usernames:
+            name = str(value or "").strip()
+            if not name:
+                continue
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            requested.append(key)
+
+        accounts_by_name = {
+            str(acc.get("username", "")).strip().lower(): acc
+            for acc in accounts
+            if str(acc.get("username", "")).strip()
+        }
+
+        reordered = []
+        used = set()
+
+        for key in requested:
+            acc = accounts_by_name.get(key)
+            if acc is None:
+                continue
+            reordered.append(acc)
+            used.add(key)
+
+        for acc in accounts:
+            key = str(acc.get("username", "")).strip().lower()
+            if not key or key in used:
+                continue
+            reordered.append(acc)
+            used.add(key)
+
+        self.config["steam_accounts"] = reordered
+        self.save_config()
+        return {"success": True}
+
     def set_active_account(self, username):
         self.config["active_account"] = (username or "Anonymous").strip() or "Anonymous"
         self.save_config()

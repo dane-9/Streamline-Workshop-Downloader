@@ -1568,11 +1568,16 @@ select.form-control:hover {
 }
 
 .accounts-list {
+  position: relative;
   max-height: 180px;
   overflow: auto;
   border: 1px solid var(--menu-border);
   border-radius: 3px;
   padding: 4px;
+}
+
+.accounts-list.is-pointer-dragging {
+  user-select: none;
 }
 
 .accounts-item {
@@ -1618,6 +1623,52 @@ select.form-control:hover {
   height: 32px;
 }
 
+.accounts-manager-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 6px;
+  align-items: stretch;
+  margin-bottom: 4px;
+  transition: transform 150ms ease, opacity 150ms ease, background-color 150ms ease;
+}
+
+.accounts-manager-row:last-child {
+  margin-bottom: 0;
+}
+
+.accounts-manager-drag-handle {
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--menu-text);
+  opacity: 0.7;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: background-color 120ms ease, border-color 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+.accounts-manager-row:hover .accounts-manager-drag-handle,
+.accounts-manager-row.active .accounts-manager-drag-handle {
+  opacity: 1;
+}
+
+.accounts-manager-drag-handle:hover {
+  background: var(--menu-hover);
+}
+
+.accounts-manager-drag-handle:active {
+  cursor: grabbing;
+}
+
 .accounts-manager-list-btn {
   width: 100%;
   border: 1px solid transparent;
@@ -1626,22 +1677,48 @@ select.form-control:hover {
   text-align: left;
   border-radius: 3px;
   padding: 6px;
-  margin-bottom: 4px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   font: inherit;
   cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 
 .accounts-manager-list-btn:hover {
   background: var(--menu-hover);
 }
 
-.accounts-manager-list-btn.active {
+.accounts-manager-row.active .accounts-manager-list-btn {
   border-color: var(--selection);
   background: color-mix(in srgb, var(--selection) 16%, transparent);
+}
+
+.accounts-list.is-pointer-dragging .accounts-manager-row:not(.dragging-live) {
+  opacity: 0.9;
+}
+
+.accounts-manager-row.dragging-live {
+  opacity: 1;
+  transform: none;
+  z-index: 9999;
+  pointer-events: none;
+  filter: drop-shadow(0 9px 18px rgba(0, 0, 0, 0.30));
+}
+
+.accounts-manager-row.dragging-live .accounts-manager-list-btn,
+.accounts-manager-row.dragging-live .accounts-manager-drag-handle {
+  background: color-mix(in srgb, var(--selection) 12%, var(--menu-hover) 88%);
+  border-color: color-mix(in srgb, var(--selection) 42%, var(--menu-border) 58%);
+}
+
+.accounts-manager-row-placeholder {
+  box-sizing: border-box;
+  border: 1px dashed color-mix(in srgb, var(--selection) 52%, var(--menu-border) 48%);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--selection) 10%, transparent);
+  margin-bottom: 4px;
 }
 
 .accounts-manager-row-main {
