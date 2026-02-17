@@ -7,7 +7,6 @@ import subprocess
 import threading
 import time
 import webbrowser
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import ctypes
 
@@ -290,6 +289,9 @@ class StreamlineWebBackend:
         self.pending_login_context = None
         self.steamcmd_login_session = None
         self.steamcmd_login_lock = threading.RLock()
+        self._remote_update_cache_lock = threading.Lock()
+        self._remote_mod_update_cache = {}
+        self._remote_mod_update_cache_ttl_sec = 600.0
         self.last_clipboard_text = ""
         self._last_clipboard_trigger = 0.0
         self._clipboard_last_seq = 0
@@ -1866,21 +1868,58 @@ class StreamlineWebBackend:
         self._save_mod_download_logs(snapshot)
 
     def _get_remote_mod_update_timestamp(self, mod_id):
+        key = str(mod_id or "").strip()
+        if not key:
+            return None
+        now = time.time()
+        with self._remote_update_cache_lock:
+            cached = self._remote_mod_update_cache.get(key)
+            if isinstance(cached, dict):
+                fetched_at = float(cached.get("fetched_at", 0.0) or 0.0)
+                if (now - fetched_at) <= self._remote_mod_update_cache_ttl_sec:
+                    return cached.get("value")
+
+        value = None
         try:
             url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
-            payload = {"itemcount": 1, "publishedfileids[0]": str(mod_id)}
+            payload = {"itemcount": 1, "publishedfileids[0]": key}
             response = requests.post(url, data=payload, timeout=20)
             details = response.json().get("response", {}).get("publishedfiledetails", [{}])[0]
             ts = details.get("time_updated")
-            return int(ts) if ts is not None else None
+            value = int(ts) if ts is not None else None
         except Exception:
-            return None
+            value = None
+
+        with self._remote_update_cache_lock:
+            self._remote_mod_update_cache[key] = {"fetched_at": now, "value": value}
+            if len(self._remote_mod_update_cache) > 6000:
+                self._remote_mod_update_cache = dict(list(self._remote_mod_update_cache.items())[-3000:])
+        return value
 
     def _mark_session_downloaded(self, mod):
         mod_id = str(mod.get("mod_id", "")).strip()
         if not mod_id:
             return
         self.successful_downloads_this_session.add(mod_id)
+
+    def _set_mod_status(self, mod, status, retry_count=None):
+        if not isinstance(mod, dict):
+            return False
+        mod_id = str(mod.get("mod_id", "")).strip()
+        changed = False
+        with self.state_lock:
+            if mod.get("status") != status:
+                mod["status"] = status
+                changed = True
+            if retry_count is not None:
+                retry_value = max(0, int(retry_count))
+                current_retry = int(mod.get("retry_count", 0) or 0)
+                if current_retry != retry_value:
+                    mod["retry_count"] = retry_value
+                    changed = True
+        if changed and mod_id:
+            self._emit_event("queue_status", {"mod_id": mod_id, "status": status})
+        return changed
 
     def _cleanup_appworkshop_acf_files(self):
         workshop_dir = os.path.join(self.steamcmd_dir, "steamapps", "workshop")
@@ -1982,7 +2021,7 @@ class StreamlineWebBackend:
                     self._update_mod_download_log(move_mod)
                     self._mark_session_downloaded(move_mod)
                     if queue_mod and (queue_mod.get("status") == "Downloading" or "Failed" in str(queue_mod.get("status", ""))):
-                        queue_mod["status"] = "Downloaded"
+                        self._set_mod_status(queue_mod, "Downloaded")
                 except Exception as e:
                     self.log(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}", tone="bad")
 
@@ -2023,27 +2062,55 @@ class StreamlineWebBackend:
                 for chunk in download_response.iter_content(chunk_size=8192):
                     if chunk:
                         file.write(chunk)
-            mod["_webapi_file_path"] = file_path
-            self.session_webapi_files[mod_id] = file_path
+            with self.state_lock:
+                mod["_webapi_file_path"] = file_path
+                self.session_webapi_files[mod_id] = file_path
             self._update_mod_download_log(mod)
             self._mark_session_downloaded(mod)
             return True
         except Exception:
             return False
 
-    def _download_mods_steamcmd(self, mods):
+    def _download_mods_webapi_parallel(self, mods, cancel_is_immediate=False):
+        webapi_mods = list(mods or [])
+        if not webapi_mods:
+            return
+
+        max_workers = max(1, min(6, len(webapi_mods)))
+
+        def download_one(mod):
+            if cancel_is_immediate and self.canceled:
+                return
+            self._set_mod_status(mod, "Downloading")
+            success = self._download_mod_webapi(mod)
+            if success:
+                self._set_mod_status(mod, "Downloaded")
+                return
+            with self.state_lock:
+                next_retry = int(mod.get("retry_count", 0) or 0) + 1
+            self._set_mod_status(mod, "Queued" if next_retry < 3 else "Failed", retry_count=next_retry)
+
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="webapi-download") as executor:
+            futures = [executor.submit(download_one, mod) for mod in webapi_mods]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception:
+                    pass
+
+    def _download_mods_steamcmd(self, mods, cancel_is_immediate=False):
         if not os.path.isfile(self.steamcmd_exe):
             for mod in mods:
-                mod["status"] = "Failed: SteamCMD Missing"
+                self._set_mod_status(mod, "Failed: SteamCMD Missing")
             return
 
         existing_mod_behavior = self.config.get("steamcmd_existing_mod_behavior", "Only Redownload if Updated")
         download_logs = self._load_mod_download_logs()
-        mods_by_app_id = defaultdict(list)
+        download_candidates = []
         for mod in mods:
             app_id = mod.get("app_id")
             if not app_id:
-                mod["status"] = "Failed: No AppID"
+                self._set_mod_status(mod, "Failed: No AppID")
                 continue
 
             should_download = True
@@ -2062,55 +2129,80 @@ class StreamlineWebBackend:
                         self._delete_existing_mod_folder(mod)
 
             if should_download:
-                mods_by_app_id[str(app_id)].append(mod)
+                download_candidates.append(mod)
             else:
-                mod["status"] = "Downloaded"
+                self._set_mod_status(mod, "Downloaded")
                 self._update_mod_download_log(mod)
 
-        for app_id, bucket in mods_by_app_id.items():
-            cmd = [self.steamcmd_exe, "+login", *self._get_steamcmd_login_parts()]
-            for mod in bucket:
-                mod["status"] = "Downloading"
-                cmd.extend(["+workshop_download_item", app_id, str(mod["mod_id"])])
-            cmd.append("+quit")
+        if not download_candidates:
+            return
 
-            status_map = {str(mod["mod_id"]): "Downloading" for mod in bucket}
-            self.current_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                cwd=self.steamcmd_dir,
-                shell=False,
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system().lower() == "windows" else 0,
-            )
+        cmd = [self.steamcmd_exe, "+login", *self._get_steamcmd_login_parts()]
+        mod_lookup = {}
+        status_map = {}
+        for mod in download_candidates:
+            app_id = str(mod.get("app_id"))
+            mod_id = str(mod.get("mod_id"))
+            mod_lookup[mod_id] = mod
+            status_map[mod_id] = "Downloading"
+            self._set_mod_status(mod, "Downloading")
+            cmd.extend(["+workshop_download_item", app_id, mod_id])
+        cmd.append("+quit")
 
-            if self.current_process.stdout:
-                for line in self.current_process.stdout:
-                    clean_line = line.strip()
-                    if not clean_line:
-                        continue
-                    for mod in bucket:
-                        mod_id = str(mod["mod_id"])
-                        success_re = rf"Success\. Downloaded item {re.escape(mod_id)}"
-                        failure_re = rf"ERROR! Download item {re.escape(mod_id)} failed \(([^)]+)\)"
-                        if re.search(success_re, clean_line, re.IGNORECASE):
-                            status_map[mod_id] = "Downloaded"
-                        fail_match = re.search(failure_re, clean_line, re.IGNORECASE)
-                        if fail_match:
-                            status_map[mod_id] = f"Failed: {fail_match.group(1)}"
+        self.current_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=self.steamcmd_dir,
+            shell=False,
+            creationflags=subprocess.CREATE_NO_WINDOW if platform.system().lower() == "windows" else 0,
+        )
 
-            self.current_process.wait()
-            self.current_process = None
-            for mod in bucket:
-                mod_id = str(mod["mod_id"])
-                mod["status"] = status_map.get(mod_id, "Failed No Confirmation")
-                if mod["status"] == "Downloaded":
-                    self._update_mod_download_log(mod)
-                    self._mark_session_downloaded(mod)
+        success_re = re.compile(r"Success\. Downloaded item (\d+)", re.IGNORECASE)
+        failure_re = re.compile(r"ERROR! Download item (\d+) failed \(([^)]+)\)", re.IGNORECASE)
+
+        if self.current_process.stdout:
+            for line in self.current_process.stdout:
+                clean_line = line.strip()
+                if not clean_line:
+                    continue
+
+                success_match = success_re.search(clean_line)
+                if success_match:
+                    mod_id = str(success_match.group(1))
+                    if mod_id in status_map and status_map.get(mod_id) != "Downloaded":
+                        status_map[mod_id] = "Downloaded"
+                        queue_mod = mod_lookup.get(mod_id)
+                        if queue_mod:
+                            self._set_mod_status(queue_mod, "Downloaded")
+                    continue
+
+                fail_match = failure_re.search(clean_line)
+                if fail_match:
+                    mod_id = str(fail_match.group(1))
+                    if mod_id in status_map:
+                        next_status = f"Failed: {fail_match.group(2)}"
+                        if status_map.get(mod_id) != next_status:
+                            status_map[mod_id] = next_status
+                            queue_mod = mod_lookup.get(mod_id)
+                            if queue_mod:
+                                self._set_mod_status(queue_mod, next_status)
+
+        self.current_process.wait()
+        self.current_process = None
+
+        fallback_status = "Downloading" if (cancel_is_immediate and self.canceled) else "Failed No Confirmation"
+        for mod in download_candidates:
+            mod_id = str(mod.get("mod_id"))
+            final_status = status_map.get(mod_id, fallback_status)
+            self._set_mod_status(mod, final_status)
+            if final_status == "Downloaded":
+                self._update_mod_download_log(mod)
+                self._mark_session_downloaded(mod)
 
     def _finalize_cancellation(self, delete_downloads):
         keep_downloaded = bool(self.config.get("keep_downloaded_in_queue", False))
@@ -2157,23 +2249,36 @@ class StreamlineWebBackend:
                 if not queued_mods:
                     break
 
-                batch_size = int(self.config.get("batch_size", 20))
-                steamcmd_mods = [mod for mod in queued_mods if mod.get("provider") == "SteamCMD"][:batch_size]
-                webapi_mods = [mod for mod in queued_mods if mod.get("provider") == "SteamWebAPI"][:batch_size]
+                batch_size = max(1, int(self.config.get("batch_size", 20)))
+                selected_batch = list(queued_mods[:batch_size])
 
-                if steamcmd_mods:
-                    self._download_mods_steamcmd(steamcmd_mods)
+                steamcmd_mods = []
+                webapi_mods = []
+                provider_changed = False
+                for mod in selected_batch:
+                    provider = str(mod.get("provider", "")).strip()
+                    if provider not in {"SteamCMD", "SteamWebAPI"}:
+                        resolved = self._provider_for_mod(mod, self.config.get("download_provider", "Default"))
+                        with self.state_lock:
+                            mod["provider"] = resolved
+                        provider = resolved
+                        provider_changed = True
+                    if provider == "SteamCMD":
+                        steamcmd_mods.append(mod)
+                    elif provider == "SteamWebAPI":
+                        webapi_mods.append(mod)
 
-                for mod in webapi_mods:
-                    if self.canceled and delete_on_cancel:
-                        break
-                    mod["status"] = "Downloading"
-                    success = self._download_mod_webapi(mod)
-                    if success:
-                        mod["status"] = "Downloaded"
-                    else:
-                        mod["retry_count"] = int(mod.get("retry_count", 0)) + 1
-                        mod["status"] = "Queued" if mod["retry_count"] < 3 else "Failed"
+                tasks = []
+                with ThreadPoolExecutor(max_workers=2, thread_name_prefix="download-batch") as executor:
+                    if steamcmd_mods:
+                        tasks.append(executor.submit(self._download_mods_steamcmd, steamcmd_mods, delete_on_cancel))
+                    if webapi_mods:
+                        tasks.append(executor.submit(self._download_mods_webapi_parallel, webapi_mods, delete_on_cancel))
+                    for future in as_completed(tasks):
+                        future.result()
+
+                if provider_changed:
+                    self._emit_event("queue", {"action": "refresh"})
 
                 if self.canceled:
                     self._finalize_cancellation(delete_downloads=delete_on_cancel)
@@ -2211,6 +2316,8 @@ class StreamlineWebBackend:
             self.canceled = False
             self.successful_downloads_this_session = set()
             self.session_webapi_files = {}
+        with self._remote_update_cache_lock:
+            self._remote_mod_update_cache = {}
         threading.Thread(target=self._download_worker, daemon=True).start()
         self._emit_event("download", {"state": "started"})
         return {"success": True}
