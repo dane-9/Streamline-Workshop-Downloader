@@ -4969,57 +4969,238 @@ async function openAccountsManager() {
 
 async function openAppIdsManager() {
   const info = await callApi("get_appids_info");
-  const currentCount = info?.count ?? 0;
-  const lastUpdated = info?.last_updated || "N/A";
+  const currentCount = Number(info?.count ?? 0);
+  const lastUpdated = String(info?.last_updated || "N/A");
+  const TYPE_OPTIONS = [
+    { key: "game", label: "Game", value: "Game", selected: true },
+    { key: "application", label: "Application", value: "Application", selected: false },
+    { key: "tool", label: "Tool", value: "Tool", selected: false }
+  ];
+  const PROGRESS_STEPS = [
+    { key: "connect", label: "Connect to source", runningText: "Connecting to SteamDB..." },
+    { key: "fetch", label: "Fetch entries", runningText: "Fetching AppID rows..." },
+    { key: "parse", label: "Parse payload", runningText: "Parsing AppIDs..." },
+    { key: "write", label: "Write AppIDs file", runningText: "Writing AppIDs.txt..." },
+    { key: "reload", label: "Reload in app", runningText: "Reloading AppIDs..." }
+  ];
+  const formattedCount = Number.isFinite(currentCount) ? currentCount.toLocaleString() : "0";
+
   const html = `
-    <div class="form-grid">
-      <div class="form-block">
-        <label>Current AppIDs</label>
-        <input class="form-control" type="text" value="${currentCount}" readonly>
-      </div>
-      <div class="form-block">
-        <label>Last Updated</label>
-        <input class="form-control" type="text" value="${escapeHtml(lastUpdated)}" readonly>
-      </div>
-    </div>
-    <div class="form-divider"></div>
-    <div class="form-grid">
-      <label class="form-checkbox-row"><input id="appid-game" type="checkbox" checked>Game</label>
-      <label class="form-checkbox-row"><input id="appid-application" type="checkbox">Application</label>
-      <label class="form-checkbox-row"><input id="appid-tool" type="checkbox">Tool</label>
+    <div class="appids-modal-shell" data-appids-state="idle">
+      <section class="appids-config-pane">
+        <div class="appids-stat-grid">
+          <div class="appids-stat-card">
+            <span class="appids-stat-label">Current Entries</span>
+            <span class="appids-stat-value">${formattedCount}</span>
+          </div>
+          <div class="appids-stat-card">
+            <span class="appids-stat-label">Last Updated</span>
+            <span class="appids-stat-value appids-stat-subtle">${escapeHtml(lastUpdated)}</span>
+          </div>
+        </div>
+        <div class="appids-type-section">
+          <h4 class="appids-section-title">Select Types</h4>
+          <div class="appids-type-grid">
+            ${TYPE_OPTIONS.map((type) => `
+              <button
+                type="button"
+                class="appids-type-chip${type.selected ? " is-selected" : ""}"
+                data-appids-type="${type.key}"
+                data-appids-value="${type.value}"
+                aria-pressed="${type.selected ? "true" : "false"}"
+              >${type.label}</button>
+            `).join("")}
+          </div>
+        </div>
+      </section>
+      <section class="appids-progress-pane" aria-live="polite">
+        <div class="appids-progress-head">
+          <span class="appids-progress-title">Update Status</span>
+          <span id="appids-progress-badge" class="appids-progress-badge state-idle">Idle</span>
+        </div>
+        <div class="appids-progress-bar-track">
+          <span id="appids-progress-bar-fill" class="appids-progress-bar-fill"></span>
+        </div>
+        <p id="appids-progress-text" class="appids-progress-text">Ready to update AppIDs.</p>
+        <ol class="appids-progress-steps">
+          ${PROGRESS_STEPS.map((step) => `
+            <li class="appids-progress-step is-pending" data-appids-step="${step.key}">
+              <span class="appids-progress-step-dot" aria-hidden="true"></span>
+              <span class="appids-progress-step-label">${step.label}</span>
+            </li>
+          `).join("")}
+        </ol>
+      </section>
     </div>
   `;
 
+  let updateInFlight = false;
+  let progressTimer = null;
+  let activeStepIndex = -1;
+
+  const getSelectedTypeButtons = (root) => (
+    Array.from(root.querySelectorAll(".appids-type-chip"))
+  );
+  const getSelectedTypes = (root) => (
+    getSelectedTypeButtons(root)
+      .filter((button) => button.classList.contains("is-selected"))
+      .map((button) => String(button.dataset.appidsValue || "").trim())
+      .filter((value) => !!value)
+  );
+  const setProgressBadge = (root, state, text) => {
+    const badge = root.querySelector("#appids-progress-badge");
+    if (!badge) {
+      return;
+    }
+    badge.className = `appids-progress-badge state-${state}`;
+    badge.textContent = text;
+  };
+  const setProgressText = (root, text) => {
+    const textEl = root.querySelector("#appids-progress-text");
+    if (textEl) {
+      textEl.textContent = String(text || "");
+    }
+  };
+  const setProgressBar = (root, state, widthPercent = 0) => {
+    const fill = root.querySelector("#appids-progress-bar-fill");
+    if (!fill) {
+      return;
+    }
+    fill.className = `appids-progress-bar-fill state-${state}`;
+    fill.style.width = `${Math.max(0, Math.min(100, Number(widthPercent) || 0))}%`;
+  };
+  const setStepState = (root, stepKey, state) => {
+    const row = root.querySelector(`[data-appids-step='${stepKey}']`);
+    if (!row) {
+      return;
+    }
+    row.classList.remove("is-pending", "is-active", "is-done", "is-error");
+    row.classList.add(`is-${state}`);
+  };
+  const resetSteps = (root) => {
+    for (const step of PROGRESS_STEPS) {
+      setStepState(root, step.key, "pending");
+    }
+  };
+  const updateStepProgress = (root, stepIndex) => {
+    activeStepIndex = stepIndex;
+    for (let i = 0; i < PROGRESS_STEPS.length; i += 1) {
+      const step = PROGRESS_STEPS[i];
+      if (i < stepIndex) {
+        setStepState(root, step.key, "done");
+      } else if (i === stepIndex) {
+        setStepState(root, step.key, "active");
+      } else {
+        setStepState(root, step.key, "pending");
+      }
+    }
+    const active = PROGRESS_STEPS[Math.max(0, Math.min(PROGRESS_STEPS.length - 1, stepIndex))];
+    if (active?.runningText) {
+      setProgressText(root, active.runningText);
+    }
+  };
+  const stopProgressTimer = () => {
+    if (progressTimer) {
+      window.clearInterval(progressTimer);
+      progressTimer = null;
+    }
+  };
+
   await showFormModal({
     title: "Update AppIDs",
-    message: "Select entry types to refresh from SteamDB.",
+    message: "Refresh local AppIDs from SteamDB.",
     html,
     okLabel: "Update",
+    onMount: (root) => {
+      setProgressBadge(root, "idle", "Idle");
+      setProgressBar(root, "idle", 0);
+      setProgressText(root, "Ready to update AppIDs.");
+      resetSteps(root);
+
+      getSelectedTypeButtons(root).forEach((button) => {
+        button.addEventListener("click", () => {
+          if (updateInFlight) {
+            return;
+          }
+          const isSelected = button.classList.contains("is-selected");
+          const selectedCount = getSelectedTypeButtons(root).filter((item) => item.classList.contains("is-selected")).length;
+          if (isSelected && selectedCount <= 1) {
+            return;
+          }
+          button.classList.toggle("is-selected", !isSelected);
+          button.setAttribute("aria-pressed", !isSelected ? "true" : "false");
+        });
+      });
+    },
     onSubmit: async (root) => {
-      const selectedTypes = [];
-      if (root.querySelector("#appid-game").checked) {
-        selectedTypes.push("Game");
+      if (updateInFlight) {
+        return false;
       }
-      if (root.querySelector("#appid-application").checked) {
-        selectedTypes.push("Application");
-      }
-      if (root.querySelector("#appid-tool").checked) {
-        selectedTypes.push("Tool");
-      }
+      const selectedTypes = getSelectedTypes(root);
       if (!selectedTypes.length) {
         addLog("Select at least one type to update AppIDs.", "bad");
+        setProgressBadge(root, "error", "Error");
+        setProgressBar(root, "error", 100);
+        setProgressText(root, "No types selected.");
         return false;
       }
 
-      const result = await callApi("update_appids", selectedTypes);
-      if (result?.success) {
-        addLog(`AppIDs updated (${result.count} entries).`, "good");
-        return true;
+      updateInFlight = true;
+      modalOkBtn.disabled = true;
+      modalCancelBtn.disabled = true;
+      setProgressBadge(root, "running", "Running");
+      setProgressBar(root, "running", 28);
+      resetSteps(root);
+      updateStepProgress(root, 0);
+
+      const startedAt = Date.now();
+      progressTimer = window.setInterval(() => {
+        const elapsedMs = Date.now() - startedAt;
+        const idx = Math.min(PROGRESS_STEPS.length - 1, Math.floor(elapsedMs / 900));
+        updateStepProgress(root, idx);
+      }, 220);
+
+      try {
+        const result = await callApi("update_appids", selectedTypes);
+        stopProgressTimer();
+        if (result?.success) {
+          for (const step of PROGRESS_STEPS) {
+            setStepState(root, step.key, "done");
+          }
+          setProgressBadge(root, "success", "Done");
+          setProgressBar(root, "success", 100);
+          setProgressText(root, `AppIDs updated successfully (${result.count} entries).`);
+          addLog(`AppIDs updated (${result.count} entries).`, "good");
+          return true;
+        }
+        const errorText = String(result?.error || "Failed to update AppIDs.");
+        if (activeStepIndex >= 0 && activeStepIndex < PROGRESS_STEPS.length) {
+          setStepState(root, PROGRESS_STEPS[activeStepIndex].key, "error");
+        }
+        setProgressBadge(root, "error", "Failed");
+        setProgressBar(root, "error", 100);
+        setProgressText(root, errorText);
+        addLog(errorText, "bad");
+        return false;
+      } catch (error) {
+        stopProgressTimer();
+        const errorText = String(error?.message || "Failed to update AppIDs.");
+        if (activeStepIndex >= 0 && activeStepIndex < PROGRESS_STEPS.length) {
+          setStepState(root, PROGRESS_STEPS[activeStepIndex].key, "error");
+        }
+        setProgressBadge(root, "error", "Failed");
+        setProgressBar(root, "error", 100);
+        setProgressText(root, errorText);
+        addLog(errorText, "bad");
+        return false;
+      } finally {
+        updateInFlight = false;
+        modalOkBtn.disabled = false;
+        modalCancelBtn.disabled = false;
       }
-      addLog(result?.error || "Failed to update AppIDs.", "bad");
-      return false;
     }
   });
+  stopProgressTimer();
 }
 
 async function openTutorialDialog(options = {}) {

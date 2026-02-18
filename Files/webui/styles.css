@@ -1702,6 +1702,277 @@ select.form-control:hover {
   margin: 8px 0;
 }
 
+.appids-modal-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: 8px;
+}
+
+.appids-config-pane,
+.appids-progress-pane {
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--dialog-bg) 86%, var(--tree-bg) 14%);
+}
+
+.appids-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.appids-stat-card {
+  border: 1px solid var(--menu-border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--tree-bg) 78%, transparent);
+  padding: 5px 7px;
+  min-height: 46px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.appids-stat-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.75;
+}
+
+.appids-stat-value {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.appids-stat-subtle {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.88;
+}
+
+.appids-type-section {
+  border: 1px solid var(--menu-border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--input-bg) 78%, transparent);
+  padding: 7px;
+}
+
+.appids-section-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.appids-section-note {
+  margin: 2px 0 6px;
+  font-size: 10px;
+  line-height: 1.35;
+  opacity: 0.82;
+}
+
+.appids-type-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.appids-type-chip {
+  border: 1px solid var(--menu-border);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--control-bg) 72%, transparent);
+  color: var(--fg);
+  padding: 2px 8px;
+  min-height: 24px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-fast) ease;
+}
+
+.appids-type-chip:hover {
+  background: color-mix(in srgb, var(--selection) 12%, var(--control-bg) 88%);
+  border-color: color-mix(in srgb, var(--selection) 42%, var(--menu-border) 58%);
+}
+
+.appids-type-chip:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--selection) 70%, transparent);
+  outline-offset: 1px;
+}
+
+.appids-type-chip.is-selected {
+  border-color: #4f91ff;
+  background: #4f91ff;
+  color: #ffffff;
+}
+
+body.theme-light .appids-type-chip.is-selected {
+  border-color: #3577e5;
+  background: #3577e5;
+  color: #ffffff;
+}
+
+.appids-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.appids-progress-title {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.appids-progress-badge {
+  border-radius: 999px;
+  border: 1px solid var(--menu-border);
+  padding: 1px 7px;
+  font-size: 8px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.appids-progress-badge.state-idle {
+  background: color-mix(in srgb, var(--control-bg) 70%, transparent);
+}
+
+.appids-progress-badge.state-running {
+  border-color: rgba(94, 149, 255, 0.62);
+  background: rgba(94, 149, 255, 0.2);
+  color: #d9e8ff;
+}
+
+.appids-progress-badge.state-success {
+  border-color: rgba(102, 203, 139, 0.58);
+  background: rgba(102, 203, 139, 0.2);
+  color: #c8f2d6;
+}
+
+.appids-progress-badge.state-error {
+  border-color: rgba(213, 115, 115, 0.62);
+  background: rgba(213, 115, 115, 0.2);
+  color: #ffd8d8;
+}
+
+.appids-progress-bar-track {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tree-bg) 84%, transparent);
+  border: 1px solid var(--menu-border);
+  overflow: hidden;
+}
+
+.appids-progress-bar-fill {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  bottom: -1px;
+  width: 0%;
+  border-radius: 999px;
+  transition: width 220ms ease;
+}
+
+.appids-progress-bar-fill.state-idle {
+  background: color-mix(in srgb, var(--menu-border) 85%, transparent);
+}
+
+.appids-progress-bar-fill.state-running {
+  width: 46%;
+  background: linear-gradient(90deg, rgba(82, 142, 255, 0.28) 0%, rgba(82, 142, 255, 0.84) 48%, rgba(82, 142, 255, 0.3) 100%);
+  animation: appids-progress-indeterminate 1.15s linear infinite;
+}
+
+.appids-progress-bar-fill.state-success {
+  background: linear-gradient(90deg, rgba(97, 194, 132, 0.9), rgba(97, 194, 132, 0.58));
+}
+
+.appids-progress-bar-fill.state-error {
+  background: linear-gradient(90deg, rgba(213, 115, 115, 0.92), rgba(213, 115, 115, 0.62));
+}
+
+.appids-progress-text {
+  margin: 6px 0 7px;
+  font-size: 10px;
+  line-height: 1.25;
+  min-height: 13px;
+}
+
+.appids-progress-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.appids-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 16px;
+  padding: 1px 0;
+  font-size: 10px;
+  opacity: 0.76;
+  transition: color var(--motion-fast) ease, opacity var(--motion-fast) ease;
+}
+
+.appids-progress-step-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--menu-border) 92%, transparent);
+  background: color-mix(in srgb, var(--control-bg) 78%, transparent);
+  flex: 0 0 7px;
+}
+
+.appids-progress-step.is-pending {
+  opacity: 0.65;
+}
+
+.appids-progress-step.is-active {
+  opacity: 1;
+}
+
+.appids-progress-step.is-active .appids-progress-step-dot {
+  border-color: rgba(94, 149, 255, 0.72);
+  background: rgba(94, 149, 255, 0.88);
+  animation: appids-step-pulse 860ms ease-in-out infinite;
+}
+
+.appids-progress-step.is-done {
+  opacity: 0.96;
+}
+
+.appids-progress-step.is-done .appids-progress-step-dot {
+  border-color: rgba(102, 203, 139, 0.68);
+  background: rgba(102, 203, 139, 0.88);
+}
+
+.appids-progress-step.is-error {
+  opacity: 1;
+}
+
+.appids-progress-step.is-error .appids-progress-step-dot {
+  border-color: rgba(213, 115, 115, 0.78);
+  background: rgba(213, 115, 115, 0.9);
+}
+
+@media (max-width: 760px) {
+  .appids-modal-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
 .settings-section-title {
   font-size: 12px;
   font-weight: 700;
@@ -2706,6 +2977,27 @@ textarea:disabled {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes appids-progress-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(235%);
+  }
+}
+
+@keyframes appids-step-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(94, 149, 255, 0.34);
+  }
+  50% {
+    transform: scale(1.12);
+    box-shadow: 0 0 0 4px rgba(94, 149, 255, 0);
   }
 }
 
