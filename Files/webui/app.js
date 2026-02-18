@@ -1,6 +1,8 @@
 const queueBody = document.getElementById("queue-body");
 const queueForm = document.getElementById("queue-form");
 const eventLog = document.getElementById("event-log");
+const logCopyBtn = document.getElementById("log-copy-btn");
+const logClearBtn = document.getElementById("log-clear-btn");
 const searchInput = document.getElementById("search-input");
 const filterBtn = document.getElementById("filter-btn");
 const filterPopup = document.getElementById("filter-popup");
@@ -56,6 +58,8 @@ document.body.style.transition = "opacity 220ms ease";
 
 let started = false;
 let eventPollTimer = null;
+let eventPollInFlight = false;
+let eventPollRequested = false;
 let queueRefreshTimer = null;
 let queueRefreshForceReload = false;
 let browserQueue = [];
@@ -69,14 +73,24 @@ let commandPaletteSelectedIndex = 0;
 let commandPaletteLastFocusedElement = null;
 let lastShiftTapAt = 0;
 const animatedSelectControllers = new Map();
-
-const MAX_LOG_LINES = 500;
+let suppressNextBackendClearEvent = false;
+let logTopItems = [];
+let logGroupsByOperation = new Map();
+let logRenderQueued = false;
+let logRenderPreserveScroll = false;
 const SEARCH_RENDER_DEBOUNCE_MS = 180;
 const DOUBLE_SHIFT_WINDOW_MS = 360;
+const EVENT_POLL_INTERVAL_MS = 250;
 const VIRTUAL_ROW_HEIGHT_FALLBACK = 18;
 const VIRTUAL_OVERSCAN_ROWS = 14;
 const VIRTUAL_FETCH_BUFFER_ROWS = 80;
 const VIRTUAL_FETCH_MAX_LIMIT = 1200;
+const STARTUP_LOG_TONE_TEST_DEFAULTS = {
+  enabled: false,
+  info: "Startup tone test: INFO Startup tone test: INFO Startup tone test: INFO Startup tone test: INFO Startup tone test: INFO Startup tone test: INFO Startup tone test: INFO Startup tone test: INFO",
+  good: "Startup tone test: GOOD",
+  bad: "Startup tone test: ERROR"
+};
 
 let virtualRowHeight = VIRTUAL_ROW_HEIGHT_FALLBACK;
 let virtualItems = [];
@@ -125,6 +139,8 @@ const state = {
   selectionAnchorIndex: null,
   selectionAnchorModId: "",
   rowCache: new Map(),
+  logEntries: [],
+  logEntrySeq: 0,
   sort: {
     key: "",
     direction: "asc",
@@ -188,18 +204,523 @@ function setProviderValue(value) {
   syncProviderDisplay();
 }
 
-function addLog(text, tone = "") {
-  const line = document.createElement("p");
-  line.className = `log-line ${tone}`.trim();
-  line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
-  eventLog.prepend(line);
-  while (eventLog.childElementCount > MAX_LOG_LINES) {
-    const last = eventLog.lastElementChild;
-    if (!last) {
-      break;
-    }
-    eventLog.removeChild(last);
+function normalizeLogTone(value) {
+  const tone = String(value || "").trim().toLowerCase();
+  if (tone === "good" || tone === "bad") {
+    return tone;
   }
+  return "info";
+}
+
+function normalizeLogTimestampMs(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return Date.now();
+  }
+  return numeric < 1e12 ? numeric * 1000 : numeric;
+}
+
+function formatLogClock(timestampMs) {
+  return new Date(timestampMs).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function logToneLabel(tone) {
+  if (tone === "good") {
+    return "GOOD";
+  }
+  if (tone === "bad") {
+    return "ERROR";
+  }
+  return "INFO";
+}
+
+function getStartupLogToneTestConfig() {
+  const runtime = window.STREAMLINE_STARTUP_LOG_TEST;
+  if (!runtime || typeof runtime !== "object") {
+    return STARTUP_LOG_TONE_TEST_DEFAULTS;
+  }
+  return {
+    enabled: runtime.enabled !== false,
+    info: String(runtime.info || STARTUP_LOG_TONE_TEST_DEFAULTS.info),
+    good: String(runtime.good || STARTUP_LOG_TONE_TEST_DEFAULTS.good),
+    bad: String(runtime.bad || STARTUP_LOG_TONE_TEST_DEFAULTS.bad)
+  };
+}
+
+function emitStartupLogToneTests() {
+  const config = getStartupLogToneTestConfig();
+  if (!config.enabled) {
+    return;
+  }
+  addLog(config.info, "info", { source: "debug", action: "startup_tone_test" });
+  addLog(config.good, "good", { source: "debug", action: "startup_tone_test" });
+  addLog(config.bad, "bad", { source: "debug", action: "startup_tone_test" });
+}
+
+function buildLogClipboardText() {
+  if (!eventLog) {
+    return "";
+  }
+  const renderedRows = eventLog.querySelectorAll(".log-line");
+  if (!renderedRows.length) {
+    return "";
+  }
+  const lines = [];
+  for (const row of renderedRows) {
+    const time = row.querySelector(".log-time")?.textContent?.trim() || "";
+    const tone = row.querySelector(".log-tone")?.textContent?.trim() || "";
+    const message = row.querySelector(".log-message")?.textContent?.trim() || "";
+    const source = row.querySelector(".log-source")?.textContent?.trim() || "";
+    if (!time && !tone && !message && !source) {
+      continue;
+    }
+    const parts = [];
+    if (time) {
+      parts.push(`[${time}]`);
+    }
+    if (tone) {
+      parts.push(`[${tone}]`);
+    }
+    if (message) {
+      parts.push(message);
+    }
+    if (source) {
+      parts.push(`(${source})`);
+    }
+    lines.push(parts.join(" "));
+  }
+  return lines.join("\n");
+}
+
+function showFullLogMessageDialog(entry) {
+  const messageText = String(entry?.message || "");
+  const source = String(entry?.source || "ui").trim().toLowerCase() || "ui";
+  const tone = normalizeLogTone(entry?.tone || "info");
+  const timeText = formatLogClock(normalizeLogTimestampMs(entry?.timestampMs));
+
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "confirm-overlay";
+    overlay.innerHTML = `
+      <div class="log-message-dialog-card" role="dialog" aria-modal="true" aria-label="Full log message">
+        <h3 class="confirm-title">Full Log Message</h3>
+        <p class="log-message-dialog-meta">${escapeHtml(timeText)}  ${escapeHtml(logToneLabel(tone))}  ${escapeHtml(source)}</p>
+        <pre class="log-message-dialog-body">${escapeHtml(messageText)}</pre>
+        <div class="confirm-actions">
+          <button type="button" class="control modal-btn" data-log-message-action="copy">Copy</button>
+          <button type="button" class="control modal-btn primary" data-log-message-action="close">Close</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const closeBtn = overlay.querySelector("[data-log-message-action='close']");
+    const copyBtn = overlay.querySelector("[data-log-message-action='copy']");
+
+    const cleanup = () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      overlay.remove();
+      resolve(true);
+    };
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cleanup();
+      }
+    };
+
+    overlay.addEventListener("mousedown", (event) => {
+      if (event.target === overlay) {
+        cleanup();
+      }
+    });
+
+    closeBtn?.addEventListener("click", cleanup);
+    copyBtn?.addEventListener("click", async () => {
+      const ok = await copyTextToClipboard(messageText);
+      copyBtn.textContent = ok ? "Copied" : "Copy Failed";
+    });
+    document.addEventListener("keydown", onKeyDown, true);
+    closeBtn?.focus();
+  });
+}
+
+function getOperationPrefixFromId(operationId) {
+  const raw = String(operationId || "").trim().toLowerCase();
+  if (!raw) {
+    return "";
+  }
+  const matched = raw.match(/^([a-z0-9-]+?)-\d{10,}-\d+$/);
+  return matched ? matched[1] : raw;
+}
+
+function formatOperationLabel(prefix) {
+  const key = String(prefix || "").trim().toLowerCase();
+  const known = {
+    "queue-build": "Queue Build",
+    "queue-input": "Queue Input",
+    "download": "Download Queue"
+  };
+  if (known[key]) {
+    return known[key];
+  }
+  return key
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || "Operation";
+}
+
+function deriveOperationState(currentState, entry) {
+  const current = String(currentState || "").toLowerCase();
+  const action = String(entry?.action || "").toLowerCase();
+  const tone = normalizeLogTone(entry?.tone || "info");
+  const rawContext = entry?.context;
+  const context = rawContext && typeof rawContext === "object" && !Array.isArray(rawContext)
+    ? rawContext
+    : null;
+  const explicitState = String(context?.operation_state || context?.operationState || "").trim().toLowerCase();
+
+  if (explicitState === "run" || explicitState === "done" || explicitState === "error" || explicitState === "canceled") {
+    return explicitState;
+  }
+
+  if (/cancel/.test(action)) {
+    return "canceled";
+  }
+  if (tone === "bad" || /(fail|error|crash|exception)/.test(action)) {
+    return "error";
+  }
+  if (/(start|progress|process|building|running|downloading|worker|detect)/.test(action)) {
+    return current === "queued" ? "run" : (current || "run");
+  }
+  if (/(finish|complete|queued|processed|updated|done)/.test(action)) {
+    return "done";
+  }
+  if (!current) {
+    return "run";
+  }
+  return current;
+}
+
+function getOperationToneByState(stateName) {
+  const state = String(stateName || "").toLowerCase();
+  if (state === "run") {
+    return "run";
+  }
+  if (state === "done") {
+    return "good";
+  }
+  if (state === "error") {
+    return "bad";
+  }
+  if (state === "canceled") {
+    return "stop";
+  }
+  return "info";
+}
+
+function getOperationTagLabel(stateName) {
+  const state = String(stateName || "").toLowerCase();
+  if (state === "run") {
+    return "RUN";
+  }
+  if (state === "done") {
+    return "DONE";
+  }
+  if (state === "error") {
+    return "ERROR";
+  }
+  if (state === "canceled") {
+    return "STOP";
+  }
+  return "INFO";
+}
+
+function moveGroupTopItemToFront(operationId) {
+  const opId = String(operationId || "").trim();
+  if (!opId) {
+    return;
+  }
+  const exists = logTopItems.some((item) => item?.kind === "group" && item.operationId === opId);
+  if (!exists) {
+    logTopItems.unshift({ kind: "group", operationId: opId });
+  }
+}
+
+function shouldUpsertProgressEntry(group, entry) {
+  const prefix = String(group?.prefix || "").toLowerCase();
+  const action = String(entry?.action || "").toLowerCase();
+  if (prefix !== "queue-build") {
+    return prefix === "download" && action === "download_progress";
+  }
+  return action === "queue_build_progress" || action === "pages_fetched";
+}
+
+function addEntryToGroupedTimeline(entry) {
+  const opId = String(entry?.operationId || "").trim();
+  if (!opId) {
+    logTopItems.unshift({ kind: "single", entry });
+    return;
+  }
+
+  let group = logGroupsByOperation.get(opId);
+  if (!group) {
+    const prefix = getOperationPrefixFromId(opId);
+    group = {
+      operationId: opId,
+      prefix,
+      label: formatOperationLabel(prefix),
+      source: String(entry.source || "system"),
+      entries: [],
+      expanded: false,
+      state: "run",
+      lastMessage: "",
+      updatedAt: 0,
+      progressEntryId: ""
+    };
+    logGroupsByOperation.set(opId, group);
+  }
+
+  if (shouldUpsertProgressEntry(group, entry)) {
+    const progressId = String(group.progressEntryId || `progress:${opId}:queue-build`);
+    group.progressEntryId = progressId;
+    let progressEntry = group.entries.find((item) => String(item?.id) === progressId);
+    if (!progressEntry) {
+      progressEntry = { ...entry, id: progressId };
+      group.entries.push(progressEntry);
+    } else {
+      Object.assign(progressEntry, entry, { id: progressId });
+      const existingIndex = group.entries.indexOf(progressEntry);
+      if (existingIndex >= 0) {
+        const [moved] = group.entries.splice(existingIndex, 1);
+        group.entries.push(moved);
+      }
+    }
+  } else {
+    group.entries.push(entry);
+  }
+  group.source = String(entry.source || group.source || "system");
+  group.lastMessage = String(entry.message || "");
+  group.updatedAt = Number(entry.timestampMs || Date.now());
+  group.state = deriveOperationState(group.state, entry);
+  moveGroupTopItemToFront(opId);
+}
+
+function captureLogScrollAnchor() {
+  if (!eventLog) {
+    return null;
+  }
+  const containerTop = eventLog.getBoundingClientRect().top;
+  const rows = eventLog.querySelectorAll(".log-line[data-log-key]");
+  for (const row of rows) {
+    const rect = row.getBoundingClientRect();
+    if (rect.bottom >= containerTop + 1) {
+      return {
+        key: row.dataset.logKey || "",
+        offset: rect.top - containerTop,
+      };
+    }
+  }
+  return null;
+}
+
+function findRenderedLogRowByKey(key) {
+  if (!eventLog || !key) {
+    return null;
+  }
+  const rows = eventLog.querySelectorAll(".log-line[data-log-key]");
+  for (const row of rows) {
+    if (row.dataset.logKey === key) {
+      return row;
+    }
+  }
+  return null;
+}
+
+function restoreLogScrollAnchor(anchor) {
+  if (!eventLog || !anchor || !anchor.key) {
+    return;
+  }
+  const row = findRenderedLogRowByKey(anchor.key);
+  if (!row) {
+    return;
+  }
+  const containerTop = eventLog.getBoundingClientRect().top;
+  const currentOffset = row.getBoundingClientRect().top - containerTop;
+  const delta = currentOffset - Number(anchor.offset || 0);
+  if (Math.abs(delta) >= 0.5) {
+    eventLog.scrollTop += delta;
+  }
+}
+
+function scheduleLogTimelineRender({ preserveScroll = false } = {}) {
+  logRenderPreserveScroll = logRenderPreserveScroll || !!preserveScroll;
+  if (logRenderQueued) {
+    return;
+  }
+  logRenderQueued = true;
+  window.requestAnimationFrame(() => {
+    const preserve = logRenderPreserveScroll;
+    logRenderQueued = false;
+    logRenderPreserveScroll = false;
+    renderLogTimeline({ preserveScroll: preserve });
+  });
+}
+
+function createLogEntryLineElement(entry, extraClass = "", keyPrefix = "s") {
+  const line = document.createElement("p");
+  line.className = `log-line ${entry.tone} ${extraClass}`.trim();
+  line.dataset.logKey = `${keyPrefix}:${entry.id}`;
+  line.addEventListener("dblclick", () => {
+    void showFullLogMessageDialog(entry);
+  });
+
+  const time = document.createElement("span");
+  time.className = "log-time";
+  time.textContent = formatLogClock(entry.timestampMs);
+
+  const tone = document.createElement("span");
+  tone.className = `log-tone ${entry.tone}`;
+  tone.textContent = logToneLabel(entry.tone);
+
+  const message = document.createElement("span");
+  message.className = "log-message";
+  message.textContent = entry.message;
+
+  const source = document.createElement("span");
+  source.className = "log-source";
+  source.textContent = entry.source || "ui";
+
+  line.append(time, tone, message, source);
+  return line;
+}
+
+function createLogGroupLineElement(group) {
+  const line = document.createElement("p");
+  line.className = `log-line log-group-line state-${group.state || "run"}`.trim();
+  line.dataset.logKey = `g:${group.operationId}`;
+  line.addEventListener("click", () => {
+    group.expanded = !group.expanded;
+    scheduleLogTimelineRender({ preserveScroll: true });
+  });
+
+  const toggle = document.createElement("span");
+  toggle.className = "log-group-toggle";
+  toggle.textContent = group.expanded ? "▾" : "▸";
+
+  const time = document.createElement("span");
+  time.className = "log-time";
+  time.textContent = formatLogClock(group.updatedAt || Date.now());
+
+  const tone = document.createElement("span");
+  tone.className = `log-tone ${getOperationToneByState(group.state)}`;
+  tone.textContent = getOperationTagLabel(group.state);
+
+  const message = document.createElement("span");
+  message.className = "log-message";
+  message.textContent = `${group.label}: ${group.lastMessage || "Running..."}`;
+
+  const source = document.createElement("span");
+  source.className = "log-source";
+  const visibleCount = Number(group.entries.length || 0);
+  source.textContent = `${visibleCount} ${visibleCount === 1 ? "log" : "logs"}`;
+
+  line.append(toggle, time, tone, message, source);
+  return line;
+}
+
+function updateLogHeaderUi() {
+  if (logCopyBtn) {
+    logCopyBtn.disabled = state.logEntries.length === 0;
+  }
+  if (logClearBtn) {
+    logClearBtn.disabled = state.logEntries.length === 0;
+  }
+}
+
+function renderLogTimeline(options = {}) {
+  if (!eventLog) {
+    return;
+  }
+
+  const anchor = options.preserveScroll ? captureLogScrollAnchor() : null;
+  if (!logTopItems.length) {
+    eventLog.innerHTML = "";
+    const empty = document.createElement("div");
+    empty.className = "log-empty";
+    empty.textContent = "Events will appear here.";
+    eventLog.appendChild(empty);
+    updateLogHeaderUi();
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const item of logTopItems) {
+    if (!item) {
+      continue;
+    }
+    if (item.kind === "single") {
+      if (item.entry) {
+        fragment.appendChild(createLogEntryLineElement(item.entry, "log-plain-line", "s"));
+      }
+      continue;
+    }
+    if (item.kind !== "group") {
+      continue;
+    }
+    const group = logGroupsByOperation.get(String(item.operationId || ""));
+    if (!group) {
+      continue;
+    }
+    fragment.appendChild(createLogGroupLineElement(group));
+    if (group.expanded) {
+      for (const childEntry of group.entries) {
+        fragment.appendChild(createLogEntryLineElement(childEntry, "log-child-line", "c"));
+      }
+    }
+  }
+  eventLog.replaceChildren(fragment);
+  if (anchor) {
+    restoreLogScrollAnchor(anchor);
+  }
+  updateLogHeaderUi();
+}
+
+function clearLogTimeline() {
+  state.logEntries = [];
+  state.logEntrySeq = 0;
+  logTopItems = [];
+  logGroupsByOperation = new Map();
+  scheduleLogTimelineRender();
+}
+
+function addLog(text, tone = "", meta = {}) {
+  const message = String(text ?? "");
+  if (!message) {
+    return;
+  }
+
+  const wasAtTop = !eventLog || eventLog.scrollTop <= 2;
+  const entry = {
+    id: ++state.logEntrySeq,
+    message,
+    tone: normalizeLogTone(tone),
+    timestampMs: normalizeLogTimestampMs(meta?.timestamp),
+    source: String(meta?.source || "ui").trim().toLowerCase() || "ui",
+    action: String(meta?.action || "").trim().toLowerCase(),
+    operationId: String(meta?.operationId || meta?.operation_id || "").trim(),
+    context: meta?.context
+  };
+
+  state.logEntries.push(entry);
+  addEntryToGroupedTimeline(entry);
+  scheduleLogTimelineRender({ preserveScroll: !wasAtTop });
 }
 
 async function copyTextToClipboard(text) {
@@ -1426,11 +1947,15 @@ function normalizeQueueItem(item, index) {
   const gameName = String(item.game_name || "Unknown");
   const status = String(item.status || "Queued");
   const provider = String(item.provider || "Default");
+  const retryCount = Math.max(0, Number(item.retry_count || 0));
+  const maxRetries = Math.max(1, Number(item.max_retries || 3));
   return {
     game_name: gameName,
     mod_id: modId,
     mod_name: modName,
     status,
+    retry_count: retryCount,
+    max_retries: maxRetries,
     provider,
     app_id: item.app_id || "",
     _search_mod_id: modId.toLowerCase(),
@@ -1958,6 +2483,19 @@ function createQueueRow(modId) {
   return row;
 }
 
+function getQueueStatusDisplayText(item) {
+  const status = String(item?.status || "");
+  if (status !== "Queued") {
+    return status;
+  }
+  const retryCount = Math.max(0, Number(item?.retry_count || 0));
+  if (retryCount <= 0) {
+    return status;
+  }
+  const maxRetries = Math.max(1, Number(item?.max_retries || 3));
+  return `Queued (Retry ${Math.min(retryCount, maxRetries)}/${maxRetries})`;
+}
+
 function bindQueueRowHandlers(row) {
   if (!row || row._interactionsBound) {
     return;
@@ -2070,7 +2608,8 @@ function ensureQueueRowStructure(row, layoutKey, showRowNumbers, hiddenColumns) 
 
 function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, layoutKey) {
   const cells = ensureQueueRowStructure(row, layoutKey, showRowNumbers, hiddenColumns);
-  const signature = `${item.game_name}\x1f${item.mod_id}\x1f${item.mod_name}\x1f${item.status}\x1f${item.provider}`;
+  const statusDisplay = getQueueStatusDisplayText(item);
+  const signature = `${item.game_name}\x1f${item.mod_id}\x1f${item.mod_name}\x1f${item.status}\x1f${item.retry_count}\x1f${item.max_retries}\x1f${item.provider}`;
   row.dataset.listIndex = String(visibleIndex);
 
   if (showRowNumbers && cells.row_number) {
@@ -2086,7 +2625,9 @@ function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, 
       if (!cell) {
         return;
       }
-      const value = String(item[column.key] ?? "");
+      const value = column.key === "status"
+        ? statusDisplay
+        : String(item[column.key] ?? "");
       if (cell.textContent !== value) {
         cell.textContent = value;
       }
@@ -2653,11 +3194,11 @@ async function handleLogsContextAction(action) {
       addLog(result?.error || "Failed to clear log view.", "bad");
       return;
     }
+    suppressNextBackendClearEvent = true;
   } catch {
     // In non-desktop preview mode, still clear local log view.
   }
-  eventLog.innerHTML = "";
-  addLog("Log view cleared.");
+  clearLogTimeline();
 }
 
 async function handleQueueContextAction(action) {
@@ -3017,6 +3558,28 @@ function wireLogsContextMenu() {
 
   document.addEventListener("scroll", () => hideLogsContextMenu(), true);
   window.addEventListener("resize", () => hideLogsContextMenu());
+}
+
+function wireLogToolbar() {
+  logCopyBtn?.addEventListener("click", async () => {
+    const text = buildLogClipboardText();
+    if (!text) {
+      return;
+    }
+    const ok = await copyTextToClipboard(text);
+    if (!ok) {
+      addLog("Failed to copy logs.", "bad", { source: "ui", action: "copy_logs" });
+    }
+  });
+
+  logClearBtn?.addEventListener("click", async () => {
+    hideLogsContextMenu();
+    try {
+      await handleLogsContextAction("clear_logs");
+    } catch (error) {
+      addLog(error?.message || "Log action failed.", "bad");
+    }
+  });
 }
 
 function hideHeaderContextMenu() {
@@ -3563,6 +4126,14 @@ async function openSteamcmdLoginTerminal(username) {
   let disposed = false;
   let autoCloseTriggered = false;
   let sendUnlocked = false;
+  const loginResult = {
+    authenticated: false,
+    failed: false,
+    canceled: false,
+    account: String(username || "").trim(),
+    steamid64: "",
+    error: ""
+  };
 
   const cleanup = async (force = true) => {
     if (disposed) {
@@ -3584,7 +4155,7 @@ async function openSteamcmdLoginTerminal(username) {
     }
   };
 
-  await showFormModal({
+  const modalResult = await showFormModal({
     title: `SteamCMD Login: ${username}`,
     message: "Live SteamCMD terminal. Send password/Steam Guard code when prompted.",
     html: buildSteamcmdLoginHtml(username),
@@ -3656,19 +4227,16 @@ async function openSteamcmdLoginTerminal(username) {
         const steamid64 = String(detectedSteamId64 || "").trim();
         const result = await callApi("add_account", normalized, steamid64);
         if (result?.success) {
-          if (result?.updated) {
-            addLog(`Updated SteamID64 for account '${normalized}'.`, "good");
-          } else {
-            addLog(`Added account '${normalized}'.`, "good");
-          }
-          return true;
+          return { success: true };
         }
         const errText = String(result?.error || "").toLowerCase();
         if (errText.includes("already exists")) {
-          return true;
+          return { success: true };
         }
-        addLog(result?.error || `Failed to add account '${normalized}'.`, "bad");
-        return false;
+        return {
+          success: false,
+          error: result?.error || `Failed to add account '${normalized}'.`
+        };
       };
 
       const sendInput = async () => {
@@ -3723,16 +4291,28 @@ async function openSteamcmdLoginTerminal(username) {
         const steamidSuffix = res.detected_steamid64 ? ` (SteamID64: ${res.detected_steamid64})` : "";
 
         if (res.login_failed) {
+          loginResult.failed = true;
           statusEl.textContent = "SteamCMD reported a login failure. Check credentials/guard and retry.";
         } else if (res.account_added) {
+          loginResult.authenticated = true;
+          loginResult.failed = false;
+          loginResult.account = accountLabel || loginResult.account;
+          loginResult.steamid64 = String(res.detected_steamid64 || "").trim();
           statusEl.textContent = `Login detected for '${accountLabel || "account"}'${steamidSuffix}.`;
           if (!autoCloseTriggered) {
             autoCloseTriggered = true;
             try {
-              await ensureAccountInList(accountLabel || username, res.detected_steamid64 || "");
+              const saved = await ensureAccountInList(accountLabel || username, res.detected_steamid64 || "");
+              if (!saved?.success) {
+                loginResult.authenticated = false;
+                loginResult.failed = true;
+                loginResult.error = String(saved?.error || "").trim();
+              }
               await refreshAccounts(accountLabel || username);
             } catch (error) {
-              addLog(error?.message || "Failed to refresh account list after login.", "bad");
+              loginResult.authenticated = false;
+              loginResult.failed = true;
+              loginResult.error = String(error?.message || "Failed to refresh account list after login.").trim();
             }
             statusEl.textContent = `Account '${accountLabel || "account"}' added. Closing...`;
             window.setTimeout(() => modalOkBtn.click(), 0);
@@ -3773,6 +4353,10 @@ async function openSteamcmdLoginTerminal(username) {
       return true;
     }
   });
+  if (modalResult === null && !loginResult.authenticated) {
+    loginResult.canceled = true;
+  }
+  return loginResult;
 }
 
 async function openAccountsManager() {
@@ -3831,6 +4415,59 @@ async function openAccountsManager() {
             if (successMessage) {
               addLog(successMessage, "good");
             }
+          };
+
+          const runAccountAuthentication = async (username, mode = "authenticate") => {
+            const normalized = String(username || "").trim();
+            if (!normalized) {
+              addLog("Username is required to authenticate account.", "bad");
+              return;
+            }
+
+            const actionText = mode === "reauth" ? "Re-authenticating" : "Authenticating";
+            addLog(`${actionText} account '${normalized}'...`);
+
+            const launchResult = await callApi("launch_steamcmd_login", normalized);
+            if (!launchResult?.success) {
+              addLog(launchResult?.error || `Failed to start authentication for '${normalized}'.`, "bad");
+              return;
+            }
+
+            if (launchResult.mode === "conpty") {
+              let terminalResult = null;
+              setFooterPurgeVisible(false);
+              try {
+                terminalResult = await openSteamcmdLoginTerminal(normalized);
+              } finally {
+                setFooterPurgeVisible(true);
+              }
+
+              const resolvedName = String(terminalResult?.account || normalized).trim() || normalized;
+              await refreshAccountsModal("", resolvedName);
+
+              if (terminalResult?.authenticated) {
+                addLog(`Authentication complete for '${resolvedName}'.`, "good");
+                return;
+              }
+              if (terminalResult?.failed) {
+                const detail = String(terminalResult?.error || "").trim();
+                if (detail) {
+                  addLog(`Authentication failed for '${resolvedName}': ${detail}`, "bad");
+                } else {
+                  addLog(`Authentication failed for '${resolvedName}'.`, "bad");
+                }
+                return;
+              }
+              if (terminalResult?.canceled) {
+                addLog(`Authentication canceled for '${resolvedName}'.`);
+                return;
+              }
+              addLog(`Authentication closed for '${resolvedName}'.`);
+              return;
+            }
+
+            await refreshAccountsModal("", normalized);
+            addLog(`SteamCMD login started for '${normalized}'. Complete it in the external terminal.`);
           };
 
           const reorderAccounts = async (orderedUsernames) => {
@@ -4059,23 +4696,7 @@ async function openAccountsManager() {
               addLog("Username is required to add account.", "bad");
               return;
             }
-            const result = await callApi("launch_steamcmd_login", username);
-            if (!result?.success) {
-              addLog(result?.error || `Failed to open SteamCMD login for '${username}'.`, "bad");
-              return;
-            }
-            if (result.mode === "conpty") {
-              addLog(`Opened embedded SteamCMD terminal for '${username}'.`, "good");
-              setFooterPurgeVisible(false);
-              try {
-                await openSteamcmdLoginTerminal(username);
-              } finally {
-                setFooterPurgeVisible(true);
-              }
-              await refreshAccountsModal(`Completed SteamCMD login flow for '${username}'.`, username);
-              return;
-            }
-            await refreshAccountsModal(`Opened SteamCMD login for '${username}'.`, username);
+            await runAccountAuthentication(username, "add");
           });
 
           setActiveBtn?.addEventListener("click", async () => {
@@ -4098,23 +4719,7 @@ async function openAccountsManager() {
               addLog("Select an account first.", "bad");
               return;
             }
-            const result = await callApi("launch_steamcmd_login", username);
-            if (!result?.success) {
-              addLog(result?.error || `Failed to open SteamCMD login for '${username}'.`, "bad");
-              return;
-            }
-            if (result.mode === "conpty") {
-              addLog(`Opened embedded SteamCMD terminal for '${username}'.`, "good");
-              setFooterPurgeVisible(false);
-              try {
-                await openSteamcmdLoginTerminal(username);
-              } finally {
-                setFooterPurgeVisible(true);
-              }
-              await refreshAccountsModal(`Completed SteamCMD login flow for '${username}'.`, username);
-              return;
-            }
-            await refreshAccountsModal(`Opened SteamCMD login for '${username}'.`, username);
+            await runAccountAuthentication(username, "reauth");
           });
 
           removeBtn?.addEventListener("click", async () => {
@@ -4663,19 +5268,13 @@ async function handleAddToQueue(event) {
   }
 
   try {
-    const result = await callApi("add_workshop_item", itemUrl, "", provider);
+    const request = callApi("add_workshop_item", itemUrl, "", provider);
+    void pollEvents();
+    const result = await request;
+    void pollEvents();
     if (!result?.success) {
       addLog(result?.error || "Failed to add to queue.", "bad");
       return;
-    }
-    if (result.queued_in_background) {
-      addLog("Building entire workshop queue in background. Items will appear progressively.", "good");
-    } else if (typeof result.added === "number") {
-      addLog(`Queue updated: ${result.added} added, ${result.skipped || 0} skipped.`, "good");
-    } else if (result.queue_item) {
-      addLog(`Queued ${result.queue_item.mod_id}.`, "good");
-    } else {
-      addLog("Item queued.", "good");
     }
   } catch {
     browserQueue.push(createBrowserQueueItem(itemUrl, provider));
@@ -4732,6 +5331,8 @@ function applyQueueStatusEvent(payload) {
 
   const nextStatus = String(payload?.status || "Queued");
   const invalidateQueueView = !!payload?.invalidate_queue_view;
+  const retryCount = Math.max(0, Number(payload?.retry_count || 0));
+  const maxRetries = Math.max(1, Number(payload?.max_retries || 3));
   let previousStatus = payload?.previous_status !== undefined && payload?.previous_status !== null
     ? String(payload.previous_status)
     : "";
@@ -4745,6 +5346,8 @@ function applyQueueStatusEvent(payload) {
       previousStatus = String(item.status || "");
     }
     item.status = nextStatus;
+    item.retry_count = retryCount;
+    item.max_retries = maxRetries;
     return true;
   };
 
@@ -4798,7 +5401,13 @@ async function handleEvent(event) {
   const payload = event.payload || {};
 
   if (type === "log") {
-    addLog(payload.message || "", payload.tone || "");
+    addLog(payload.message || "", payload.tone || "", {
+      source: payload.source || "system",
+      action: payload.action || "",
+      operationId: payload.operation_id || payload.operationId || "",
+      context: payload.context,
+      timestamp: event.timestamp
+    });
     return;
   }
 
@@ -4816,19 +5425,20 @@ async function handleEvent(event) {
     if (status === "started") {
       state.isDownloading = true;
       state.cancelPending = false;
-      addLog("Download started.", "good");
     } else if (status === "finished") {
       state.isDownloading = false;
       state.cancelPending = false;
-      addLog("Download finished.", "good");
     } else if (status === "canceled") {
       state.isDownloading = false;
       state.cancelPending = false;
-      addLog("Download canceled.");
     } else if (status === "error") {
       state.isDownloading = false;
       state.cancelPending = false;
-      addLog(payload.error || "Download error.", "bad");
+      addLog(payload.error || "Download error.", "bad", {
+        source: "download",
+        action: "error",
+        operationId: payload.operation_id || ""
+      });
     }
     syncStartButton();
     return;
@@ -4847,13 +5457,20 @@ async function handleEvent(event) {
   }
 
   if (type === "clear_logs") {
-    eventLog.innerHTML = "";
+    if (suppressNextBackendClearEvent) {
+      suppressNextBackendClearEvent = false;
+      return;
+    }
+    clearLogTimeline();
     return;
   }
 
   if (type === "clipboard" && payload.url) {
     itemUrlInput.value = payload.url;
-    addLog("Detected workshop URL from clipboard.");
+    addLog("Detected workshop URL from clipboard.", "info", {
+      source: "clipboard",
+      action: "detected_url"
+    });
   }
 }
 
@@ -4861,14 +5478,24 @@ async function pollEvents() {
   if (!state.apiAvailable) {
     return;
   }
+  if (eventPollInFlight) {
+    eventPollRequested = true;
+    return;
+  }
+  eventPollInFlight = true;
   try {
-    const result = await callApi("poll_events", state.lastEventId);
-    const events = result?.events || [];
-    for (const event of events) {
-      await handleEvent(event);
-    }
+    do {
+      eventPollRequested = false;
+      const result = await callApi("poll_events", state.lastEventId);
+      const events = result?.events || [];
+      for (const event of events) {
+        await handleEvent(event);
+      }
+    } while (eventPollRequested && state.apiAvailable && !appShuttingDown);
   } catch {
     // Ignore polling failures; init flow handles no-bridge mode separately.
+  } finally {
+    eventPollInFlight = false;
   }
 }
 
@@ -4884,7 +5511,7 @@ function startEventPolling() {
       return;
     }
     pollEvents();
-  }, 1000);
+  }, EVENT_POLL_INTERVAL_MS);
 }
 
 function revealAppWindow() {
@@ -4950,6 +5577,7 @@ async function init() {
     return;
   }
   started = true;
+  renderLogTimeline();
   initAllAnimatedSelects(document);
   applyWorkshopHelpTooltip();
   updateQueueStatisticsTooltip();
@@ -4958,11 +5586,15 @@ async function init() {
   wireCommandSplitMenu();
   wireQueueContextMenu();
   wireLogsContextMenu();
+  wireLogToolbar();
   wireHeaderContextMenu();
   wireQueueVirtualization();
   wireQueueRowInteractions();
   wireGlobalShortcuts();
   wireWindowResizeGrip();
+  window.addEventListener("resize", () => {
+    scheduleLogTimelineRender({ preserveScroll: true });
+  });
   await wireControlButtons();
   wireFilterControls();
 
@@ -4978,6 +5610,7 @@ async function init() {
     state.apiAvailable = false;
     addLog(`Running without PyWebView bridge: ${error.message}`, "bad");
   }
+  emitStartupLogToneTests();
 
   queueForm.addEventListener("submit", handleAddToQueue);
 
@@ -4989,14 +5622,17 @@ async function init() {
       return;
     }
     try {
-      const result = await callApi("download_workshop_item_now", itemUrl, "", provider);
+      const request = callApi("download_workshop_item_now", itemUrl, "", provider);
+      void pollEvents();
+      const result = await request;
+      void pollEvents();
       if (!result?.success) {
         addLog(result?.error || "Download-now failed.", "bad");
         return;
       }
       state.isDownloading = true;
       syncStartButton();
-      addLog("Queued and started download.", "good");
+      addLog("Queued for immediate download.", "good");
       queueForm.reset();
       await refreshQueue({ forceReload: true });
     } catch {
@@ -5017,9 +5653,7 @@ async function init() {
       const selected = Array.from(state.selectedModIds);
       const targetModId = selected.length === 1 ? selected[0] : null;
       const result = await callApi("open_downloads_folder", targetModId);
-      if (result.success) {
-        addLog(`Opened Downloads folder: ${result.message}`, "good");
-      } else {
+      if (!result.success) {
         addLog(result.error || "Failed to open Downloads folder.", "bad");
       }
     } catch {
@@ -5050,7 +5684,10 @@ async function init() {
         }
         return;
       }
-      const result = await callApi("start_download");
+      const request = callApi("start_download");
+      void pollEvents();
+      const result = await request;
+      void pollEvents();
       if (!result?.success) {
         addLog(result?.error || "Failed to start download.", "bad");
         return;
@@ -5058,7 +5695,6 @@ async function init() {
       state.isDownloading = true;
       state.cancelPending = false;
       syncStartButton();
-      addLog("Download started.", "good");
     } catch {
       addLog("Start/Cancel download is only available from desktop app.", "bad");
     }
@@ -5098,7 +5734,7 @@ async function init() {
         addLog(result?.error || "Failed to set active account.", "bad");
         return;
       }
-      addLog(`Active account set to ${accountSelect.value}.`);
+      addLog(`Active account set to '${accountSelect.value}'.`, "good");
     } catch {
       addLog("Failed to set active account.", "bad");
     }

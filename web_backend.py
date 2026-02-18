@@ -261,6 +261,17 @@ class StreamlineWebBackend:
         self._queue_emit_last_at = 0.0
         self._queue_build_lock = threading.Lock()
         self._queue_build_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="queue-build")
+        self._operation_lock = threading.Lock()
+        self._operation_seq = 0
+        self._active_download_operation_id = ""
+        self._active_download_targets = set()
+        self._active_download_provider_counts = {"SteamCMD": 0, "SteamWebAPI": 0}
+        self._active_download_started_at = 0.0
+        self._active_download_retry_by_mod = {}
+        self._active_download_last_progress_at = 0.0
+        self._active_download_last_progress_key = ""
+        self._download_progress_log_interval_sec = 1.2
+        self._download_max_retries = 3
 
         self._metadata_cache_path = os.path.join(self.files_dir, "cache_mod_metadata.json")
         self._metadata_cache_lock = threading.Lock()
@@ -300,7 +311,7 @@ class StreamlineWebBackend:
         if self.config.get("auto_detect_urls", False):
             self._start_clipboard_monitoring()
 
-        self.log("Web backend initialized.", tone="good")
+        self.log("Web backend initialized.", tone="good", source="system", action="initialized")
 
     def _emit_event(self, event_type: str, payload: dict):
         if event_type == "queue":
@@ -351,18 +362,55 @@ class StreamlineWebBackend:
         with self.events_lock:
             return [evt for evt in self.events if evt["id"] > int(last_event_id)]
 
-    def log(self, message: str, tone: str = "info"):
+    def _next_operation_id(self, prefix: str = "op"):
+        key = re.sub(r"[^a-z0-9]+", "-", str(prefix or "op").lower()).strip("-") or "op"
+        with self._operation_lock:
+            self._operation_seq += 1
+            seq = self._operation_seq
+        return f"{key}-{int(time.time() * 1000)}-{seq}"
+
+    def log(
+        self,
+        message: str,
+        tone: str = "info",
+        source: str = "system",
+        action: str = "",
+        context=None,
+        operation_id: str = "",
+    ):
         text = str(message)
+        level = str(tone or "info")
+        src = str(source or "system").strip().lower() or "system"
+        act = str(action or "").strip().lower()
+        op_id = str(operation_id or "").strip()
+        safe_context = context
+        if safe_context is not None and not isinstance(safe_context, (dict, list, str, int, float, bool)):
+            safe_context = str(safe_context)
         entry = {
             "timestamp": time.time(),
-            "tone": tone,
-            "message": text
+            "tone": level,
+            "message": text,
+            "source": src,
+            "action": act,
+            "operation_id": op_id,
+            "context": safe_context,
         }
         with self.state_lock:
             self.runtime_logs.append(entry)
             if len(self.runtime_logs) > 5000:
                 self.runtime_logs = self.runtime_logs[-2500:]
-        self._emit_event("log", {"message": text, "tone": tone})
+        payload = {
+            "message": text,
+            "tone": level,
+            "source": src,
+        }
+        if act:
+            payload["action"] = act
+        if op_id:
+            payload["operation_id"] = op_id
+        if safe_context is not None:
+            payload["context"] = safe_context
+        self._emit_event("log", payload)
 
     def _load_config(self):
         config = dict(self.default_settings)
@@ -373,7 +421,7 @@ class StreamlineWebBackend:
                 if isinstance(loaded, dict):
                     config.update(loaded)
             except Exception as e:
-                self.log(f"Failed to load config.json: {e}", tone="bad")
+                self.log(f"Failed to load config.json: {e}", tone="bad", source="system", action="config_load_failed")
         return config
 
     def _write_config_snapshot(self, snapshot):
@@ -384,7 +432,7 @@ class StreamlineWebBackend:
             os.replace(temp_path, self.config_path)
             return True
         except Exception as e:
-            self.log(f"Failed to save config.json: {e}", tone="bad")
+            self.log(f"Failed to save config.json: {e}", tone="bad", source="system", action="config_save_failed")
             return False
 
     def _flush_pending_config_save(self):
@@ -436,7 +484,7 @@ class StreamlineWebBackend:
                     game_name, app_id = line.rsplit(",", 1)
                     self.app_ids[app_id.strip()] = game_name.strip()
         except Exception as e:
-            self.log(f"Failed to load AppIDs.txt: {e}", tone="bad")
+            self.log(f"Failed to load AppIDs.txt: {e}", tone="bad", source="system", action="appids_load_failed")
 
     def _rebuild_queue_indexes_locked(self):
         mod_ids = set()
@@ -500,7 +548,12 @@ class StreamlineWebBackend:
                         if normalized:
                             loaded[str(mod_id)] = normalized
             except Exception as e:
-                self.log(f"Failed to load metadata cache: {e}", tone="bad")
+                self.log(
+                    f"Failed to load metadata cache: {e}",
+                    tone="bad",
+                    source="system",
+                    action="metadata_cache_load_failed",
+                )
         with self._metadata_cache_lock:
             self._metadata_cache = loaded
             self._metadata_cache_dirty = False
@@ -520,7 +573,12 @@ class StreamlineWebBackend:
             os.replace(temp_path, self._metadata_cache_path)
             return True
         except Exception as e:
-            self.log(f"Failed to save metadata cache: {e}", tone="bad")
+            self.log(
+                f"Failed to save metadata cache: {e}",
+                tone="bad",
+                source="system",
+                action="metadata_cache_save_failed",
+            )
             return False
 
     def _schedule_metadata_cache_save(self):
@@ -1145,7 +1203,13 @@ class StreamlineWebBackend:
                     "game_name": game_name,
                 })
         except Exception as e:
-            self.log(f"Error processing collection {collection_id}: {e}", tone="bad")
+            self.log(
+                f"Error processing collection {collection_id}: {e}",
+                tone="bad",
+                source="queue",
+                action="collection_processing_failed",
+                context={"collection_id": str(collection_id), "error": str(e)},
+            )
         return mods_info
 
     def _resolve_workshop_item(self, item_id: str, hinted_type: str = None):
@@ -1155,7 +1219,13 @@ class StreamlineWebBackend:
             response.raise_for_status()
             tree = html.fromstring(response.text)
         except Exception as e:
-            self.log(f"Error processing workshop item {item_id}: {e}", tone="bad")
+            self.log(
+                f"Error processing workshop item {item_id}: {e}",
+                tone="bad",
+                source="queue",
+                action="item_processing_failed",
+                context={"item_id": str(item_id), "error": str(e)},
+            )
             if hinted_type == "collection":
                 return "collection", self._scrape_collection_mods(item_id)
             return "workshop_item", [self._get_mod_info(item_id)]
@@ -1187,7 +1257,14 @@ class StreamlineWebBackend:
                 })
         return mods
 
-    def _scrape_workshop_app(self, app_id: str, max_pages: int = 1667, concurrency: int = 24, on_batch=None):
+    def _scrape_workshop_app(
+        self,
+        app_id: str,
+        max_pages: int = 1667,
+        concurrency: int = 24,
+        on_batch=None,
+        operation_id: str = "",
+    ):
         base_url = "https://steamcommunity.com/workshop/browse/"
         params = {"appid": str(app_id), "browsesort": "toprated", "section": "readytouseitems", "p": "1"}
         mods = []
@@ -1220,7 +1297,13 @@ class StreamlineWebBackend:
                 try:
                     on_batch(deduped_batch, pages_done, pages_total)
                 except Exception as callback_error:
-                    self.log(f"Queue batch callback failed: {callback_error}", tone="bad")
+                    self.log(
+                        f"Queue batch callback failed: {callback_error}",
+                        tone="bad",
+                        source="queue",
+                        action="queue_batch_callback_failed",
+                        context={"error": str(callback_error)},
+                    )
 
         first_page_mods = self._parse_workshop_page(response.text, app_id=str(app_id), game_name=game_name)
 
@@ -1248,17 +1331,25 @@ class StreamlineWebBackend:
         def fetch_page(page_number: int):
             page_params = dict(params)
             page_params["p"] = str(page_number)
-            page_response = requests.get(
-                base_url,
-                params=page_params,
-                timeout=30,
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            if page_response.status_code != 200:
-                return None
-            return page_response.text
+            retries = 3
+            for attempt in range(retries):
+                try:
+                    page_response = requests.get(
+                        base_url,
+                        params=page_params,
+                        timeout=30,
+                        headers={"User-Agent": "Mozilla/5.0"},
+                    )
+                    if page_response.status_code == 200:
+                        return page_response.text
+                except Exception:
+                    pass
+                if attempt < (retries - 1):
+                    time.sleep(0.25 * (attempt + 1))
+            return None
 
         pages_fetched = 1
+        pages_failed = 0
         for start in range(2, total_pages + 1, concurrency):
             end = min(start + concurrency - 1, total_pages)
             with ThreadPoolExecutor(max_workers=min(concurrency, end - start + 1)) as executor:
@@ -1266,8 +1357,13 @@ class StreamlineWebBackend:
                 batch_results = {}
                 for future in as_completed(futures):
                     page_number = futures[future]
-                    page_content = future.result()
+                    try:
+                        page_content = future.result()
+                    except Exception:
+                        pages_failed += 1
+                        continue
                     if not page_content:
+                        pages_failed += 1
                         continue
                     batch_results[page_number] = self._parse_workshop_page(page_content, app_id=str(app_id), game_name=game_name)
                     pages_fetched += 1
@@ -1275,7 +1371,18 @@ class StreamlineWebBackend:
                 for page_number in sorted(batch_results):
                     ordered_batch_mods.extend(batch_results[page_number])
                 emit_batch(ordered_batch_mods, pages_fetched, total_pages)
-            self.log(f"Pages fetched: {pages_fetched} / {total_pages}")
+            self.log(
+                f"Pages fetched: {pages_fetched} / {total_pages}",
+                source="queue",
+                action="pages_fetched",
+                context={
+                    "pages_fetched": pages_fetched,
+                    "total_pages": total_pages,
+                    "pages_failed": pages_failed,
+                    "app_id": str(app_id),
+                },
+                operation_id=operation_id,
+            )
 
         return mods
 
@@ -1503,13 +1610,30 @@ class StreamlineWebBackend:
             "added_mod_ids": added_mod_ids,
         }
 
-    def _queue_entire_workshop_background(self, app_id: str, provider: str):
+    def _queue_entire_workshop_background(
+        self,
+        app_id: str,
+        provider: str,
+        operation_id: str = "",
+        parent_operation_id: str = "",
+    ):
         app_id = str(app_id or "").strip()
         if not app_id:
             return
+        operation_id = str(operation_id or "").strip() or self._next_operation_id("queue-build")
+        parent_operation_id = str(parent_operation_id or "").strip()
         with self._queue_build_lock:
             game_name = self.app_ids.get(app_id, f"AppID {app_id}")
-            self.log(f"Starting to queue entire workshop for {game_name} (AppID: {app_id})")
+            start_context = {"app_id": app_id, "game_name": game_name, "provider": provider}
+            if parent_operation_id:
+                start_context["parent_operation_id"] = parent_operation_id
+            self.log(
+                f"Starting to queue entire workshop for {game_name} (AppID: {app_id})",
+                source="queue",
+                action="queue_build_started",
+                context=start_context,
+                operation_id=operation_id,
+            )
 
             total_added = 0
             total_skipped = 0
@@ -1521,45 +1645,119 @@ class StreamlineWebBackend:
                 total_skipped += int(result.get("skipped", 0))
                 if result.get("added", 0) or result.get("skipped", 0):
                     self._emit_queue_refresh_throttled()
-                if pages_total > 1:
-                    self.log(f"Queue build progress: {pages_done}/{pages_total} pages")
 
             try:
-                self._scrape_workshop_app(app_id, on_batch=on_batch)
+                self._scrape_workshop_app(app_id, on_batch=on_batch, operation_id=operation_id)
                 self._emit_queue_refresh_throttled(force=True)
                 with self.state_lock:
                     queue_size = len(self.download_queue)
                 self.log(
-                    f"Queued workshop AppID {app_id}: {total_added} added, {total_skipped} skipped. Queue size: {queue_size}.",
+                    f"Queue build complete (AppID {app_id}): {total_added:,} added, {total_skipped:,} skipped.",
                     tone="good",
+                    source="queue",
+                    action="queue_build_completed",
+                    context={
+                        "app_id": app_id,
+                        "added": total_added,
+                        "skipped": total_skipped,
+                        "queue_size": queue_size,
+                    },
+                    operation_id=operation_id,
                 )
             except Exception as e:
-                self.log(f"Failed to queue workshop AppID {app_id}: {e}", tone="bad")
+                self.log(
+                    f"Failed to queue workshop AppID {app_id}: {e}",
+                    tone="bad",
+                    source="queue",
+                    action="queue_build_failed",
+                    context={"app_id": app_id, "error": str(e)},
+                    operation_id=operation_id,
+                )
                 self._emit_queue_refresh_throttled(force=True)
 
     def add_preview_queue_item(self, item_url, app_id="", provider="Default"):
         item_url = (item_url or "").strip()
         provider = (provider or "Default").strip() or "Default"
+        operation_id = self._next_operation_id("queue-input")
 
         if not item_url:
+            self.log(
+                "Queue input failed: item URL is required.",
+                tone="bad",
+                source="queue",
+                action="queue_input_failed",
+                context={"reason": "missing_input", "operation_state": "error"},
+                operation_id=operation_id,
+            )
             return {"success": False, "error": "Item URL is required."}
+
+        self.log(
+            "Processing queue input...",
+            source="queue",
+            action="queue_input_started",
+            context={"operation_state": "run"},
+            operation_id=operation_id,
+        )
 
         input_type, item_id = self._detect_input_type(item_url)
         if not input_type or not item_id:
+            self.log(
+                "Queue input failed: invalid input.",
+                tone="bad",
+                source="queue",
+                action="queue_input_failed",
+                context={"item_url": item_url, "reason": "invalid_input", "operation_state": "error"},
+                operation_id=operation_id,
+            )
             return {"success": False, "error": "Invalid input. Enter a Workshop URL/ID or Game AppID."}
 
         if input_type == "no_workshop":
             game_name = self.app_ids.get(str(item_id), f"AppID {item_id}")
+            self.log(
+                f"Queue input failed: {game_name} (AppID: {item_id}) has no Steam Workshop.",
+                tone="bad",
+                source="queue",
+                action="queue_input_failed",
+                context={"app_id": str(item_id), "reason": "no_workshop", "operation_state": "error"},
+                operation_id=operation_id,
+            )
             return {"success": False, "error": f"Game '{game_name}' (AppID: {item_id}) does not have a Steam Workshop."}
 
         if input_type == "game" and not self.config.get("show_queue_entire_workshop", True):
+            self.log(
+                "Queue input failed: Queue Entire Workshop is disabled.",
+                tone="bad",
+                source="queue",
+                action="queue_input_failed",
+                context={"app_id": str(item_id), "reason": "feature_disabled", "operation_state": "error"},
+                operation_id=operation_id,
+            )
             return {"success": False, "error": "Queue Entire Workshop is disabled in Settings."}
 
         try:
             if input_type == "game":
                 with self.state_lock:
                     queue_size = len(self.download_queue)
-                self._queue_build_executor.submit(self._queue_entire_workshop_background, str(item_id), provider)
+                build_operation_id = self._next_operation_id("queue-build")
+                self._queue_build_executor.submit(
+                    self._queue_entire_workshop_background,
+                    str(item_id),
+                    provider,
+                    build_operation_id,
+                    operation_id,
+                )
+                self.log(
+                    f"Queue input complete for AppID {item_id}. Started queue build in background.",
+                    tone="good",
+                    source="queue",
+                    action="queue_input_accepted",
+                    context={
+                        "app_id": str(item_id),
+                        "queue_build_operation_id": build_operation_id,
+                        "operation_state": "done",
+                    },
+                    operation_id=operation_id,
+                )
                 return {
                     "success": True,
                     "added": 0,
@@ -1568,18 +1766,61 @@ class StreamlineWebBackend:
                     "queued_in_background": True,
                 }
             else:
-                resolved_type, mods = self._resolve_workshop_item(str(item_id), hinted_type=input_type)
-                if resolved_type == "collection":
-                    self.log("Collection detected. Adding to queue...")
-                    self.log(f"Processing workshop collection {item_id}...")
+                if input_type == "collection":
+                    self.log(
+                        f"Processing workshop collection {item_id}...",
+                        source="queue",
+                        action="collection_processing",
+                        context={"item_id": str(item_id), "operation_state": "run"},
+                        operation_id=operation_id,
+                    )
                 else:
-                    self.log(f"Processing workshop item {item_id}...")
+                    self.log(
+                        f"Processing workshop item {item_id}...",
+                        source="queue",
+                        action="item_processing",
+                        context={"item_id": str(item_id), "operation_state": "run"},
+                        operation_id=operation_id,
+                    )
+                resolved_type, mods = self._resolve_workshop_item(str(item_id), hinted_type=input_type)
+                if resolved_type == "collection" and input_type != "collection":
+                    self.log(
+                        "Collection detected. Adding to queue...",
+                        source="queue",
+                        action="collection_detected",
+                        context={"item_id": str(item_id), "operation_state": "run"},
+                        operation_id=operation_id,
+                    )
                 if not mods:
                     if resolved_type == "collection":
+                        self.log(
+                            f"Collection queue failed: no items found for {item_id}.",
+                            tone="bad",
+                            source="queue",
+                            action="queue_input_failed",
+                            context={"item_id": str(item_id), "reason": "collection_empty", "operation_state": "error"},
+                            operation_id=operation_id,
+                        )
                         return {"success": False, "error": f"No collection items found for ID {item_id}."}
+                    self.log(
+                        f"Queue failed: could not fetch workshop item {item_id}.",
+                        tone="bad",
+                        source="queue",
+                        action="queue_input_failed",
+                        context={"item_id": str(item_id), "reason": "item_fetch_failed", "operation_state": "error"},
+                        operation_id=operation_id,
+                    )
                     return {"success": False, "error": f"Could not fetch workshop item {item_id}."}
                 input_type = resolved_type
         except Exception as e:
+            self.log(
+                f"Failed to queue workshop item(s): {e}",
+                tone="bad",
+                source="queue",
+                action="queue_input_failed",
+                context={"error": str(e), "operation_state": "error"},
+                operation_id=operation_id,
+            )
             return {"success": False, "error": f"Failed to queue workshop item(s): {e}"}
 
         added = 0
@@ -1597,11 +1838,32 @@ class StreamlineWebBackend:
 
         self._emit_queue_refresh_throttled(force=True)
         if input_type == "game":
-            self.log(f"Queued workshop AppID {item_id}: {added} added, {skipped} skipped.", tone="good")
+            self.log(
+                f"Queued workshop AppID {item_id}: {added} added, {skipped} skipped.",
+                tone="good",
+                source="queue",
+                action="game_queued",
+                context={"app_id": str(item_id), "added": added, "skipped": skipped, "operation_state": "done"},
+                operation_id=operation_id,
+            )
         elif input_type == "collection":
-            self.log(f"Collection processed: {added} added, {skipped} skipped.", tone="good")
+            self.log(
+                f"Collection processed: {added} added, {skipped} skipped.",
+                tone="good",
+                source="queue",
+                action="collection_processed",
+                context={"item_id": str(item_id), "added": added, "skipped": skipped, "operation_state": "done"},
+                operation_id=operation_id,
+            )
         else:
-            self.log(f"Queue updated: {added} added, {skipped} skipped.", tone="good")
+            self.log(
+                f"Queue updated: {added} added, {skipped} skipped.",
+                tone="good",
+                source="queue",
+                action="queue_updated",
+                context={"item_id": str(item_id), "added": added, "skipped": skipped, "operation_state": "done"},
+                operation_id=operation_id,
+            )
 
         return {"success": True, "added": added, "skipped": skipped, "queue_size": queue_size}
 
@@ -1842,7 +2104,7 @@ class StreamlineWebBackend:
                 if isinstance(data, dict):
                     return data
             except Exception as e:
-                self.log(f"Failed to read mod download logs: {e}", tone="bad")
+                self.log(f"Failed to read mod download logs: {e}", tone="bad", source="system", action="mod_log_read_failed")
         return {}
 
     def _write_mod_download_logs_snapshot(self, logs):
@@ -1854,7 +2116,7 @@ class StreamlineWebBackend:
             os.replace(temp_path, log_path)
             return True
         except Exception as e:
-            self.log(f"Failed to save mod download logs: {e}", tone="bad")
+            self.log(f"Failed to save mod download logs: {e}", tone="bad", source="system", action="mod_log_save_failed")
             return False
 
     def _get_mod_download_logs_cache(self):
@@ -2053,7 +2315,12 @@ class StreamlineWebBackend:
                 if current_retry != retry_value:
                     mod["retry_count"] = retry_value
                     changed = True
+                    if mod_id and mod_id in self._active_download_targets:
+                        prev_retry = int(self._active_download_retry_by_mod.get(mod_id, 0) or 0)
+                        if retry_value > prev_retry:
+                            self._active_download_retry_by_mod[mod_id] = retry_value
         if status_changed and mod_id:
+            retry_value = int(mod.get("retry_count", 0) or 0)
             self._emit_event(
                 "queue_status",
                 {
@@ -2061,9 +2328,128 @@ class StreamlineWebBackend:
                     "status": status,
                     "previous_status": previous_status if status_changed else str(status),
                     "invalidate_queue_view": invalidate_queue_view,
+                    "retry_count": retry_value,
+                    "max_retries": int(self._download_max_retries),
                 },
             )
+            with self.state_lock:
+                active_op_id = str(self._active_download_operation_id or "")
+                tracked = mod_id in self._active_download_targets
+            if tracked and active_op_id:
+                self._maybe_log_download_progress(active_op_id, force=False)
         return changed
+
+    def _format_duration_short(self, seconds: float):
+        value = max(0.0, float(seconds or 0.0))
+        if value < 60.0:
+            return f"{value:.1f}s"
+        total_seconds = int(value)
+        minutes, secs = divmod(total_seconds, 60)
+        if minutes < 60:
+            return f"{minutes}m {secs}s"
+        hours, mins = divmod(minutes, 60)
+        return f"{hours}h {mins}m"
+
+    def _get_active_download_progress_snapshot_locked(self):
+        target_ids = set(self._active_download_targets or set())
+        total = len(target_ids)
+        if total <= 0:
+            return None
+
+        queue_map = {}
+        for mod in self.download_queue:
+            mod_id = str(mod.get("mod_id", "")).strip()
+            if mod_id in target_ids:
+                queue_map[mod_id] = mod
+
+        queued = 0
+        downloading = 0
+        failed = 0
+        downloaded_in_queue = 0
+        for mod_id in target_ids:
+            mod = queue_map.get(mod_id)
+            if not mod:
+                continue
+            status = str(mod.get("status", "")).strip()
+            if status == "Queued":
+                queued += 1
+            elif status == "Downloading":
+                downloading += 1
+            elif status == "Downloaded":
+                downloaded_in_queue += 1
+            elif status.startswith("Failed"):
+                failed += 1
+
+        completed = len(set(self.successful_downloads_this_session).intersection(target_ids))
+        if downloaded_in_queue > completed:
+            completed = downloaded_in_queue
+
+        finished = max(0, completed + failed)
+        untracked = max(0, total - (finished + downloading + queued))
+        return {
+            "total": total,
+            "completed": completed,
+            "failed": failed,
+            "finished": finished,
+            "downloading": downloading,
+            "queued": queued,
+            "untracked": untracked,
+        }
+
+    def _maybe_log_download_progress(self, operation_id: str, force=False):
+        op_id = str(operation_id or "").strip()
+        if not op_id:
+            return
+
+        now = time.time()
+        should_emit = False
+        snapshot = None
+        with self.state_lock:
+            snapshot = self._get_active_download_progress_snapshot_locked()
+            if not snapshot:
+                return
+            key = (
+                f"{snapshot['finished']}|{snapshot['completed']}|{snapshot['failed']}|"
+                f"{snapshot['downloading']}|{snapshot['queued']}|{snapshot['untracked']}|{snapshot['total']}"
+            )
+            elapsed = now - float(self._active_download_last_progress_at or 0.0)
+            if force or (elapsed >= self._download_progress_log_interval_sec and key != str(self._active_download_last_progress_key or "")):
+                self._active_download_last_progress_at = now
+                self._active_download_last_progress_key = key
+                should_emit = True
+        if not should_emit or not snapshot:
+            return
+
+        total = int(snapshot.get("total", 0))
+        finished = int(snapshot.get("finished", 0))
+        completed = int(snapshot.get("completed", 0))
+        failed = int(snapshot.get("failed", 0))
+        downloading = int(snapshot.get("downloading", 0))
+        queued = int(snapshot.get("queued", 0))
+        untracked = int(snapshot.get("untracked", 0))
+
+        message = (
+            f"{finished:,}/{total:,} done | completed {completed:,} | failed {failed:,} | queued {queued:,}"
+        )
+        if untracked > 0:
+            message += f" p {untracked:,}"
+
+        self.log(
+            message,
+            source="download",
+            action="download_progress",
+            context={
+                "total": total,
+                "finished": finished,
+                "completed": completed,
+                "failed": failed,
+                "downloading": downloading,
+                "queued": queued,
+                "pending": untracked,
+                "operation_state": "run",
+            },
+            operation_id=op_id,
+        )
 
     def _cleanup_appworkshop_acf_files(self):
         workshop_dir = os.path.join(self.steamcmd_dir, "steamapps", "workshop")
@@ -2167,7 +2553,13 @@ class StreamlineWebBackend:
                     if queue_mod and (queue_mod.get("status") == "Downloading" or "Failed" in str(queue_mod.get("status", ""))):
                         self._set_mod_status(queue_mod, "Downloaded")
                 except Exception as e:
-                    self.log(f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}", tone="bad")
+                    self.log(
+                        f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}",
+                        tone="bad",
+                        source="download",
+                        action="move_downloaded_mod_failed",
+                        context={"mod_id": str(mod_id), "error": str(e)},
+                    )
 
     def _get_steamcmd_login_parts(self):
         active_account = (self.config.get("active_account") or "Anonymous").strip() or "Anonymous"
@@ -2236,7 +2628,11 @@ class StreamlineWebBackend:
                 return
             with self.state_lock:
                 next_retry = int(mod.get("retry_count", 0) or 0) + 1
-            self._set_mod_status(mod, "Queued" if next_retry < 3 else "Failed", retry_count=next_retry)
+            self._set_mod_status(
+                mod,
+                "Queued" if next_retry < int(self._download_max_retries) else "Failed",
+                retry_count=next_retry,
+            )
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="webapi-download") as executor:
             futures = [executor.submit(download_one, mod) for mod in webapi_mods]
@@ -2245,6 +2641,7 @@ class StreamlineWebBackend:
                     future.result()
                 except Exception:
                     pass
+                self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=False)
 
     def _download_mods_steamcmd(self, mods, cancel_is_immediate=False):
         if not os.path.isfile(self.steamcmd_exe):
@@ -2322,6 +2719,7 @@ class StreamlineWebBackend:
             else:
                 self._set_mod_status(mod, "Downloaded")
                 self._update_mod_download_log(mod)
+                self._mark_session_downloaded(mod)
 
         if not download_candidates:
             return
@@ -2359,6 +2757,7 @@ class StreamlineWebBackend:
                 clean_line = line.strip()
                 if not clean_line:
                     continue
+                status_updated = False
 
                 success_match = success_re.search(clean_line)
                 if success_match:
@@ -2368,6 +2767,9 @@ class StreamlineWebBackend:
                         queue_mod = mod_lookup.get(mod_id)
                         if queue_mod:
                             self._set_mod_status(queue_mod, "Downloaded")
+                            status_updated = True
+                    if status_updated:
+                        self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=False)
                     continue
 
                 fail_match = failure_re.search(clean_line)
@@ -2380,6 +2782,9 @@ class StreamlineWebBackend:
                             queue_mod = mod_lookup.get(mod_id)
                             if queue_mod:
                                 self._set_mod_status(queue_mod, next_status)
+                                status_updated = True
+                if status_updated:
+                    self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=False)
 
         self.current_process.wait()
         self.current_process = None
@@ -2392,6 +2797,7 @@ class StreamlineWebBackend:
             if final_status == "Downloaded":
                 self._update_mod_download_log(mod)
                 self._mark_session_downloaded(mod)
+        self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=True)
 
     def _finalize_cancellation(self, delete_downloads):
         keep_downloaded = bool(self.config.get("keep_downloaded_in_queue", False))
@@ -2423,7 +2829,10 @@ class StreamlineWebBackend:
         self._cleanup_appworkshop_acf_files()
 
     def _download_worker(self):
+        with self.state_lock:
+            operation_id = str(self._active_download_operation_id or "")
         try:
+            self._maybe_log_download_progress(operation_id, force=True)
             while True:
                 with self.state_lock:
                     if not self.is_downloading:
@@ -2465,6 +2874,7 @@ class StreamlineWebBackend:
                         tasks.append(executor.submit(self._download_mods_webapi_parallel, webapi_mods, delete_on_cancel))
                     for future in as_completed(tasks):
                         future.result()
+                        self._maybe_log_download_progress(operation_id, force=True)
 
                 if provider_changed:
                     self._emit_event("queue", {"action": "refresh"})
@@ -2486,14 +2896,102 @@ class StreamlineWebBackend:
                 self._cleanup_appworkshop_acf_files()
 
             with self.state_lock:
+                snapshot = self._get_active_download_progress_snapshot_locked() or {
+                    "total": len(self._active_download_targets),
+                    "finished": 0,
+                    "completed": 0,
+                    "failed": 0,
+                    "downloading": 0,
+                    "queued": 0,
+                    "untracked": 0,
+                }
+                total = int(snapshot.get("total", 0))
+                completed = int(snapshot.get("completed", 0))
+                failed = int(snapshot.get("failed", 0))
+                finished = int(snapshot.get("finished", 0))
+                downloading = int(snapshot.get("downloading", 0))
+                queued = int(snapshot.get("queued", 0))
+                pending = int(snapshot.get("untracked", 0))
+                provider_counts = dict(self._active_download_provider_counts or {})
+                retry_total = 0
+                for value in (self._active_download_retry_by_mod or {}).values():
+                    retry_total += max(0, int(value or 0))
+                started_at = float(self._active_download_started_at or 0.0)
+                duration_seconds = max(0.0, time.time() - started_at) if started_at > 0 else 0.0
+
+            duration_text = self._format_duration_short(duration_seconds)
+            if self.canceled:
+                summary_action = "download_run_canceled"
+                summary_tone = "info"
+                summary_state = "canceled"
+                summary_message = (
+                    f"Download run canceled: {completed:,}/{total:,} completed, {failed:,} failed "
+                    f"in {duration_text}."
+                )
+            else:
+                summary_action = "download_run_completed"
+                summary_tone = "bad" if failed > 0 else "good"
+                summary_state = "done" if failed <= 0 else "error"
+                summary_message = (
+                    f"Download run complete: {completed:,}/{total:,} completed, {failed:,} failed "
+                    f"in {duration_text}."
+                )
+
+            self.log(
+                summary_message,
+                tone=summary_tone,
+                source="download",
+                action=summary_action,
+                context={
+                    "total": total,
+                    "finished": finished,
+                    "completed": completed,
+                    "failed": failed,
+                    "downloading": downloading,
+                    "queued": queued,
+                    "pending": pending,
+                    "duration_seconds": duration_seconds,
+                    "duration_text": duration_text,
+                    "retry_total": retry_total,
+                    "provider_counts": provider_counts,
+                    "operation_state": summary_state,
+                },
+                operation_id=operation_id,
+            )
+
+            with self.state_lock:
                 self.is_downloading = False
-            self._emit_event("download", {"state": "canceled" if self.canceled else "finished"})
+                self._active_download_operation_id = ""
+                self._active_download_targets = set()
+                self._active_download_provider_counts = {"SteamCMD": 0, "SteamWebAPI": 0}
+                self._active_download_started_at = 0.0
+                self._active_download_retry_by_mod = {}
+                self._active_download_last_progress_at = 0.0
+                self._active_download_last_progress_key = ""
+            self._emit_event(
+                "download",
+                {"state": "canceled" if self.canceled else "finished", "operation_id": operation_id},
+            )
             self._emit_event("queue", {"action": "refresh"})
         except Exception as e:
             with self.state_lock:
                 self.is_downloading = False
-            self.log(f"Download worker crashed: {e}", tone="bad")
-            self._emit_event("download", {"state": "error", "error": str(e)})
+                self._active_download_operation_id = ""
+                self._active_download_targets = set()
+                self._active_download_provider_counts = {"SteamCMD": 0, "SteamWebAPI": 0}
+                self._active_download_started_at = 0.0
+                self._active_download_retry_by_mod = {}
+                self._active_download_last_progress_at = 0.0
+                self._active_download_last_progress_key = ""
+            self.log(
+                f"Download worker crashed: {e}",
+                tone="bad",
+                source="download",
+                action="worker_crashed",
+                context={"error": str(e)},
+                operation_id=operation_id,
+            )
+            self._emit_event("download", {"state": "error", "error": str(e), "operation_id": operation_id})
 
     def start_download(self):
         with self.state_lock:
@@ -2501,14 +2999,59 @@ class StreamlineWebBackend:
                 return {"success": False, "error": "Download already in progress."}
             if not self.download_queue:
                 return {"success": False, "error": "Download queue is empty."}
+            queued_mods = [mod for mod in self.download_queue if mod.get("status") == "Queued"]
+            if not queued_mods:
+                return {"success": False, "error": "No queued mods available for download."}
+            operation_id = self._next_operation_id("download")
             self.is_downloading = True
             self.canceled = False
             self.successful_downloads_this_session = set()
             self.session_webapi_files = {}
+            self._active_download_operation_id = operation_id
+            selected_provider = self.config.get("download_provider", "Default")
+            provider_counts = {"SteamCMD": 0, "SteamWebAPI": 0}
+            target_ids = set()
+            for mod in queued_mods:
+                mod_id = str(mod.get("mod_id", "")).strip()
+                if not mod_id:
+                    continue
+                target_ids.add(mod_id)
+                provider = str(mod.get("provider", "")).strip()
+                if provider not in {"SteamCMD", "SteamWebAPI"}:
+                    provider = self._provider_for_mod(mod, selected_provider)
+                if provider in provider_counts:
+                    provider_counts[provider] += 1
+            self._active_download_targets = target_ids
+            self._active_download_provider_counts = provider_counts
+            self._active_download_started_at = time.time()
+            self._active_download_retry_by_mod = {}
+            self._active_download_last_progress_at = 0.0
+            self._active_download_last_progress_key = ""
+            batch_size = max(1, int(self.config.get("batch_size", 20)))
+            active_account = str(self.config.get("active_account", "Anonymous") or "Anonymous")
+
+        total_targets = len(target_ids)
+        self.log(
+            (
+                f"Download run started: {total_targets:,} queued "
+                f"(SteamCMD {provider_counts['SteamCMD']:,}, WebAPI {provider_counts['SteamWebAPI']:,}), "
+                f"batch size {batch_size}."
+            ),
+            source="download",
+            action="download_run_started",
+            context={
+                "queued_total": total_targets,
+                "provider_counts": provider_counts,
+                "batch_size": batch_size,
+                "active_account": active_account,
+                "operation_state": "run",
+            },
+            operation_id=operation_id,
+        )
         with self._remote_update_cache_lock:
             self._remote_mod_update_cache = {}
         threading.Thread(target=self._download_worker, daemon=True).start()
-        self._emit_event("download", {"state": "started"})
+        self._emit_event("download", {"state": "started", "operation_id": operation_id})
         return {"success": True}
 
     def cancel_download(self):
@@ -2661,7 +3204,13 @@ class StreamlineWebBackend:
             if not result.get("success"):
                 error_text = str(result.get("error") or "")
                 if "Invalid input" not in error_text:
-                    self.log(f"Auto-add from clipboard failed: {error_text}", tone="bad")
+                    self.log(
+                        f"Auto-add from clipboard failed: {error_text}",
+                        tone="bad",
+                        source="clipboard",
+                        action="auto_add_failed",
+                        context={"error": str(error_text)},
+                    )
 
     def _clipboard_monitor_loop(self):
         last_fallback_check = 0.0

@@ -120,7 +120,13 @@
       </section>
 
       <section id="log-wrap" class="log-wrap">
-        <div class="log-area" id="event-log"></div>
+        <div class="log-area">
+          <div class="log-overlay-toolbar">
+            <button id="log-copy-btn" class="log-tool-btn" type="button" title="Copy visible logs">Copy</button>
+            <button id="log-clear-btn" class="log-tool-btn danger" type="button" title="Clear logs">Clear</button>
+          </div>
+          <div class="log-feed" id="event-log" role="log" aria-live="polite"></div>
+        </div>
       </section>
     </div>
     <div id="window-resize-east" class="window-resize-edge east"></div>
