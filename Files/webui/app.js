@@ -3904,6 +3904,13 @@ function wireHeaderContextMenu() {
 }
 
 function buildSettingsFormHtml(settings) {
+  const switchRow = (id, checked, label) => `
+    <label class="form-checkbox-row form-switch-row">
+      <input id="${id}" type="checkbox" ${checked ? "checked" : ""}>
+      <span class="form-switch-track" aria-hidden="true"></span>
+      <span class="form-switch-label">${label}</span>
+    </label>
+  `;
   return `
     <div class="settings-shell">
       <div class="settings-nav">
@@ -3953,11 +3960,11 @@ function buildSettingsFormHtml(settings) {
           <div class="form-divider"></div>
           <div class="settings-section-subtitle">Show</div>
           <div class="form-grid">
-            <label class="form-checkbox-row"><input id="st-download-btn" type="checkbox" ${settings.download_button ? "checked" : ""}>Download Button</label>
-            <label class="form-checkbox-row"><input id="st-search-bar" type="checkbox" ${settings.show_searchbar ? "checked" : ""}>Search Bar</label>
-            <label class="form-checkbox-row"><input id="st-import-export" type="checkbox" ${settings.show_export_import_buttons ? "checked" : ""}>Import/Export Buttons</label>
-            <label class="form-checkbox-row"><input id="st-logs" type="checkbox" ${settings.show_logs ? "checked" : ""}>Logs View</label>
-            <label class="form-checkbox-row"><input id="st-provider-show" type="checkbox" ${settings.show_provider ? "checked" : ""}>Download Provider</label>
+            ${switchRow("st-download-btn", settings.download_button, "Download Button")}
+            ${switchRow("st-search-bar", settings.show_searchbar, "Search Bar")}
+            ${switchRow("st-import-export", settings.show_export_import_buttons, "Import/Export Buttons")}
+            ${switchRow("st-logs", settings.show_logs, "Logs View")}
+            ${switchRow("st-provider-show", settings.show_provider, "Download Provider")}
           </div>
         </section>
 
@@ -3974,7 +3981,7 @@ function buildSettingsFormHtml(settings) {
               </div>
             </div>
             <div class="form-block">
-              <label for="st-batch">Batch Size</label>
+              <label for="st-batch" class="settings-inline-note-host">Batch Size <span class="settings-inline-note">&lt;50 Recommended</span></label>
               <input id="st-batch" class="form-control" type="number" min="1" max="500" value="${Number(settings.batch_size || 20)}">
             </div>
             <div class="form-block" style="grid-column: 1 / -1;">
@@ -4000,25 +4007,25 @@ function buildSettingsFormHtml(settings) {
           </div>
           <div class="form-divider"></div>
           <div class="form-grid">
-            <label class="form-checkbox-row"><input id="st-queue-workshop" type="checkbox" ${settings.show_queue_entire_workshop !== false ? "checked" : ""}>Allow Queue Entire Workshop</label>
-            <label class="form-checkbox-row"><input id="st-keep-downloaded" type="checkbox" ${settings.keep_downloaded_in_queue ? "checked" : ""}>Keep Downloaded In Queue</label>
-            <label class="form-checkbox-row"><input id="st-delete-on-cancel" type="checkbox" ${settings.delete_downloads_on_cancel ? "checked" : ""}>Delete Downloads On Cancel</label>
+            ${switchRow("st-queue-workshop", settings.show_queue_entire_workshop !== false, "Allow Queue Entire Workshop")}
+            ${switchRow("st-keep-downloaded", settings.keep_downloaded_in_queue, "Keep Downloaded In Queue")}
+            ${switchRow("st-delete-on-cancel", settings.delete_downloads_on_cancel, "Delete Downloads On Cancel")}
           </div>
         </section>
 
         <section class="settings-page" data-settings-page="tools">
           <div class="form-grid">
-            <label class="form-checkbox-row"><input id="st-auto-detect" type="checkbox" ${settings.auto_detect_urls ? "checked" : ""}>Auto-detect Clipboard URLs</label>
-            <label class="form-checkbox-row"><input id="st-auto-add" type="checkbox" ${settings.auto_add_to_queue ? "checked" : ""}>Auto-add Detected URLs</label>
+            ${switchRow("st-auto-detect", settings.auto_detect_urls, "Auto-detect Clipboard URLs")}
+            ${switchRow("st-auto-add", settings.auto_add_to_queue, "Auto-add Detected URLs")}
           </div>
         </section>
 
         <section class="settings-page" data-settings-page="system">
           <div class="settings-section-subtitle">On Startup</div>
           <div class="form-grid">
-            <label class="form-checkbox-row"><input id="st-reset-provider" type="checkbox" ${settings.reset_provider_on_startup ? "checked" : ""}>Reset Provider</label>
-            <label class="form-checkbox-row"><input id="st-reset-window" type="checkbox" ${settings.reset_window_size_on_startup ? "checked" : ""}>Reset Window Size</label>
-            <label class="form-checkbox-row"><input id="st-show-tutorial" type="checkbox" ${settings.show_tutorial_on_startup ? "checked" : ""}>Show Tutorialp</label>
+            ${switchRow("st-reset-provider", settings.reset_provider_on_startup, "Reset Provider")}
+            ${switchRow("st-reset-window", settings.reset_window_size_on_startup, "Reset Window Size")}
+            ${switchRow("st-show-tutorial", settings.show_tutorial_on_startup, "Show Tutorial")}
           </div>
         </section>
       </div>

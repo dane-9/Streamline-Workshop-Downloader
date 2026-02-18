@@ -54,6 +54,7 @@ body.theme-dark {
   --scroll-thumb: #6c6c6c;
   --scroll-thumb-hover: #888888;
   --selection: #2a2a2a;
+  --appids-chip-selected-bg: #4f91ff;
   --danger-bg: #802b2b;
   --danger-hover: #9c3535;
   --dialog-bg: #1e1e1e;
@@ -104,6 +105,7 @@ body.theme-light {
   --scroll-thumb: #c2c2c5;
   --scroll-thumb-hover: #aaaaaa;
   --selection: #e9e9e9;
+  --appids-chip-selected-bg: #3577e5;
   --danger-bg: #ca4e4e;
   --danger-hover: #b64242;
   --dialog-bg: #f3f3f3;
@@ -1805,14 +1807,8 @@ select.form-control:hover {
 }
 
 .appids-type-chip.is-selected {
-  border-color: #4f91ff;
-  background: #4f91ff;
-  color: #ffffff;
-}
-
-body.theme-light .appids-type-chip.is-selected {
-  border-color: #3577e5;
-  background: #3577e5;
+  border-color: var(--appids-chip-selected-bg);
+  background: var(--appids-chip-selected-bg);
   color: #ffffff;
 }
 
@@ -1987,6 +1983,20 @@ body.theme-light .appids-type-chip.is-selected {
   margin: 2px 0 6px;
 }
 
+.settings-inline-note {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--menu-text);
+  margin-left: 0;
+  white-space: nowrap;
+}
+
+.settings-inline-note-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .settings-shell {
   display: grid;
   grid-template-columns: 170px 1fr;
@@ -2055,8 +2065,8 @@ body.theme-light .appids-type-chip.is-selected {
 }
 
 .settings-nav-icon-appearance {
-  -webkit-mask-image: url("../apperance-options.svg");
-  mask-image: url("../apperance-options.svg");
+  -webkit-mask-image: url("../appearance-options.svg");
+  mask-image: url("../appearance-options.svg");
 }
 
 .settings-nav-icon-download {
@@ -2091,6 +2101,80 @@ body.theme-light .appids-type-chip.is-selected {
 .settings-page.active {
   display: block;
   animation: settings-page-enter var(--motion-base) ease;
+}
+
+.settings-shell .form-switch-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  user-select: none;
+  transition: background-color var(--motion-fast) ease;
+}
+
+.settings-shell .form-checkbox-row:hover {
+  background: var(--menu-hover);
+}
+
+.settings-shell .form-checkbox-row:focus-within {
+  background: var(--menu-hover);
+}
+
+.settings-shell .form-switch-row > input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.settings-shell .form-switch-track {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--control-border);
+  background: color-mix(in srgb, var(--menu-border) 28%, var(--input-bg) 72%);
+  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+  flex: 0 0 auto;
+}
+
+.settings-shell .form-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg) 88%, var(--input-bg) 12%);
+  transform: translateY(-50%);
+  transition: transform var(--motion-fast) ease, background-color var(--motion-fast) ease;
+}
+
+.settings-shell .form-switch-row > input[type="checkbox"]:focus-visible + .form-switch-track {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--selection) 35%, transparent);
+}
+
+.settings-shell .form-switch-row > input[type="checkbox"]:checked + .form-switch-track {
+  background: var(--appids-chip-selected-bg);
+  border-color: var(--appids-chip-selected-bg);
+}
+
+.settings-shell .form-switch-row > input[type="checkbox"]:checked + .form-switch-track::after {
+  transform: translate(14px, -50%);
+  background: #ffffff;
+}
+
+.settings-shell .form-switch-row > input[type="checkbox"]:disabled + .form-switch-track {
+  opacity: 0.65;
+}
+
+.settings-shell .form-switch-label {
+  line-height: 1.2;
 }
 
 .accounts-list {
