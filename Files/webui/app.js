@@ -173,9 +173,11 @@ const SETTINGS_DEFAULTS = {
   queue_tree_column_hidden: null,
   reset_provider_on_startup: false,
   download_provider: "Default",
+  log_category_filter: "all",
   reset_window_size_on_startup: true,
   show_tutorial_on_startup: true
 };
+const LOG_CATEGORY_FILTER_OPTIONS = ["all", "ui", "system", "queue", "download", "clipboard", "debug"];
 
 const QUEUE_COLUMNS = [
   { key: "game_name", label: "Game", defaultWidth: 115 },
@@ -236,6 +238,40 @@ function logToneLabel(tone) {
     return "ERROR";
   }
   return "INFO";
+}
+
+function normalizeLogCategoryFilter(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (LOG_CATEGORY_FILTER_OPTIONS.includes(normalized)) {
+    return normalized;
+  }
+  return "all";
+}
+
+function getCurrentLogCategoryFilter() {
+  const configured = state?.config?.log_category_filter ?? state?.config?.log_level_filter;
+  return normalizeLogCategoryFilter(
+    configured === undefined ? SETTINGS_DEFAULTS.log_category_filter : configured
+  );
+}
+
+function getLogEntryCategory(entry) {
+  const source = String(entry?.source || "").trim().toLowerCase();
+  if (LOG_CATEGORY_FILTER_OPTIONS.includes(source) && source !== "all") {
+    return source;
+  }
+  if (!source) {
+    return "system";
+  }
+  return "ui";
+}
+
+function doesLogEntryMatchCategory(entry, categoryFilter) {
+  const filter = normalizeLogCategoryFilter(categoryFilter);
+  if (filter === "all") {
+    return true;
+  }
+  return getLogEntryCategory(entry) === filter;
 }
 
 function getStartupLogToneTestConfig() {
@@ -601,9 +637,15 @@ function createLogEntryLineElement(entry, extraClass = "", keyPrefix = "s") {
   return line;
 }
 
-function createLogGroupLineElement(group) {
+function createLogGroupLineElement(group, view = null) {
+  const effectiveState = String(view?.state || group.state || "run");
+  const effectiveUpdatedAt = Number(view?.updatedAt || group.updatedAt || Date.now());
+  const effectiveMessage = String(view?.lastMessage || group.lastMessage || "Running...");
+  const visibleCount = Number(view?.visibleCount || group.entries.length || 0);
+  const totalCount = Number(view?.totalCount || group.entries.length || 0);
+
   const line = document.createElement("p");
-  line.className = `log-line log-group-line state-${group.state || "run"}`.trim();
+  line.className = `log-line log-group-line state-${effectiveState}`.trim();
   line.dataset.logKey = `g:${group.operationId}`;
   line.addEventListener("click", () => {
     group.expanded = !group.expanded;
@@ -616,20 +658,23 @@ function createLogGroupLineElement(group) {
 
   const time = document.createElement("span");
   time.className = "log-time";
-  time.textContent = formatLogClock(group.updatedAt || Date.now());
+  time.textContent = formatLogClock(effectiveUpdatedAt);
 
   const tone = document.createElement("span");
-  tone.className = `log-tone ${getOperationToneByState(group.state)}`;
-  tone.textContent = getOperationTagLabel(group.state);
+  tone.className = `log-tone ${getOperationToneByState(effectiveState)}`;
+  tone.textContent = getOperationTagLabel(effectiveState);
 
   const message = document.createElement("span");
   message.className = "log-message";
-  message.textContent = `${group.label}: ${group.lastMessage || "Running..."}`;
+  message.textContent = `${group.label}: ${effectiveMessage}`;
 
   const source = document.createElement("span");
   source.className = "log-source";
-  const visibleCount = Number(group.entries.length || 0);
-  source.textContent = `${visibleCount} ${visibleCount === 1 ? "log" : "logs"}`;
+  if (visibleCount !== totalCount) {
+    source.textContent = `${visibleCount}/${totalCount} logs`;
+  } else {
+    source.textContent = `${visibleCount} ${visibleCount === 1 ? "log" : "logs"}`;
+  }
 
   line.append(toggle, time, tone, message, source);
   return line;
@@ -637,7 +682,8 @@ function createLogGroupLineElement(group) {
 
 function updateLogHeaderUi() {
   if (logCopyBtn) {
-    logCopyBtn.disabled = state.logEntries.length === 0;
+    const visibleRows = eventLog ? eventLog.querySelectorAll(".log-line").length : 0;
+    logCopyBtn.disabled = visibleRows <= 0;
   }
   if (logClearBtn) {
     logClearBtn.disabled = state.logEntries.length === 0;
@@ -654,20 +700,22 @@ function renderLogTimeline(options = {}) {
     eventLog.innerHTML = "";
     const empty = document.createElement("div");
     empty.className = "log-empty";
-    empty.textContent = "Events will appear here.";
     eventLog.appendChild(empty);
     updateLogHeaderUi();
     return;
   }
 
+  const categoryFilter = getCurrentLogCategoryFilter();
   const fragment = document.createDocumentFragment();
+  let renderedLineCount = 0;
   for (const item of logTopItems) {
     if (!item) {
       continue;
     }
     if (item.kind === "single") {
-      if (item.entry) {
+      if (item.entry && doesLogEntryMatchCategory(item.entry, categoryFilter)) {
         fragment.appendChild(createLogEntryLineElement(item.entry, "log-plain-line", "s"));
+        renderedLineCount += 1;
       }
       continue;
     }
@@ -678,14 +726,40 @@ function renderLogTimeline(options = {}) {
     if (!group) {
       continue;
     }
-    fragment.appendChild(createLogGroupLineElement(group));
+    const filteredEntries = categoryFilter === "all"
+      ? group.entries
+      : group.entries.filter((entry) => doesLogEntryMatchCategory(entry, categoryFilter));
+    if (!filteredEntries.length) {
+      continue;
+    }
+    let filteredState = "";
+    for (const entry of filteredEntries) {
+      filteredState = deriveOperationState(filteredState, entry);
+    }
+    const lastVisibleEntry = filteredEntries[filteredEntries.length - 1] || null;
+    fragment.appendChild(createLogGroupLineElement(group, {
+      state: filteredState || group.state,
+      updatedAt: Number(lastVisibleEntry?.timestampMs || group.updatedAt || Date.now()),
+      lastMessage: String(lastVisibleEntry?.message || group.lastMessage || ""),
+      visibleCount: filteredEntries.length,
+      totalCount: group.entries.length,
+    }));
+    renderedLineCount += 1;
     if (group.expanded) {
-      for (const childEntry of group.entries) {
+      for (const childEntry of filteredEntries) {
         fragment.appendChild(createLogEntryLineElement(childEntry, "log-child-line", "c"));
+        renderedLineCount += 1;
       }
     }
   }
-  eventLog.replaceChildren(fragment);
+  if (renderedLineCount <= 0) {
+    const empty = document.createElement("div");
+    empty.className = "log-empty";
+    empty.textContent = "No logs match selected category.";
+    eventLog.replaceChildren(empty);
+  } else {
+    eventLog.replaceChildren(fragment);
+  }
   if (anchor) {
     restoreLogScrollAnchor(anchor);
   }
@@ -3093,6 +3167,8 @@ function hideLogsContextMenu() {
     return;
   }
   logsContextMenu.classList.add("hidden");
+  logsContextMenu.classList.remove("submenu-open-left");
+  logsContextMenu.classList.remove("submenu-open-up");
 }
 
 function measureFloatingElement(element) {
@@ -3180,25 +3256,100 @@ function showLogsContextMenu(clientX, clientY) {
   }
   hideQueueContextMenu();
   hideHeaderContextMenu();
-  positionFloatingMenu(logsContextMenu, clientX, clientY, 8);
+  updateLogsContextMenuSelection();
+  const margin = 8;
+  const placement = positionFloatingMenu(logsContextMenu, clientX, clientY, margin);
   logsContextMenu.classList.remove("hidden");
+
+  const subPopup = logsContextMenu.querySelector(".queue-context-subpopup");
+  const subSize = measureFloatingElement(subPopup);
+  const subWidth = Math.max(120, subSize.width || 0);
+  const availableRight = Math.max(0, placement.viewportWidth - (placement.left + placement.menuWidth) - 8);
+  const availableLeft = Math.max(0, placement.left - 8);
+  const rightFits = availableRight >= subWidth;
+  const leftFits = availableLeft >= subWidth;
+  const availableBelow = Math.max(0, placement.viewportHeight - placement.top - margin);
+  const availableAbove = Math.max(0, placement.top - margin);
+  const subHeight = Math.max(40, subSize.height || 0);
+  const openUp = subHeight > availableBelow && availableAbove > availableBelow;
+
+  let openLeft = false;
+  if (rightFits) {
+    openLeft = false;
+  } else if (leftFits) {
+    openLeft = true;
+  } else {
+    openLeft = availableLeft > availableRight;
+  }
+
+  logsContextMenu.classList.toggle("submenu-open-left", !!openLeft);
+  logsContextMenu.classList.toggle("submenu-open-up", !!openUp);
+  if (subPopup) {
+    const availableForPopup = openUp ? availableAbove : availableBelow;
+    const maxPopupHeight = Math.max(120, Math.min(availableForPopup, placement.viewportHeight - (margin * 2)));
+    subPopup.style.maxHeight = `${Math.floor(maxPopupHeight)}px`;
+  }
 }
 
-async function handleLogsContextAction(action) {
-  if (action !== "clear_logs") {
+function updateLogsContextMenuSelection() {
+  if (!logsContextMenu) {
     return;
   }
-  try {
-    const result = await callApi("clear_logs");
-    if (!result?.success) {
-      addLog(result?.error || "Failed to clear log view.", "bad");
-      return;
-    }
-    suppressNextBackendClearEvent = true;
-  } catch {
-    // In non-desktop preview mode, still clear local log view.
+  const selected = getCurrentLogCategoryFilter();
+  logsContextMenu.querySelectorAll(".queue-context-item[data-log-category]").forEach((button) => {
+    const category = normalizeLogCategoryFilter(button.dataset.logCategory || "");
+    button.classList.toggle("active", category === selected);
+  });
+}
+
+async function setLogCategoryFilter(category, options = {}) {
+  const nextCategory = normalizeLogCategoryFilter(category);
+  const currentCategory = getCurrentLogCategoryFilter();
+  if (!state.config || typeof state.config !== "object") {
+    state.config = {};
   }
-  clearLogTimeline();
+  state.config.log_category_filter = nextCategory;
+  scheduleLogTimelineRender({ preserveScroll: true });
+  updateLogsContextMenuSelection();
+
+  const shouldPersist = options.persist !== false;
+  if (!shouldPersist || !state.apiAvailable || nextCategory === currentCategory) {
+    return true;
+  }
+
+  try {
+    const result = await callApi("update_settings", { log_category_filter: nextCategory });
+    if (!result?.success) {
+      addLog(result?.error || "Failed to update log category filter.", "bad");
+      return false;
+    }
+    state.config = result.config || { ...state.config, log_category_filter: nextCategory };
+    updateLogsContextMenuSelection();
+    return true;
+  } catch {
+    addLog("Failed to update log category filter.", "bad");
+    return false;
+  }
+}
+
+async function handleLogsContextAction(action, logCategory = "") {
+  if (action === "set_log_category") {
+    await setLogCategoryFilter(logCategory, { persist: true });
+    return;
+  }
+  if (action === "clear_logs") {
+    try {
+      const result = await callApi("clear_logs");
+      if (!result?.success) {
+        addLog(result?.error || "Failed to clear log view.", "bad");
+        return;
+      }
+      suppressNextBackendClearEvent = true;
+    } catch {
+      // In non-desktop preview mode, still clear local log view.
+    }
+    clearLogTimeline();
+  }
 }
 
 async function handleQueueContextAction(action) {
@@ -3475,6 +3626,8 @@ async function useBootstrapData(data) {
   applyVisibilityConfig(config);
   syncLogoStyle();
   syncWindowTitle();
+  updateLogsContextMenuSelection();
+  scheduleLogTimelineRender({ preserveScroll: true });
 
   setProviderValue(config.download_provider);
 
@@ -3543,7 +3696,7 @@ function wireLogsContextMenu() {
     button.addEventListener("click", async () => {
       hideLogsContextMenu();
       try {
-        await handleLogsContextAction(button.dataset.action);
+        await handleLogsContextAction(button.dataset.action, button.dataset.logCategory || "");
       } catch (error) {
         addLog(error?.message || "Log action failed.", "bad");
       }
@@ -5451,6 +5604,8 @@ async function handleEvent(event) {
     applyVisibilityConfig(state.config);
     syncLogoStyle();
     syncWindowTitle();
+    updateLogsContextMenuSelection();
+    scheduleLogTimelineRender({ preserveScroll: true });
     setProviderValue(state.config.download_provider);
     renderQueue();
     return;

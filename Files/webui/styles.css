@@ -1173,6 +1173,18 @@ button.control:active,
   color: var(--menu-text-hover);
 }
 
+.queue-context-item.active {
+  background: var(--menu-hover);
+  color: var(--menu-text-hover);
+  font-weight: 700;
+  position: relative;
+}
+
+.queue-context-item.active::before {
+  content: "•";
+  margin-right: 6px;
+}
+
 .queue-context-item.danger {
   color: #d67a7a;
 }
@@ -1228,6 +1240,8 @@ button.control:active,
   left: calc(100% - 1px);
   top: 0;
   min-width: 170px;
+  max-height: min(320px, calc(100vh - 16px));
+  overflow: auto;
   border: 1px solid var(--menu-border);
   border-radius: 3px;
   background: var(--menu-popup-bg);
@@ -1253,6 +1267,16 @@ button.control:active,
 .queue-context-menu.submenu-open-left .queue-context-subpopup {
   left: auto;
   right: calc(100% - 1px);
+}
+
+.queue-context-menu.submenu-open-up .queue-context-subpopup {
+  top: auto;
+  bottom: 0;
+  transform-origin: bottom left;
+}
+
+.queue-context-menu.submenu-open-up.submenu-open-left .queue-context-subpopup {
+  transform-origin: bottom right;
 }
 
 .queue-context-sep {

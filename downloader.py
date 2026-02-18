@@ -43,6 +43,7 @@ DEFAULT_SETTINGS = {
     "queue_tree_column_hidden": None,
     "reset_provider_on_startup": False,
     "download_provider": "Default",
+    "log_category_filter": "all",
     "reset_window_size_on_startup": True,
     "show_tutorial_on_startup": True,
     "tutorial_shown": False,

@@ -152,6 +152,19 @@
     <button class="queue-context-item danger" data-action="remove" type="button">Remove</button>
   </div>
   <div id="logs-context-menu" class="queue-context-menu hidden">
+    <div class="queue-context-submenu">
+      <button class="queue-context-parent" type="button">Category</button>
+      <div class="queue-context-subpopup">
+        <button class="queue-context-item" data-action="set_log_category" data-log-category="all" type="button">All</button>
+        <button class="queue-context-item" data-action="set_log_category" data-log-category="ui" type="button">UI</button>
+        <button class="queue-context-item" data-action="set_log_category" data-log-category="system" type="button">System</button>
+        <button class="queue-context-item" data-action="set_log_category" data-log-category="queue" type="button">Queue</button>
+        <button class="queue-context-item" data-action="set_log_category" data-log-category="download" type="button">Download</button>
+        <button class="queue-context-item" data-action="set_log_category" data-log-category="clipboard" type="button">Clipboard</button>
+        <button class="queue-context-item" data-action="set_log_category" data-log-category="debug" type="button">Debug</button>
+      </div>
+    </div>
+    <div class="queue-context-sep"></div>
     <button class="queue-context-item" data-action="clear_logs" type="button">Clear Logs</button>
   </div>
   <div id="header-context-menu" class="header-context-menu hidden"></div>
