@@ -4144,7 +4144,6 @@ async function openSettingsEditor() {
         auto_detect_urls: root.querySelector("#st-auto-detect").checked,
         auto_add_to_queue: root.querySelector("#st-auto-add").checked,
         show_tutorial_on_startup: root.querySelector("#st-show-tutorial").checked,
-        tutorial_shown: true,
         reset_provider_on_startup: root.querySelector("#st-reset-provider").checked,
         reset_window_size_on_startup: root.querySelector("#st-reset-window").checked
       };
@@ -5222,18 +5221,20 @@ async function openTutorialDialog(options = {}) {
     {
       title: "Welcome To Streamline",
       message: fromStartup
-        ? "Welcome back. This guided tour highlights the main controls in the app."
-        : "This guided tour highlights the main controls in the app.",
+        ? "Welcome back. This guided tour highlights the main controls in the app and what they do."
+        : "This guided tour highlights the main controls in the app and what they do.",
       selectors: []
     },
     {
       title: "Command Palette",
-      message: "Use the chevron next to Settings for quick actions, or press Ctrl+K.",
-      selectors: ["#command-palette-btn"]
+      message: "The Command Palette gives you easy access to all actions in Streamline. It can be accessed via the 'Additional Actions' chevron, or via shortcuts: Ctrl+K or double-tap Shift.",
+      selectors: ["#open-command-palette-btn", "#commands-split-menu"],
+      ensureCommandSplitMenuOpen: true,
+      disableAutoScroll: true
     },
     {
       title: "Workshop Input",
-      message: "Paste a Game AppID, Mod URL/ID, or Collection URL/ID here.",
+      message: "Paste a Game AppID, Workshop Mod URL/ID, or Collection URL/ID here to prepare download targets.",
       selectors: ["#item-url"]
     },
     {
@@ -5243,23 +5244,24 @@ async function openTutorialDialog(options = {}) {
     },
     {
       title: "Queue Table",
-      message: "Review queued mods here. Right-click rows for move/provider/remove actions.",
+      message: "This table tracks queued items and status. Right-click rows for move, provider, and remove actions.",
       selectors: [".queue-table-wrap"]
     },
     {
       title: "Download Controls",
-      message: "Start download here. Press again during active download to request cancellation.",
+      message: "'Start Download' begins queue processing. While running, the same button changes to 'Cancel Download'.",
       selectors: ["#start-download-btn"]
     },
     {
       title: "Logs",
-      message: "Live events appear here. Right-click this area to clear logs.",
+      message: "Live activity appears here for troubleshooting and progress checks. Right-click to copy or clear logs.",
       selectors: ["#log-wrap"]
     }
   ];
 
   let index = 0;
-  let pendingTarget = null;
+  let pendingTargets = [];
+  let finishing = false;
 
   const done = new Promise((resolve) => {
     const overlay = document.createElement("div");
@@ -5267,12 +5269,18 @@ async function openTutorialDialog(options = {}) {
     overlay.innerHTML = `
       <div class="tutorial-spotlight hidden"></div>
       <section class="tutorial-card" role="dialog" aria-modal="true" aria-label="Quick Tutorial">
-        <div class="tutorial-step-meta"></div>
-        <h3 class="tutorial-title"></h3>
+        <div class="tutorial-head">
+          <div class="tutorial-step-meta"></div>
+          <div class="tutorial-step-context"></div>
+        </div>
+        <div class="tutorial-progress" aria-hidden="true">
+          <span class="tutorial-progress-fill"></span>
+        </div>
         <p class="tutorial-message"></p>
-        <label class="tutorial-startup-toggle">
+        <label class="tutorial-startup-toggle form-checkbox-row tutorial-startup-switch">
           <input id="tutorial-show-startup-checkbox" type="checkbox">
-          Show tutorial on startup
+          <span class="form-switch-track" aria-hidden="true"></span>
+          <span class="form-switch-label">Show tutorial on startup</span>
         </label>
         <div class="tutorial-actions">
           <button type="button" class="control modal-btn" data-tutorial-action="skip">Skip</button>
@@ -5286,15 +5294,17 @@ async function openTutorialDialog(options = {}) {
     const spotlight = overlay.querySelector(".tutorial-spotlight");
     const card = overlay.querySelector(".tutorial-card");
     const stepMeta = overlay.querySelector(".tutorial-step-meta");
-    const titleEl = overlay.querySelector(".tutorial-title");
+    const stepContext = overlay.querySelector(".tutorial-step-context");
+    const progressFill = overlay.querySelector(".tutorial-progress-fill");
     const messageEl = overlay.querySelector(".tutorial-message");
     const startupCheckbox = overlay.querySelector("#tutorial-show-startup-checkbox");
     const prevBtn = overlay.querySelector("[data-tutorial-action='prev']");
     const nextBtn = overlay.querySelector("[data-tutorial-action='next']");
     const skipBtn = overlay.querySelector("[data-tutorial-action='skip']");
+    card.setAttribute("tabindex", "-1");
 
     const isElementVisible = (el) => {
-      if (!el) {
+      if (!(el instanceof HTMLElement) || !el.isConnected) {
         return false;
       }
       const style = window.getComputedStyle(el);
@@ -5305,21 +5315,33 @@ async function openTutorialDialog(options = {}) {
       return rect.width > 0 && rect.height > 0;
     };
 
-    const findStepTarget = (step) => {
+    const findStepTargets = (step) => {
       const selectors = Array.isArray(step?.selectors) ? step.selectors : [];
+      const targets = [];
       for (const selector of selectors) {
         if (!selector) {
           continue;
         }
         const node = document.querySelector(selector);
-        if (node && isElementVisible(node)) {
-          return node;
+        if (node instanceof HTMLElement) {
+          targets.push(node);
         }
       }
-      return null;
+      return targets;
     };
 
     const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
+    const ensureCommandSplitMenuOpen = () => {
+      if (!commandPaletteBtn || !commandsSplitMenu) {
+        return;
+      }
+      if (commandPaletteBtn.style.display === "none") {
+        return;
+      }
+      hideCommandSplitMenu();
+      commandsSplitMenu.classList.remove("hidden");
+      commandPaletteBtn.classList.add("active");
+    };
 
     const placeCard = (targetRect) => {
       const viewportWidth = window.innerWidth;
@@ -5357,15 +5379,29 @@ async function openTutorialDialog(options = {}) {
       card.style.top = `${top}px`;
     };
 
-    const positionStep = () => {
-      const target = pendingTarget;
-      if (!target || !isElementVisible(target)) {
-        spotlight.classList.add("hidden");
-        placeCard(null);
-        return;
+    const positionStep = ({ allowFallback = true } = {}) => {
+      const visibleTargets = pendingTargets.filter((target) => isElementVisible(target));
+      if (!visibleTargets.length) {
+        if (allowFallback) {
+          spotlight.classList.add("hidden");
+          placeCard(null);
+        }
+        return false;
       }
 
-      const rect = target.getBoundingClientRect();
+      const rects = visibleTargets.map((target) => target.getBoundingClientRect());
+      const left = Math.min(...rects.map((rect) => rect.left));
+      const top = Math.min(...rects.map((rect) => rect.top));
+      const right = Math.max(...rects.map((rect) => rect.right));
+      const bottom = Math.max(...rects.map((rect) => rect.bottom));
+      const rect = {
+        left,
+        top,
+        right,
+        bottom,
+        width: Math.max(0, right - left),
+        height: Math.max(0, bottom - top)
+      };
       const pad = 6;
       spotlight.classList.remove("hidden");
       spotlight.style.left = `${Math.max(0, rect.left - pad)}px`;
@@ -5373,6 +5409,12 @@ async function openTutorialDialog(options = {}) {
       spotlight.style.width = `${Math.max(12, rect.width + pad * 2)}px`;
       spotlight.style.height = `${Math.max(12, rect.height + pad * 2)}px`;
       placeCard(rect);
+      return true;
+    };
+
+    const getFocusableElements = () => {
+      const selector = "button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])";
+      return Array.from(card.querySelectorAll(selector)).filter((node) => isElementVisible(node));
     };
 
     const persistTutorialSettings = async () => {
@@ -5392,7 +5434,16 @@ async function openTutorialDialog(options = {}) {
       }
     };
 
+    let onKeyDown = null;
     const finish = async () => {
+      if (finishing) {
+        return;
+      }
+      finishing = true;
+      if (onKeyDown) {
+        document.removeEventListener("keydown", onKeyDown, true);
+      }
+      closeMenuPopups();
       window.removeEventListener("resize", positionStep);
       window.removeEventListener("scroll", positionStep, true);
       overlay.remove();
@@ -5410,37 +5461,141 @@ async function openTutorialDialog(options = {}) {
       index = clamp(index, 0, steps.length - 1);
       const step = steps[index] || steps[0];
       stepMeta.textContent = `Step ${index + 1} of ${steps.length}`;
-      titleEl.textContent = String(step.title || "Tutorial");
+      stepContext.textContent = String(step.title || "Tutorial");
+      if (progressFill) {
+        progressFill.style.width = `${((index + 1) / Math.max(1, steps.length)) * 100}%`;
+      }
       messageEl.textContent = String(step.message || "");
       prevBtn.disabled = index === 0;
       nextBtn.textContent = index >= (steps.length - 1) ? "Finish" : "Next";
       startupCheckbox.checked = !!showOnStartupSetting;
 
-      pendingTarget = findStepTarget(step);
-      if (pendingTarget && typeof pendingTarget.scrollIntoView === "function") {
-        pendingTarget.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+      const resolveTargetsAndPosition = (attempt = 0) => {
+        if (!overlay.isConnected || finishing) {
+          return;
+        }
+        if (step.ensureCommandSplitMenuOpen) {
+          ensureCommandSplitMenuOpen();
+        }
+        pendingTargets = findStepTargets(step);
+        if (!step.disableAutoScroll && pendingTargets[0] && typeof pendingTargets[0].scrollIntoView === "function") {
+          pendingTargets[0].scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+        }
+        const highlighted = positionStep({ allowFallback: !step.ensureCommandSplitMenuOpen });
+        if (!highlighted && attempt < 8) {
+          window.setTimeout(() => resolveTargetsAndPosition(attempt + 1), 40);
+          return;
+        }
+        if (!highlighted) {
+          positionStep({ allowFallback: true });
+        }
+        window.setTimeout(() => {
+          positionStep({ allowFallback: true });
+        }, 120);
+      };
+
+      if (step.ensureCommandSplitMenuOpen) {
+        window.setTimeout(() => {
+          if (!overlay.isConnected || finishing) {
+            return;
+          }
+          ensureCommandSplitMenuOpen();
+          resolveTargetsAndPosition();
+        }, 0);
+        return;
       }
-      window.setTimeout(positionStep, 120);
+
+      resolveTargetsAndPosition();
     };
 
-    startupCheckbox.addEventListener("change", () => {
-      showOnStartupSetting = !!startupCheckbox.checked;
-    });
-
-    prevBtn.addEventListener("click", () => {
+    const goToPreviousStep = () => {
+      if (index <= 0) {
+        return;
+      }
       index -= 1;
       renderStep();
-    });
+    };
 
-    nextBtn.addEventListener("click", async () => {
+    const goToNextStep = async () => {
       if (index >= (steps.length - 1)) {
         await finish();
         return;
       }
       index += 1;
       renderStep();
+    };
+
+    onKeyDown = async (event) => {
+      if (!overlay.isConnected || finishing) {
+        return;
+      }
+
+      if (event.key === "Tab") {
+        const focusables = getFocusableElements();
+        if (!focusables.length) {
+          event.preventDefault();
+          card.focus();
+          return;
+        }
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement;
+        if (event.shiftKey) {
+          if (active === first || !card.contains(active)) {
+            event.preventDefault();
+            last.focus();
+          }
+        } else if (active === last || !card.contains(active)) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        await finish();
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        if (event.target === startupCheckbox) {
+          return;
+        }
+        event.preventDefault();
+        goToPreviousStep();
+        return;
+      }
+
+      if (event.key === "ArrowRight") {
+        if (event.target === startupCheckbox) {
+          return;
+        }
+        event.preventDefault();
+        await goToNextStep();
+        return;
+      }
+
+      if (event.key === "Enter") {
+        if (event.target instanceof HTMLInputElement && event.target.type === "checkbox") {
+          return;
+        }
+        if (event.target instanceof HTMLButtonElement) {
+          return;
+        }
+        event.preventDefault();
+        await goToNextStep();
+      }
+    };
+
+    startupCheckbox.addEventListener("change", () => {
+      showOnStartupSetting = !!startupCheckbox.checked;
     });
 
+    prevBtn.addEventListener("click", goToPreviousStep);
+    nextBtn.addEventListener("click", async () => {
+      await goToNextStep();
+    });
     skipBtn.addEventListener("click", async () => {
       await finish();
     });
@@ -5453,7 +5608,11 @@ async function openTutorialDialog(options = {}) {
 
     window.addEventListener("resize", positionStep);
     window.addEventListener("scroll", positionStep, true);
+    document.addEventListener("keydown", onKeyDown, true);
     renderStep();
+    window.setTimeout(() => {
+      nextBtn.focus();
+    }, 0);
   });
 
   tutorialSession = { done };
