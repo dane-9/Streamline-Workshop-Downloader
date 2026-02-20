@@ -21,15 +21,7 @@ except Exception:
 
 
 if browser is not None:
-    @browser(
-        headless=True,
-        block_images=True,
-        output=None,
-        cache=False,
-        close_on_crash=True,
-        raise_exception=True,
-    )
-    def _scrape_steamdb_botasaurus(driver: Driver, data):
+    def _scrape_steamdb_botasaurus_impl(driver: Driver, data):
         selected_types = data["selected_types"]
 
         driver.google_get("https://steamdb.info/sub/17906/apps/", bypass_cloudflare=True)
@@ -61,8 +53,33 @@ if browser is not None:
             """
         )
         return entries if entries else []
+
+    @browser(
+        headless=True,
+        block_images=True,
+        output=None,
+        cache=False,
+        close_on_crash=True,
+        raise_exception=True,
+    )
+    def _scrape_steamdb_botasaurus_headless(driver: Driver, data):
+        return _scrape_steamdb_botasaurus_impl(driver, data)
+
+    @browser(
+        headless=False,
+        block_images=True,
+        output=None,
+        cache=False,
+        close_on_crash=True,
+        raise_exception=True,
+    )
+    def _scrape_steamdb_botasaurus_visible(driver: Driver, data):
+        return _scrape_steamdb_botasaurus_impl(driver, data)
 else:
-    def _scrape_steamdb_botasaurus(_data):
+    def _scrape_steamdb_botasaurus_headless(_data):
+        raise RuntimeError("Botasaurus is not available in this environment.")
+
+    def _scrape_steamdb_botasaurus_visible(_data):
         raise RuntimeError("Botasaurus is not available in this environment.")
 
 class SteamCmdConPTYSession:
@@ -209,8 +226,9 @@ class AppIDScraper:
     def __init__(self, files_dir):
         self.files_dir = files_dir
 
-    def scrape_steamdb(self, selected_types):
-        result = _scrape_steamdb_botasaurus({"selected_types": selected_types})
+    def scrape_steamdb(self, selected_types, headless=True):
+        scraper_fn = _scrape_steamdb_botasaurus_headless if bool(headless) else _scrape_steamdb_botasaurus_visible
+        result = scraper_fn({"selected_types": selected_types})
 
         # Botasaurus may wrap the return value in a list depending on execution mode.
         if isinstance(result, list) and len(result) == 1 and isinstance(result[0], list):
@@ -3809,11 +3827,12 @@ class StreamlineWebBackend:
             "last_updated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(appids_path)))
         }
 
-    def update_appids(self, selected_types):
+    def update_appids(self, selected_types, headless=True):
         selected_types = selected_types or ["Game"]
+        use_headless = bool(headless)
         scraper = AppIDScraper(self.files_dir)
         try:
-            entries = scraper.scrape_steamdb(selected_types)
+            entries = scraper.scrape_steamdb(selected_types, headless=use_headless)
         except Exception as e:
             return {"success": False, "error": f"Failed to update AppIDs via Botasaurus: {e}"}
 

@@ -5068,6 +5068,8 @@ async function openAppIdsManager() {
   const info = await callApi("get_appids_info");
   const currentCount = Number(info?.count ?? 0);
   const lastUpdated = String(info?.last_updated || "N/A");
+  let useHeadlessMode = true;
+  let footerHeadlessSwitchEl = null;
   const TYPE_OPTIONS = [
     { key: "game", label: "Game", value: "Game", selected: true },
     { key: "application", label: "Application", value: "Application", selected: false },
@@ -5203,101 +5205,144 @@ async function openAppIdsManager() {
     }
   };
 
-  await showFormModal({
-    title: "Update AppIDs",
-    message: "Refresh local AppIDs from SteamDB.",
-    html,
-    okLabel: "Update",
-    onMount: (root) => {
-      setProgressBadge(root, "idle", "Idle");
-      setProgressBar(root, "idle", 0);
-      setProgressText(root, "Ready to update AppIDs.");
-      resetSteps(root);
+  try {
+    await showFormModal({
+      title: "Update AppIDs",
+      message: "Refresh local AppIDs from SteamDB.",
+      html,
+      okLabel: "Update",
+      onMount: (root) => {
+        setProgressBadge(root, "idle", "Idle");
+        setProgressBar(root, "idle", 0);
+        setProgressText(root, "Ready to update AppIDs.");
+        resetSteps(root);
 
-      getSelectedTypeButtons(root).forEach((button) => {
-        button.addEventListener("click", () => {
-          if (updateInFlight) {
-            return;
+        const actionsRow = modalOkBtn?.parentElement;
+        if (actionsRow && !actionsRow.querySelector("#appids-headless-toggle")) {
+          const toggleWrap = document.createElement("label");
+          toggleWrap.id = "appids-headless-toggle";
+          toggleWrap.className = "appids-footer-headless-switch form-checkbox-row form-switch-row";
+          toggleWrap.title = "Disable headless mode to use a visible browser and manually complete Cloudflare checks.";
+          toggleWrap.innerHTML = `
+            <input id="appids-headless-input" type="checkbox" ${useHeadlessMode ? "checked" : ""}>
+            <span class="form-switch-track" aria-hidden="true"></span>
+            <span class="form-switch-label">Headless</span>
+          `;
+          const toggleInput = toggleWrap.querySelector("#appids-headless-input");
+          if (toggleInput) {
+            toggleInput.checked = useHeadlessMode;
+            toggleInput.addEventListener("change", () => {
+              if (updateInFlight) {
+                toggleInput.checked = useHeadlessMode;
+                return;
+              }
+              useHeadlessMode = !!toggleInput.checked;
+            });
           }
-          const isSelected = button.classList.contains("is-selected");
-          const selectedCount = getSelectedTypeButtons(root).filter((item) => item.classList.contains("is-selected")).length;
-          if (isSelected && selectedCount <= 1) {
-            return;
-          }
-          button.classList.toggle("is-selected", !isSelected);
-          button.setAttribute("aria-pressed", !isSelected ? "true" : "false");
+          actionsRow.insertBefore(toggleWrap, actionsRow.firstChild);
+          footerHeadlessSwitchEl = toggleWrap;
+        }
+
+        getSelectedTypeButtons(root).forEach((button) => {
+          button.addEventListener("click", () => {
+            if (updateInFlight) {
+              return;
+            }
+            const isSelected = button.classList.contains("is-selected");
+            const selectedCount = getSelectedTypeButtons(root).filter((item) => item.classList.contains("is-selected")).length;
+            if (isSelected && selectedCount <= 1) {
+              return;
+            }
+            button.classList.toggle("is-selected", !isSelected);
+            button.setAttribute("aria-pressed", !isSelected ? "true" : "false");
+          });
         });
-      });
-    },
-    onSubmit: async (root) => {
-      if (updateInFlight) {
-        return false;
-      }
-      const selectedTypes = getSelectedTypes(root);
-      if (!selectedTypes.length) {
-        addLog("Select at least one type to update AppIDs.", "bad");
-        setProgressBadge(root, "error", "Error");
-        setProgressBar(root, "error", 100);
-        setProgressText(root, "No types selected.");
-        return false;
-      }
+      },
+      onSubmit: async (root) => {
+        if (updateInFlight) {
+          return false;
+        }
+        const selectedTypes = getSelectedTypes(root);
+        if (!selectedTypes.length) {
+          addLog("Select at least one type to update AppIDs.", "bad");
+          setProgressBadge(root, "error", "Error");
+          setProgressBar(root, "error", 100);
+          setProgressText(root, "No types selected.");
+          return false;
+        }
 
-      updateInFlight = true;
-      modalOkBtn.disabled = true;
-      modalCancelBtn.disabled = true;
-      setProgressBadge(root, "running", "Running");
-      setProgressBar(root, "running", 28);
-      resetSteps(root);
-      updateStepProgress(root, 0);
+        const headlessInput = footerHeadlessSwitchEl?.querySelector("#appids-headless-input");
+        if (headlessInput) {
+          useHeadlessMode = !!headlessInput.checked;
+        }
 
-      const startedAt = Date.now();
-      progressTimer = window.setInterval(() => {
-        const elapsedMs = Date.now() - startedAt;
-        const idx = Math.min(PROGRESS_STEPS.length - 1, Math.floor(elapsedMs / 900));
-        updateStepProgress(root, idx);
-      }, 220);
+        updateInFlight = true;
+        modalOkBtn.disabled = true;
+        modalCancelBtn.disabled = true;
+        if (headlessInput) {
+          headlessInput.disabled = true;
+        }
+        setProgressBadge(root, "running", "Running");
+        setProgressBar(root, "running", 28);
+        resetSteps(root);
+        updateStepProgress(root, 0);
 
-      try {
-        const result = await callApi("update_appids", selectedTypes);
-        stopProgressTimer();
-        if (result?.success) {
-          for (const step of PROGRESS_STEPS) {
-            setStepState(root, step.key, "done");
+        const startedAt = Date.now();
+        progressTimer = window.setInterval(() => {
+          const elapsedMs = Date.now() - startedAt;
+          const idx = Math.min(PROGRESS_STEPS.length - 1, Math.floor(elapsedMs / 900));
+          updateStepProgress(root, idx);
+        }, 220);
+
+        try {
+          const result = await callApi("update_appids", selectedTypes, useHeadlessMode);
+          stopProgressTimer();
+          if (result?.success) {
+            for (const step of PROGRESS_STEPS) {
+              setStepState(root, step.key, "done");
+            }
+            setProgressBadge(root, "success", "Done");
+            setProgressBar(root, "success", 100);
+            setProgressText(root, `AppIDs updated successfully (${result.count} entries).`);
+            addLog(`AppIDs updated (${result.count} entries).`, "good");
+            return true;
           }
-          setProgressBadge(root, "success", "Done");
-          setProgressBar(root, "success", 100);
-          setProgressText(root, `AppIDs updated successfully (${result.count} entries).`);
-          addLog(`AppIDs updated (${result.count} entries).`, "good");
-          return true;
+          const errorText = String(result?.error || "Failed to update AppIDs.");
+          if (activeStepIndex >= 0 && activeStepIndex < PROGRESS_STEPS.length) {
+            setStepState(root, PROGRESS_STEPS[activeStepIndex].key, "error");
+          }
+          setProgressBadge(root, "error", "Failed");
+          setProgressBar(root, "error", 100);
+          setProgressText(root, errorText);
+          addLog(errorText, "bad");
+          return false;
+        } catch (error) {
+          stopProgressTimer();
+          const errorText = String(error?.message || "Failed to update AppIDs.");
+          if (activeStepIndex >= 0 && activeStepIndex < PROGRESS_STEPS.length) {
+            setStepState(root, PROGRESS_STEPS[activeStepIndex].key, "error");
+          }
+          setProgressBadge(root, "error", "Failed");
+          setProgressBar(root, "error", 100);
+          setProgressText(root, errorText);
+          addLog(errorText, "bad");
+          return false;
+        } finally {
+          updateInFlight = false;
+          modalOkBtn.disabled = false;
+          modalCancelBtn.disabled = false;
+          if (headlessInput) {
+            headlessInput.disabled = false;
+          }
         }
-        const errorText = String(result?.error || "Failed to update AppIDs.");
-        if (activeStepIndex >= 0 && activeStepIndex < PROGRESS_STEPS.length) {
-          setStepState(root, PROGRESS_STEPS[activeStepIndex].key, "error");
-        }
-        setProgressBadge(root, "error", "Failed");
-        setProgressBar(root, "error", 100);
-        setProgressText(root, errorText);
-        addLog(errorText, "bad");
-        return false;
-      } catch (error) {
-        stopProgressTimer();
-        const errorText = String(error?.message || "Failed to update AppIDs.");
-        if (activeStepIndex >= 0 && activeStepIndex < PROGRESS_STEPS.length) {
-          setStepState(root, PROGRESS_STEPS[activeStepIndex].key, "error");
-        }
-        setProgressBadge(root, "error", "Failed");
-        setProgressBar(root, "error", 100);
-        setProgressText(root, errorText);
-        addLog(errorText, "bad");
-        return false;
-      } finally {
-        updateInFlight = false;
-        modalOkBtn.disabled = false;
-        modalCancelBtn.disabled = false;
       }
+    });
+  } finally {
+    stopProgressTimer();
+    if (footerHeadlessSwitchEl && footerHeadlessSwitchEl.parentElement) {
+      footerHeadlessSwitchEl.parentElement.removeChild(footerHeadlessSwitchEl);
     }
-  });
-  stopProgressTimer();
+  }
 }
 
 async function openTutorialDialog(options = {}) {

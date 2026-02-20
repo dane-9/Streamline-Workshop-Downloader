@@ -2600,6 +2600,79 @@ select.form-control:hover {
   margin-top: 10px;
 }
 
+.appids-footer-headless-switch {
+  margin-right: auto;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  user-select: none;
+  transition: background-color var(--motion-fast) ease;
+}
+
+.appids-footer-headless-switch:hover,
+.appids-footer-headless-switch:focus-within {
+  background: var(--menu-hover);
+}
+
+.appids-footer-headless-switch > input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.appids-footer-headless-switch .form-switch-track {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--control-border);
+  background: color-mix(in srgb, var(--menu-border) 28%, var(--input-bg) 72%);
+  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+  flex: 0 0 auto;
+}
+
+.appids-footer-headless-switch .form-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg) 88%, var(--input-bg) 12%);
+  transform: translateY(-50%);
+  transition: transform var(--motion-fast) ease, background-color var(--motion-fast) ease;
+}
+
+.appids-footer-headless-switch > input[type="checkbox"]:focus-visible + .form-switch-track {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--selection) 35%, transparent);
+}
+
+.appids-footer-headless-switch > input[type="checkbox"]:checked + .form-switch-track {
+  background: var(--appids-chip-selected-bg);
+  border-color: var(--appids-chip-selected-bg);
+}
+
+.appids-footer-headless-switch > input[type="checkbox"]:checked + .form-switch-track::after {
+  transform: translate(14px, -50%);
+  background: #ffffff;
+}
+
+.appids-footer-headless-switch > input[type="checkbox"]:disabled + .form-switch-track {
+  opacity: 0.65;
+}
+
+.appids-footer-headless-switch .form-switch-label {
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .modal-btn {
   min-width: 90px;
   transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease;
