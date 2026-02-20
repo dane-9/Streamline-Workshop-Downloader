@@ -25,11 +25,10 @@
 | **Vertical Mouse Scrolling**                  | *<sub>Ability to Click mouse-wheel and vertically scroll.</sub>*                                                                                                                                      |
 | **Queue Reordering**                          | *<sub>Easily reorder mods in your download queue to prioritize specific downloads.</sub>*                                                                                                              |
 | **Chromium & Webdriver Setup**      | *<sub>Automatically downloads and configures Chromium and WebDriver for web scraping.</sub>*                                                                                                      |
-| **Virtual Environment Setup**       | *<sub>Has a setup that automatically configures a virtual environment for the application.<br>**This is an alternative to using the executable**.</sub>*                                                |
 | **Batch Processing**                          | *<sub>Download multiple mods in configurable batches for optimized performance.</sub>*                                                                                                                  |
 | **Customizable Settings**                     | *<sub>Adjust batch sizes, toggle visibility for UI elements,<br>and other settings to suit your preferences.</sub>*                                                                                        |
 
-*No additional installations or Python dependencies are required as the application is packaged into a standalone executable.* ***An alternative is using the automatic virtual environment setup***.
+*No additional installations or Python dependencies are required as the application is packaged into a standalone executable.* ***An alternative is running from source with your existing Python installation***.
 
 ## Installation
 
@@ -39,11 +38,24 @@
    
    **OR**
    
-   Download the `Source Code (zip)` and use the Virtual Environment setup from the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page.
+   Download the `Source Code (zip)` from the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page.
 
-2. **If using the Virtual Environment: Extract the Files**
+2. **If using Source Code: Extract the Files**
 
-   Extract the contents of the downloaded `.zip` file to your desired installation directory. And launch the `Run Setup.bat`
+   Extract the contents of the downloaded `.zip` file to your desired installation directory.
+
+3. **Install Dependencies**
+
+   ```bash
+   python -m pip install --upgrade pip
+   python -m pip install -r Files/requirements.txt
+   ```
+
+4. **Run Streamline**
+
+   ```bash
+   python downloader.py
+   ```
 
 ## Support 
 
