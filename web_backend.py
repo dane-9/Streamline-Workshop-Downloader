@@ -303,6 +303,7 @@ class StreamlineWebBackend:
         self._remote_update_cache_lock = threading.Lock()
         self._remote_mod_update_cache = {}
         self._remote_mod_update_cache_ttl_sec = 600.0
+        self._account_avatar_ttl_sec = 60 * 60 * 24 * 7
         self.last_clipboard_text = ""
         self._last_clipboard_trigger = 0.0
         self._clipboard_last_seq = 0
@@ -3250,8 +3251,71 @@ class StreamlineWebBackend:
         record = dict(account or {})
         record["username"] = str(record.get("username", "")).strip()
         record["steamid64"] = str(record.get("steamid64", "")).strip()
+        record["avatar_url"] = str(record.get("avatar_url", "")).strip()
+        try:
+            record["avatar_fetched_at"] = float(record.get("avatar_fetched_at", 0) or 0)
+        except Exception:
+            record["avatar_fetched_at"] = 0.0
         record.pop("token_id", None)
         return record
+
+    def _fetch_steam_avatar_url(self, steamid64: str):
+        steam_id = str(steamid64 or "").strip()
+        if not steam_id or not steam_id.isdigit():
+            return ""
+        url = f"https://steamcommunity.com/profiles/{steam_id}?xml=1"
+        try:
+            response = requests.get(
+                url,
+                timeout=(6, 18),
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            if response.status_code != 200:
+                return ""
+            body = str(response.text or "")
+            match = re.search(r"<avatarMedium><!\[CDATA\[(.*?)\]\]></avatarMedium>", body, re.IGNORECASE)
+            if not match:
+                match = re.search(r"<avatarFull><!\[CDATA\[(.*?)\]\]></avatarFull>", body, re.IGNORECASE)
+            if not match:
+                return ""
+            avatar_url = str(match.group(1) or "").strip()
+            if avatar_url.lower().startswith(("http://", "https://")):
+                return avatar_url
+        except Exception:
+            return ""
+        return ""
+
+    def _refresh_account_avatar_if_needed(self, account: dict):
+        record = self._normalize_account_record(account)
+        steamid64 = str(record.get("steamid64", "")).strip()
+        avatar_url = str(record.get("avatar_url", "")).strip()
+        try:
+            avatar_fetched_at = float(record.get("avatar_fetched_at", 0) or 0)
+        except Exception:
+            avatar_fetched_at = 0.0
+
+        if not steamid64:
+            changed = bool(avatar_url or avatar_fetched_at)
+            if changed:
+                record["avatar_url"] = ""
+                record["avatar_fetched_at"] = 0.0
+            return record, changed
+
+        now = time.time()
+        expired = (not avatar_fetched_at) or ((now - avatar_fetched_at) > self._account_avatar_ttl_sec)
+        needs_fetch = (not avatar_url) or expired
+        if not needs_fetch:
+            return record, False
+
+        fetched_avatar_url = self._fetch_steam_avatar_url(steamid64)
+        if not fetched_avatar_url:
+            return record, False
+
+        changed = fetched_avatar_url != avatar_url or not avatar_fetched_at
+        if changed:
+            record["avatar_url"] = fetched_avatar_url
+            record["avatar_fetched_at"] = now
+        return record, changed
 
     def _get_steamcmd_config_vdf_path(self):
         return os.path.join(self.steamcmd_dir, "config", "config.vdf")
@@ -3361,6 +3425,17 @@ class StreamlineWebBackend:
 
     def get_accounts(self):
         accounts = [self._normalize_account_record(acc) for acc in self.config.get("steam_accounts", [])]
+        updated = False
+        refreshed = []
+        for account in accounts:
+            normalized, changed = self._refresh_account_avatar_if_needed(account)
+            refreshed.append(normalized)
+            if changed:
+                updated = True
+        if updated:
+            self.config["steam_accounts"] = refreshed
+            self.save_config()
+        accounts = refreshed
         return {"accounts": accounts, "active": self.config.get("active_account", "Anonymous")}
 
     def add_account(self, username, steamid64=""):
@@ -3374,14 +3449,21 @@ class StreamlineWebBackend:
             current_steamid64 = str(existing.get("steamid64", "")).strip()
             if steamid64 and current_steamid64 != steamid64:
                 existing["steamid64"] = steamid64
+                existing["avatar_url"] = ""
+                existing["avatar_fetched_at"] = 0.0
+                existing, _ = self._refresh_account_avatar_if_needed(existing)
                 self.config["steam_accounts"] = accounts
                 self.save_config()
                 return {"success": True, "updated": True}
             return {"success": False, "error": "Account already exists."}
-        accounts.append({
+        new_account = {
             "username": username,
             "steamid64": steamid64,
-        })
+            "avatar_url": "",
+            "avatar_fetched_at": 0.0,
+        }
+        new_account, _ = self._refresh_account_avatar_if_needed(new_account)
+        accounts.append(new_account)
         self.config["steam_accounts"] = accounts
         self.save_config()
         return {"success": True}

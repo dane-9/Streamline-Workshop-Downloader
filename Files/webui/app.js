@@ -1191,6 +1191,32 @@ function pruneAnimatedSelectControllers() {
   });
 }
 
+function setAnimatedSelectAvatarContent(avatarEl, avatarUrl, fallbackText = "") {
+  if (!(avatarEl instanceof HTMLElement)) {
+    return;
+  }
+  avatarEl.textContent = "";
+  avatarEl.classList.remove("has-image");
+  const safeLabel = String(fallbackText || "").trim();
+  const fallback = (safeLabel.charAt(0) || "?").toUpperCase();
+  const url = String(avatarUrl || "").trim();
+  if (!url) {
+    avatarEl.textContent = fallback;
+    return;
+  }
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = "";
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.addEventListener("error", () => {
+    avatarEl.classList.remove("has-image");
+    avatarEl.textContent = fallback;
+  });
+  avatarEl.classList.add("has-image");
+  avatarEl.appendChild(img);
+}
+
 function initAnimatedSelect(selectEl, options = {}) {
   if (!(selectEl instanceof HTMLSelectElement)) {
     return null;
@@ -1239,6 +1265,7 @@ function initAnimatedSelect(selectEl, options = {}) {
   trigger.setAttribute("aria-haspopup", "listbox");
   trigger.setAttribute("aria-expanded", "false");
 
+  const isAccountSelect = id === "account-select";
   const label = document.createElement("span");
   label.className = "animated-select-label";
   if (options.prefix) {
@@ -1246,6 +1273,12 @@ function initAnimatedSelect(selectEl, options = {}) {
     prefix.className = "animated-select-prefix";
     prefix.textContent = String(options.prefix);
     label.appendChild(prefix);
+  }
+  let triggerAvatar = null;
+  if (isAccountSelect) {
+    triggerAvatar = document.createElement("span");
+    triggerAvatar.className = "animated-select-account-avatar";
+    label.appendChild(triggerAvatar);
   }
   const value = document.createElement("span");
   value.className = "animated-select-value";
@@ -1282,7 +1315,20 @@ function initAnimatedSelect(selectEl, options = {}) {
         const item = document.createElement("button");
         item.type = "button";
         item.className = "animated-select-option";
-        item.textContent = option.textContent || option.value || "";
+        const optionText = option.textContent || option.value || "";
+        if (isAccountSelect) {
+          item.classList.add("animated-select-option-account");
+          const avatar = document.createElement("span");
+          avatar.className = "animated-select-account-avatar";
+          setAnimatedSelectAvatarContent(avatar, option.dataset.avatarUrl || "", optionText);
+          const text = document.createElement("span");
+          text.className = "animated-select-option-text";
+          text.textContent = optionText;
+          item.appendChild(avatar);
+          item.appendChild(text);
+        } else {
+          item.textContent = optionText;
+        }
         item.dataset.value = option.value;
         item.setAttribute("role", "option");
         if (option.selected) {
@@ -1311,6 +1357,13 @@ function initAnimatedSelect(selectEl, options = {}) {
     sync: () => {
       const selectedOption = selectEl.selectedOptions?.[0] || selectEl.options?.[selectEl.selectedIndex] || null;
       value.textContent = selectedOption?.textContent || selectedOption?.value || "";
+      if (isAccountSelect && triggerAvatar) {
+        setAnimatedSelectAvatarContent(
+          triggerAvatar,
+          selectedOption?.dataset?.avatarUrl || "",
+          selectedOption?.textContent || selectedOption?.value || ""
+        );
+      }
       trigger.disabled = !!selectEl.disabled;
       controller.renderOptions();
     },
@@ -3575,6 +3628,7 @@ async function refreshAccounts(activeFromConfig = "") {
     const anonymousOption = document.createElement("option");
     anonymousOption.value = "Anonymous";
     anonymousOption.textContent = "Anonymous";
+    anonymousOption.dataset.avatarUrl = "";
     accountSelect.appendChild(anonymousOption);
     accounts.forEach((acc) => {
       if (!acc?.username) {
@@ -3583,6 +3637,7 @@ async function refreshAccounts(activeFromConfig = "") {
       const option = document.createElement("option");
       option.value = acc.username;
       option.textContent = acc.username;
+      option.dataset.avatarUrl = String(acc.avatar_url || "").trim();
       accountSelect.appendChild(option);
     });
     accountSelect.value = active;

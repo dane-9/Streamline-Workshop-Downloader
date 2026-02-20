@@ -708,6 +708,50 @@ button.control:active,
   cursor: default;
 }
 
+.custom-select-enabled .animated-select-option-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.custom-select-enabled .animated-select-option-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select-enabled .animated-select-account-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--panel-border) 70%, transparent);
+  background: color-mix(in srgb, var(--control-bg) 76%, transparent);
+  color: var(--menu-text);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex: 0 0 20px;
+  user-select: none;
+}
+
+.custom-select-enabled .animated-select-account-avatar.has-image {
+  border-color: color-mix(in srgb, var(--menu-border) 76%, transparent);
+  background: transparent;
+  color: transparent;
+}
+
+.custom-select-enabled .animated-select-account-avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
 .titlebar-account-shell .account-select-wrap.custom-select-enabled .animated-select-trigger {
   height: 27px;
   border: none;
@@ -715,6 +759,10 @@ button.control:active,
   border-radius: 0;
   background: var(--control-bg);
   padding: 0 18px 0 6px;
+}
+
+.titlebar-account-shell .account-select-wrap.custom-select-enabled .animated-select-label {
+  gap: 6px;
 }
 
 .titlebar-account-shell .account-select-wrap.custom-select-enabled .animated-select-menu {
