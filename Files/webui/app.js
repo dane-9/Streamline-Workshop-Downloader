@@ -4290,14 +4290,9 @@ function buildAccountsFormHtml(data, selectedUsername = "") {
 
   return `
     <div class="form-grid accounts-add-row">
-      <div class="form-block">
-        <label for="acc-username">Add Account (Steam username)</label>
-        <input id="acc-username" class="form-control" type="text" placeholder="Example: mySteamUser">
-      </div>
-      <div class="form-block accounts-add-action">
-        <label>&nbsp;</label>
-        <button id="acc-add" class="control modal-btn primary" type="button">Authenticate</button>
-      </div>
+      <input id="acc-username" class="form-control" type="text" placeholder="Steam account username">
+      <input id="acc-password" class="form-control" type="password" autocomplete="current-password" placeholder="Steam account password">
+      <button id="acc-add" class="control modal-btn primary accounts-add-inline-btn" type="button" disabled>Add Account</button>
     </div>
     <div class="form-divider"></div>
     <div class="accounts-manager-grid">
@@ -4326,21 +4321,25 @@ function buildSteamcmdLoginHtml(username) {
   return `
     <div class="steamcmd-login-shell">
       <div id="steamcmd-login-status" class="steamcmd-login-status">Starting SteamCMD session for ${escapeHtml(username)}...</div>
+      <div id="steamcmd-guard-notice" class="steamcmd-guard-notice" role="status" aria-live="polite">
+        Steam Guard authentication required. Approve in the Steam app or enter your verification code.
+      </div>
       <pre id="steamcmd-login-output" class="steamcmd-login-output" tabindex="0"></pre>
       <div class="steamcmd-login-input-row">
-        <input id="steamcmd-login-input" class="form-control" type="text" placeholder="Type password, Steam Guard code, or command and press Send">
+        <input id="steamcmd-login-input" class="form-control" type="text" placeholder="Type Steam Guard code or command and press Send">
         <button id="steamcmd-login-send" class="control modal-btn primary" type="button">Send</button>
       </div>
     </div>
   `;
 }
 
-async function openSteamcmdLoginTerminal(username) {
+async function openSteamcmdLoginTerminal(username, options = {}) {
+  const manualCredentialEntry = Boolean(options?.manualCredentialEntry);
   let pollTimer = null;
   let closeWatch = null;
   let disposed = false;
   let autoCloseTriggered = false;
-  let sendUnlocked = false;
+  let sendUnlocked = manualCredentialEntry;
   const loginResult = {
     authenticated: false,
     failed: false,
@@ -4372,7 +4371,9 @@ async function openSteamcmdLoginTerminal(username) {
 
   const modalResult = await showFormModal({
     title: `SteamCMD Login: ${username}`,
-    message: "Live SteamCMD terminal. Send password/Steam Guard code when prompted.",
+    message: manualCredentialEntry
+      ? "Live SteamCMD terminal. Enter password or Steam Guard code and click Send as prompted."
+      : "Live SteamCMD terminal. Account username/password were submitted automatically; send Steam Guard code if prompted.",
     html: buildSteamcmdLoginHtml(username),
     okLabel: "Done",
     cancelLabel: "Abort",
@@ -4382,8 +4383,23 @@ async function openSteamcmdLoginTerminal(username) {
       const inputEl = root.querySelector("#steamcmd-login-input");
       const sendBtn = root.querySelector("#steamcmd-login-send");
       const statusEl = root.querySelector("#steamcmd-login-status");
-      sendBtn.disabled = true;
+      const guardNoticeEl = root.querySelector("#steamcmd-guard-notice");
+      sendBtn.disabled = !manualCredentialEntry;
+      if (manualCredentialEntry) {
+        inputEl.placeholder = "Type password, Steam Guard code, or command and press Send";
+        statusEl.textContent = "Manual login input enabled. Enter password and click Send.";
+      }
       let followOutput = true;
+      let guardNoticeVisible = false;
+
+      const setGuardNoticeVisible = (visible) => {
+        const nextVisible = Boolean(visible);
+        if (!guardNoticeEl || guardNoticeVisible === nextVisible) {
+          return;
+        }
+        guardNoticeVisible = nextVisible;
+        guardNoticeEl.classList.toggle("is-visible", nextVisible);
+      };
 
       const isNearBottom = () => (
         outputEl.scrollTop + outputEl.clientHeight >= outputEl.scrollHeight - 12
@@ -4497,10 +4513,14 @@ async function openSteamcmdLoginTerminal(username) {
         }
 
         appendOutput(res.output || "");
-        if (!sendUnlocked && (res.prompt === "password" || res.prompt === "steam_guard")) {
+        const guardPromptActive = res.prompt === "steam_guard" || res.status_hint === "steam_guard";
+        setGuardNoticeVisible(guardPromptActive);
+        if (!sendUnlocked && (res.prompt === "steam_guard" || res.prompt === "command")) {
           sendUnlocked = true;
           sendBtn.disabled = false;
-          statusEl.textContent = "Prompt detected. Enter password/code and click Send.";
+          statusEl.textContent = res.prompt === "steam_guard"
+            ? "Prompt detected. Enter Steam Guard code and click Send."
+            : "SteamCMD command prompt detected.";
         }
         const accountLabel = (res.detected_username || res.username || username || "").trim();
         const steamidSuffix = res.detected_steamid64 ? ` (SteamID64: ${res.detected_steamid64})` : "";
@@ -4533,8 +4553,6 @@ async function openSteamcmdLoginTerminal(username) {
             window.setTimeout(() => modalOkBtn.click(), 0);
             return;
           }
-        } else if (res.prompt === "password") {
-          statusEl.textContent = "Prompt: Password required.";
         } else if (res.prompt === "steam_guard") {
           statusEl.textContent = "Prompt: Steam Guard confirmation/code required.";
         } else if (res.login_success) {
@@ -4610,6 +4628,7 @@ async function openAccountsManager() {
 
         const bindActions = () => {
           const usernameInput = root.querySelector("#acc-username");
+          const passwordInput = root.querySelector("#acc-password");
           const selectedSteamIdInput = root.querySelector("#acc-selected-steamid");
           const addBtn = root.querySelector("#acc-add");
           const setActiveBtn = root.querySelector("#acc-set-active");
@@ -4632,17 +4651,23 @@ async function openAccountsManager() {
             }
           };
 
-          const runAccountAuthentication = async (username, mode = "authenticate") => {
+          const runAccountAuthentication = async (username, password, mode = "authenticate") => {
             const normalized = String(username || "").trim();
+            const passwordText = String(password || "");
             if (!normalized) {
               addLog("Username is required to authenticate account.", "bad");
               return;
             }
+            const isReauth = mode === "reauth";
+            if (!isReauth && !passwordText.trim()) {
+              addLog("Password is required to authenticate account.", "bad");
+              return;
+            }
 
-            const actionText = mode === "reauth" ? "Re-authenticating" : "Authenticating";
+            const actionText = isReauth ? "Re-signing in" : "Signing in";
             addLog(`${actionText} account '${normalized}'...`);
 
-            const launchResult = await callApi("launch_steamcmd_login", normalized);
+            const launchResult = await callApi("launch_steamcmd_login", normalized, passwordText);
             if (!launchResult?.success) {
               addLog(launchResult?.error || `Failed to start authentication for '${normalized}'.`, "bad");
               return;
@@ -4652,7 +4677,9 @@ async function openAccountsManager() {
               let terminalResult = null;
               setFooterPurgeVisible(false);
               try {
-                terminalResult = await openSteamcmdLoginTerminal(normalized);
+                terminalResult = await openSteamcmdLoginTerminal(normalized, {
+                  manualCredentialEntry: isReauth && !passwordText.trim()
+                });
               } finally {
                 setFooterPurgeVisible(true);
               }
@@ -4683,6 +4710,12 @@ async function openAccountsManager() {
 
             await refreshAccountsModal("", normalized);
             addLog(`SteamCMD login started for '${normalized}'. Complete it in the external terminal.`);
+          };
+
+          const updateSignInState = () => {
+            const username = String(usernameInput?.value || "").trim();
+            const password = String(passwordInput?.value || "");
+            addBtn.disabled = !(username && password.trim());
           };
 
           const reorderAccounts = async (orderedUsernames) => {
@@ -4907,12 +4940,13 @@ async function openAccountsManager() {
 
           addBtn.addEventListener("click", async () => {
             const username = (usernameInput.value || "").trim();
-            if (!username) {
-              addLog("Username is required to add account.", "bad");
-              return;
-            }
-            await runAccountAuthentication(username, "add");
+            const password = String(passwordInput?.value || "");
+            await runAccountAuthentication(username, password, "add");
           });
+
+          usernameInput?.addEventListener("input", updateSignInState);
+          passwordInput?.addEventListener("input", updateSignInState);
+          updateSignInState();
 
           setActiveBtn?.addEventListener("click", async () => {
             const username = String(selectedUsername || "").trim();
@@ -4930,11 +4964,12 @@ async function openAccountsManager() {
 
           reloginBtn?.addEventListener("click", async () => {
             const username = String(selectedUsername || "").trim();
+            const password = String(passwordInput?.value || "");
             if (!username) {
               addLog("Select an account first.", "bad");
               return;
             }
-            await runAccountAuthentication(username, "reauth");
+            await runAccountAuthentication(username, password, "reauth");
           });
 
           removeBtn?.addEventListener("click", async () => {

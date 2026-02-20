@@ -2368,21 +2368,20 @@ select.form-control:hover {
 }
 
 .accounts-add-row {
-  grid-template-columns: 1fr auto;
-  align-items: end;
-}
-
-.accounts-add-action {
-  min-width: 140px;
-}
-
-.accounts-add-action .modal-btn {
-  width: 100%;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .accounts-add-row #acc-username,
+.accounts-add-row #acc-password,
 .accounts-add-row #acc-add {
   height: 32px;
+}
+
+.accounts-add-inline-btn {
+  min-width: 140px;
+  white-space: nowrap;
 }
 
 .accounts-manager-row {
@@ -2453,8 +2452,9 @@ select.form-control:hover {
 }
 
 .accounts-manager-row.active .accounts-manager-list-btn {
-  border-color: var(--selection);
-  background: color-mix(in srgb, var(--selection) 16%, transparent);
+  border-color: color-mix(in srgb, var(--selection) 78%, var(--menu-border) 22%);
+  background: color-mix(in srgb, var(--selection) 30%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--selection) 42%, transparent);
 }
 
 .accounts-list.is-pointer-dragging .accounts-manager-row:not(.dragging-live) {
@@ -2511,6 +2511,12 @@ select.form-control:hover {
 
 .accounts-manager-pill.saved {
   opacity: 0.8;
+}
+
+.accounts-manager-row.active .accounts-manager-pill.saved {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--selection) 62%, var(--menu-border) 38%);
+  background: color-mix(in srgb, var(--selection) 24%, transparent);
 }
 
 .accounts-manager-steamid {
@@ -3165,6 +3171,21 @@ textarea:disabled {
 .steamcmd-login-status {
   color: var(--fg-hover);
   font-size: 12px;
+}
+
+.steamcmd-guard-notice {
+  display: none;
+  border: 1px solid color-mix(in srgb, var(--accent, #6ea8ff) 56%, var(--menu-border));
+  background: color-mix(in srgb, var(--accent, #6ea8ff) 16%, transparent);
+  color: var(--fg);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.steamcmd-guard-notice.is-visible {
+  display: block;
 }
 
 .steamcmd-login-output {

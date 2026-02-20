@@ -66,10 +66,11 @@ else:
         raise RuntimeError("Botasaurus is not available in this environment.")
 
 class SteamCmdConPTYSession:
-    def __init__(self, steamcmd_exe: str, steamcmd_dir: str, username: str, cols: int = 120, rows: int = 40):
+    def __init__(self, steamcmd_exe: str, steamcmd_dir: str, username: str, password: str = "", cols: int = 120, rows: int = 40):
         self.steamcmd_exe = steamcmd_exe
         self.steamcmd_dir = steamcmd_dir
         self.username = username
+        self.password = str(password or "")
         self.cols = cols
         self.rows = rows
 
@@ -116,8 +117,12 @@ class SteamCmdConPTYSession:
             if platform.system().lower() == "windows":
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+            cmd = [self.steamcmd_exe, "+login", self.username]
+            if self.password.strip():
+                cmd.append(self.password)
+
             self._popen = subprocess.Popen(
-                [self.steamcmd_exe, "+login", self.username],
+                cmd,
                 cwd=self.steamcmd_dir,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -3533,8 +3538,9 @@ class StreamlineWebBackend:
         self.save_config()
         return {"success": True}
 
-    def launch_steamcmd_login(self, username):
+    def launch_steamcmd_login(self, username, password=""):
         username = (username or "").strip()
+        password = str(password or "")
         if not username:
             return {"success": False, "error": "Username is required."}
         if not os.path.isfile(self.steamcmd_exe):
@@ -3573,7 +3579,7 @@ class StreamlineWebBackend:
                 "detected_steamid64": "",
             }
 
-            session = SteamCmdConPTYSession(self.steamcmd_exe, self.steamcmd_dir, username)
+            session = SteamCmdConPTYSession(self.steamcmd_exe, self.steamcmd_dir, username, password)
             ok, error = session.start()
             if not ok:
                 self.pending_login_context = None
@@ -3628,7 +3634,6 @@ class StreamlineWebBackend:
             account_id = latest_account_id
         steamid64 = self._convert_account_id_to_steamid64(account_id) if account_id else str(ctx.get("detected_steamid64", "")).strip()
 
-        needs_password_recent = "password:" in recent_low
         needs_guard_recent = any(token in recent_low for token in [
             "steam guard",
             "two-factor",
@@ -3636,7 +3641,6 @@ class StreamlineWebBackend:
             "waiting for confirmation",
             "updateauthsessionwithsteamguardcode",
         ])
-        needs_password = "password:" in low
         needs_guard = any(token in low for token in [
             "steam guard",
             "two-factor",
@@ -3678,9 +3682,7 @@ class StreamlineWebBackend:
             login_failed = False
 
         prompt = ""
-        if needs_password_recent:
-            prompt = "password"
-        elif needs_guard_recent:
+        if needs_guard_recent:
             prompt = "steam_guard"
         elif "steam>" in recent_low:
             prompt = "command"
@@ -3688,8 +3690,6 @@ class StreamlineWebBackend:
         status_hint = "running"
         if login_failed:
             status_hint = "failed"
-        elif needs_password:
-            status_hint = "password"
         elif needs_guard:
             status_hint = "steam_guard"
         elif "logging in user" in low or "proceeding with login using username/password" in low:
@@ -3713,7 +3713,7 @@ class StreamlineWebBackend:
         return {
             "prompt": prompt,
             "status_hint": status_hint,
-            "needs_password": needs_password,
+            "needs_password": False,
             "needs_guard": needs_guard,
             "ready_prompt": ready_prompt,
             "login_success": login_success,

@@ -286,8 +286,8 @@ class WebMainGuiApi:
     def set_active_account(self, username):
         return self.backend.set_active_account(username)
 
-    def launch_steamcmd_login(self, username):
-        return self.backend.launch_steamcmd_login(username)
+    def launch_steamcmd_login(self, username, password=""):
+        return self.backend.launch_steamcmd_login(username, password)
 
     def poll_steamcmd_login_session(self):
         return self.backend.poll_steamcmd_login_session()
