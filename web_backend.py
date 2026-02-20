@@ -273,7 +273,7 @@ class StreamlineWebBackend:
         self._download_progress_log_interval_sec = 1.2
         self._download_max_retries = 3
 
-        self._metadata_cache_path = os.path.join(self.files_dir, "cache_mod_metadata.json")
+        self._metadata_cache_path = None
         self._metadata_cache_lock = threading.Lock()
         self._metadata_cache = {}
         self._metadata_cache_dirty = False
@@ -537,6 +537,12 @@ class StreamlineWebBackend:
         }
 
     def _load_mod_metadata_cache(self):
+        if not self._metadata_cache_path:
+            with self._metadata_cache_lock:
+                self._metadata_cache = {}
+                self._metadata_cache_dirty = False
+                self._metadata_cache_save_timer = None
+            return
         loaded = {}
         if os.path.isfile(self._metadata_cache_path):
             try:
@@ -560,6 +566,11 @@ class StreamlineWebBackend:
             self._metadata_cache_save_timer = None
 
     def _flush_metadata_cache_save(self):
+        if not self._metadata_cache_path:
+            with self._metadata_cache_lock:
+                self._metadata_cache_save_timer = None
+                self._metadata_cache_dirty = False
+            return True
         with self._metadata_cache_lock:
             self._metadata_cache_save_timer = None
             if not self._metadata_cache_dirty:
@@ -582,6 +593,11 @@ class StreamlineWebBackend:
             return False
 
     def _schedule_metadata_cache_save(self):
+        if not self._metadata_cache_path:
+            with self._metadata_cache_lock:
+                self._metadata_cache_dirty = False
+                self._metadata_cache_save_timer = None
+            return
         with self._metadata_cache_lock:
             self._metadata_cache_dirty = True
             if self._metadata_cache_save_timer is not None and self._metadata_cache_save_timer.is_alive():
