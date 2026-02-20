@@ -120,6 +120,38 @@ body.theme-light {
   --elev-modal: 0 1px 0 rgba(255, 255, 255, 0.95), 0 14px 34px rgba(15, 23, 42, 0.16), 0 3px 12px rgba(15, 23, 42, 0.10);
 }
 
+body.theme-light #minimize-btn::before,
+body.theme-light #close-btn::before,
+body.theme-light .commands-split-label::before,
+body.theme-light .select-chevron-wrap::after,
+body.theme-light .custom-select-enabled .animated-select-trigger::after,
+body.theme-light #settings-btn::before,
+body.theme-light #appids-btn::before,
+body.theme-light #command-palette-btn::before,
+body.theme-light #accounts-btn::before,
+body.theme-light #url-help-btn::before,
+body.theme-light #filter-btn::before,
+body.theme-light #import-btn::before,
+body.theme-light #export-btn::before,
+body.theme-light #case-btn:not(.active)::before,
+body.theme-light #regex-btn:not(.active)::before,
+body.theme-light .queue-context-parent::after,
+body.theme-light #queue-table thead th.sortable.sort-asc::after,
+body.theme-light #queue-table thead th.sortable.sort-desc::after {
+  background-color: #a0a0a0;
+}
+
+body.theme-light .settings-nav-icon {
+  color: #a0a0a0;
+}
+
+body.theme-light .icon-btn img,
+body.theme-light .text-icon-btn img,
+body.theme-light .line-icon-btn img,
+body.theme-light .tiny-icon-btn img {
+  filter: brightness(0) saturate(100%) invert(63%);
+}
+
 .window-root {
   position: relative;
   left: -0.5px;
