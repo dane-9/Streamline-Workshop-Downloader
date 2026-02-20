@@ -327,21 +327,21 @@ button.control,
   cursor: pointer;
 }
 
-button.control:hover,
-select.control:hover,
-.icon-btn:hover,
-.text-icon-btn:hover,
-.tiny-icon-btn:hover {
+button.control:not(:disabled):hover,
+select.control:not(:disabled):hover,
+.icon-btn:not(:disabled):hover,
+.text-icon-btn:not(:disabled):hover,
+.tiny-icon-btn:not(:disabled):hover {
   background: var(--control-hover);
   border-color: var(--control-border-hover);
   border-bottom-color: var(--control-border-bottom-hover);
   color: var(--fg-hover);
 }
 
-button.control:active,
-.icon-btn:active,
-.text-icon-btn:active,
-.tiny-icon-btn:active {
+button.control:not(:disabled):active,
+.icon-btn:not(:disabled):active,
+.text-icon-btn:not(:disabled):active,
+.tiny-icon-btn:not(:disabled):active {
   background: var(--control-pressed);
   transform: translateY(1px);
 }
