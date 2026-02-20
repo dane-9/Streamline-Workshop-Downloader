@@ -3628,7 +3628,7 @@ async function refreshAccounts(activeFromConfig = "") {
     const anonymousOption = document.createElement("option");
     anonymousOption.value = "Anonymous";
     anonymousOption.textContent = "Anonymous";
-    anonymousOption.dataset.avatarUrl = "";
+    anonymousOption.dataset.avatarUrl = "../anonymous.svg";
     accountSelect.appendChild(anonymousOption);
     accounts.forEach((acc) => {
       if (!acc?.username) {
@@ -3647,6 +3647,7 @@ async function refreshAccounts(activeFromConfig = "") {
       const option = document.createElement("option");
       option.value = active;
       option.textContent = active;
+      option.dataset.avatarUrl = active === "Anonymous" ? "../anonymous.svg" : "";
       accountSelect.appendChild(option);
     }
     accountSelect.value = active;
