@@ -13,7 +13,7 @@ import requests
 
 from web_backend import AppIDScraper, StreamlineWebBackend
 
-current_version = "1.3.1"
+current_version = "2.0.0"
 
 DEFAULT_SETTINGS = {
     "current_theme": "Dark",
