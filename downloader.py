@@ -57,6 +57,40 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+def _get_runtime_executable_path():
+    argv0 = str(sys.argv[0] if sys.argv else "").strip()
+    argv0_lower = argv0.lower()
+    if argv0:
+        candidate = os.path.abspath(argv0)
+        if candidate.lower().endswith(".exe") and os.path.isfile(candidate):
+            return candidate
+
+    running_script = argv0_lower.endswith(".py") or argv0_lower.endswith(".pyw")
+    if not running_script:
+        exe_path = str(getattr(sys, "executable", "")).strip()
+        if exe_path and exe_path.lower().endswith(".exe") and os.path.isfile(exe_path):
+            return os.path.abspath(exe_path)
+
+    is_frozen = bool(getattr(sys, "frozen", False)) or hasattr(sys, "_MEIPASS") or ("__compiled__" in globals())
+    if is_frozen:
+        exe_path = str(getattr(sys, "executable", "")).strip()
+        if exe_path and exe_path.lower().endswith(".exe") and os.path.isfile(exe_path):
+            return os.path.abspath(exe_path)
+    return ""
+
+
+def runtime_base_path():
+    exe_path = _get_runtime_executable_path()
+    if exe_path:
+        return os.path.dirname(os.path.realpath(exe_path))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def runtime_path(relative_path=""):
+    base_path = runtime_base_path()
+    return os.path.join(base_path, relative_path) if relative_path else base_path
+
+
 class WebMainGuiApi:
     def __init__(self, script_path, files_dir):
         self.script_path = script_path
@@ -691,12 +725,17 @@ def run_pywebview_main_gui():
         print("pywebview is not installed. Install dependencies from Files/requirements.txt.")
         return 1
 
-    script_path = os.path.abspath(__file__)
-    files_dir = os.path.join(os.path.dirname(script_path), "Files")
+    script_path = _get_runtime_executable_path() or os.path.abspath(__file__)
+    files_dir = runtime_path("Files")
     api = WebMainGuiApi(script_path=script_path, files_dir=files_dir)
 
-    webui_index = resource_path(os.path.join("Files", "webui", "index.html"))
-    setup_index = resource_path(os.path.join("Files", "webui", "setup.html"))
+    runtime_webui_index = runtime_path(os.path.join("Files", "webui", "index.html"))
+    runtime_setup_index = runtime_path(os.path.join("Files", "webui", "setup.html"))
+    bundled_webui_index = resource_path(os.path.join("Files", "webui", "index.html"))
+    bundled_setup_index = resource_path(os.path.join("Files", "webui", "setup.html"))
+
+    webui_index = runtime_webui_index if os.path.isfile(runtime_webui_index) else bundled_webui_index
+    setup_index = runtime_setup_index if os.path.isfile(runtime_setup_index) else bundled_setup_index
     api.main_url = Path(webui_index).resolve().as_uri() if os.path.isfile(webui_index) else ""
 
     default_window_width = 695
