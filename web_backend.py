@@ -230,7 +230,7 @@ class AppIDScraper:
         scraper_fn = _scrape_steamdb_botasaurus_headless if bool(headless) else _scrape_steamdb_botasaurus_visible
         result = scraper_fn({"selected_types": selected_types})
 
-        # Botasaurus may wrap the return value in a list depending on execution mode.
+        # Botasaurus can wrap results as `[entries]` in some execution modes.
         if isinstance(result, list) and len(result) == 1 and isinstance(result[0], list):
             entries = result[0]
         elif isinstance(result, list) and all(isinstance(e, str) for e in result):
@@ -1927,7 +1927,7 @@ class StreamlineWebBackend:
         if not text:
             text = str(fallback or "").strip() or "mod"
 
-        # Windows reserved names are invalid as folder names.
+        # Prevent invalid Windows reserved device names.
         if os.name == "nt":
             reserved = {
                 "CON", "PRN", "AUX", "NUL",
@@ -1938,7 +1938,7 @@ class StreamlineWebBackend:
             if stem in reserved:
                 text = f"{text}_"
 
-        # Keep names reasonably short to reduce path-length failures.
+        # Keep folder names short to reduce path-length failures.
         return text[:150]
 
     def _resolve_mod_name_for_folder(self, mod, allow_remote_lookup=True):
@@ -1950,7 +1950,6 @@ class StreamlineWebBackend:
         if not self._mod_name_needs_hydration(current_name, mod_id):
             return current_name
 
-        # Fast path: metadata cache
         cached = self._get_cached_mod_metadata(mod_id)
         if cached:
             cached_name = str(cached.get("mod_name", "")).strip()
@@ -1966,7 +1965,6 @@ class StreamlineWebBackend:
                 return current_name
             return f"Mod {mod_id}"
 
-        # Slow path: fetch item metadata once if still unknown.
         collection_game_info = None
         app_id = str((mod or {}).get("app_id", "")).strip()
         game_name = str((mod or {}).get("game_name", "")).strip()
@@ -1996,7 +1994,6 @@ class StreamlineWebBackend:
                     pass
                 return fetched_name
 
-        # Final fallback: non-empty readable folder name.
         if current_name and current_name.lower() != "unknown title":
             return current_name
         return f"Mod {mod_id}"
@@ -2340,8 +2337,7 @@ class StreamlineWebBackend:
                 changed = True
                 status_changed = True
 
-                # Status-only changes usually do not require rebuilding the full queue query cache.
-                # Rebuild is only needed when the cached view depends on status membership/order.
+                # Rebuild cached queue views only when filter/sort depends on status.
                 cache = self._queue_query_cache if isinstance(self._queue_query_cache, dict) else None
                 if cache is not None:
                     cached_filter = str(cache.get("filter_name", "All") or "All")

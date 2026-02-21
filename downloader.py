@@ -152,7 +152,7 @@ class WebMainGuiApi:
         height = 0
         if use_js_viewport:
             try:
-                # Save CSS viewport size first. This stays stable across DPI scaling.
+                # CSS viewport size is more stable than native window size across DPI scaling.
                 size = window.evaluate_js(
                     "({w: Math.round(window.innerWidth||0), h: Math.round(window.innerHeight||0)})"
                 )
@@ -414,7 +414,7 @@ class WebMainGuiApi:
                 dx = int(cursor[0] - start_x)
                 dy = int(cursor[1] - start_y)
 
-                # Ignore an initial coordinate spike from async call startup.
+                # Guard against an initial cursor jump when capture starts.
                 if first_sample:
                     first_sample = False
                     if abs(dx) > 80 or abs(dy) > 80:
@@ -463,10 +463,9 @@ class WebMainGuiApi:
         if window is None:
             return {"success": False, "error": "Window is not ready."}
         try:
-            # Do not evaluate JS during shutdown; WebView may already be disposing.
+            # Avoid JS evaluation during shutdown because the WebView may already be disposing.
             self._persist_window_size(window, use_js_viewport=False)
-            # Defer destruction until after this JS->Python bridge call returns.
-            # Otherwise pywebview may try to evaluate the callback on a disposed WebView2.
+            # Defer destruction until this bridge call returns to avoid WebView2 callback errors.
             self._destroy_window_deferred(window)
             return {"success": True}
         except Exception as e:
@@ -615,8 +614,7 @@ class StartupSetupManager:
             steamcmd_process.stdout.close()
         steamcmd_process.wait()
 
-        # SteamCMD can return non-zero on first-run/update while still completing setup.
-        # Match original app behavior: verify required files after run instead of hard-failing on exit code.
+        # SteamCMD may return non-zero on first run/update; verify required outputs instead.
         essential_files = [
             os.path.join(self.steamcmd_dir, "steam.dll"),
             os.path.join(self.steamcmd_dir, "steamclient.dll"),
