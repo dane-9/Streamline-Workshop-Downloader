@@ -14,6 +14,10 @@ import requests
 from web_backend import AppIDScraper, StreamlineWebBackend
 
 current_version = "2.0.0"
+DEFAULT_WINDOW_WIDTH = 695
+DEFAULT_WINDOW_HEIGHT = 775
+MIN_WINDOW_WIDTH = DEFAULT_WINDOW_WIDTH
+MIN_WINDOW_HEIGHT = DEFAULT_WINDOW_HEIGHT
 
 DEFAULT_SETTINGS = {
     "current_theme": "Dark",
@@ -173,8 +177,8 @@ class WebMainGuiApi:
         if width <= 0 or height <= 0:
             return {"success": False, "error": "Could not determine window size."}
 
-        width = max(656, width)
-        height = max(740, height)
+        width = max(MIN_WINDOW_WIDTH, width)
+        height = max(MIN_WINDOW_HEIGHT, height)
         next_size = {"width": int(width), "height": int(height)}
         current_size = self.backend.config.get("window_size")
         if current_size == next_size:
@@ -387,8 +391,8 @@ class WebMainGuiApi:
             if not start_cursor:
                 return {"success": False, "error": "Could not read cursor position."}
 
-            start_width = max(656, int(getattr(window, "width", 0) or 0))
-            start_height = max(740, int(getattr(window, "height", 0) or 0))
+            start_width = max(MIN_WINDOW_WIDTH, int(getattr(window, "width", 0) or 0))
+            start_height = max(MIN_WINDOW_HEIGHT, int(getattr(window, "height", 0) or 0))
             start_window_y = int(getattr(window, "y", 0) or 0)
             if start_width <= 0 or start_height <= 0:
                 return {"success": False, "error": "Could not determine window size."}
@@ -398,12 +402,12 @@ class WebMainGuiApi:
             last_height = start_height
             start_window_x = int(getattr(window, "x", 0) or 0)
             last_window_x = start_window_x
-            screen_width = max(656, int(user32.GetSystemMetrics(0)))
-            screen_height = max(740, int(user32.GetSystemMetrics(1)))
-            max_east_width = max(656, screen_width - start_window_x)
-            max_south_height = max(740, screen_height - start_window_y)
+            screen_width = max(MIN_WINDOW_WIDTH, int(user32.GetSystemMetrics(0)))
+            screen_height = max(MIN_WINDOW_HEIGHT, int(user32.GetSystemMetrics(1)))
+            max_east_width = max(MIN_WINDOW_WIDTH, screen_width - start_window_x)
+            max_south_height = max(MIN_WINDOW_HEIGHT, screen_height - start_window_y)
             right_edge = start_window_x + start_width
-            max_west_width = max(656, right_edge)
+            max_west_width = max(MIN_WINDOW_WIDTH, right_edge)
             first_sample = True
 
             while user32.GetAsyncKeyState(0x01) & 0x8000:
@@ -427,13 +431,13 @@ class WebMainGuiApi:
                 target_window_x = start_window_x
 
                 if normalized_mode in {"east", "southeast"}:
-                    target_width = max(656, min(max_east_width, start_width + dx))
+                    target_width = max(MIN_WINDOW_WIDTH, min(max_east_width, start_width + dx))
                 elif normalized_mode in {"west", "southwest"}:
-                    target_width = max(656, min(max_west_width, start_width - dx))
+                    target_width = max(MIN_WINDOW_WIDTH, min(max_west_width, start_width - dx))
                     target_window_x = max(0, right_edge - target_width)
 
                 if normalized_mode in {"south", "southeast", "southwest"}:
-                    target_height = max(740, min(max_south_height, start_height + dy))
+                    target_height = max(MIN_WINDOW_HEIGHT, min(max_south_height, start_height + dy))
 
                 size_changed = (target_width != last_width) or (target_height != last_height)
                 pos_changed = target_window_x != last_window_x
@@ -736,10 +740,10 @@ def run_pywebview_main_gui():
     setup_index = runtime_setup_index if os.path.isfile(runtime_setup_index) else bundled_setup_index
     api.main_url = Path(webui_index).resolve().as_uri() if os.path.isfile(webui_index) else ""
 
-    default_window_width = 695
-    default_window_height = 775
-    min_window_width = 656
-    min_window_height = 740
+    default_window_width = DEFAULT_WINDOW_WIDTH
+    default_window_height = DEFAULT_WINDOW_HEIGHT
+    min_window_width = MIN_WINDOW_WIDTH
+    min_window_height = MIN_WINDOW_HEIGHT
 
     screen_width = None
     screen_height = None
