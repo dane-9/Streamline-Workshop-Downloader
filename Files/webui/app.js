@@ -890,6 +890,8 @@ function showFormModal({
   onSubmit = null
 }) {
   return new Promise((resolve) => {
+    document.querySelectorAll(".settings-modal-actions-brand").forEach((node) => node.remove());
+    document.querySelectorAll(".modal-actions-banner").forEach((node) => node.remove());
     modalTitle.textContent = title || "Dialog";
     modalMessage.textContent = message || "";
     modalInput.classList.add("hidden");
@@ -4093,10 +4095,31 @@ async function openSettingsEditor() {
   const settings = await callApi("get_settings");
   await showFormModal({
     title: "Settings",
-    message: "Update Streamline settings.",
+    message: "",
     html: buildSettingsFormHtml(settings),
     okLabel: "Apply",
     onMount: (root) => {
+      if (modalMessage) {
+        modalMessage.textContent = "";
+      }
+      const actionsRow = modalOkBtn?.parentElement;
+      if (actionsRow && !actionsRow.querySelector(".settings-modal-actions-brand")) {
+        const brandWrap = document.createElement("div");
+        brandWrap.className = "settings-modal-actions-brand";
+
+        const banner = document.createElement("img");
+        banner.className = "modal-actions-banner settings-modal-actions-banner";
+        banner.src = "../banner.png";
+        banner.alt = "Streamline banner";
+
+        const version = document.createElement("span");
+        version.className = "settings-modal-actions-version";
+        version.textContent = state.version ? `v${state.version}` : "";
+
+        brandWrap.appendChild(banner);
+        brandWrap.appendChild(version);
+        actionsRow.insertBefore(brandWrap, actionsRow.firstChild);
+      }
       const pageButtons = Array.from(root.querySelectorAll("[data-settings-page-btn]"));
       const pages = Array.from(root.querySelectorAll("[data-settings-page]"));
       const autoDetect = root.querySelector("#st-auto-detect");

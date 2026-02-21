@@ -1584,6 +1584,10 @@ button.control:not(:disabled):active,
   line-height: 1.4;
 }
 
+.modal-message:empty {
+  display: none;
+}
+
 .modal-input {
   width: 100%;
   min-height: 120px;
@@ -2275,7 +2279,38 @@ select.form-control:hover {
   box-shadow: var(--elev-panel);
   padding: 8px;
   max-height: 390px;
+  min-height: 0;
   overflow: auto;
+}
+
+.settings-modal-actions-banner {
+  height: 26px;
+  width: auto;
+  max-width: 58%;
+  object-fit: contain;
+  display: block;
+}
+
+.settings-modal-actions-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-right: auto;
+  user-select: none;
+  pointer-events: none;
+}
+
+.settings-modal-actions-version {
+  color: #c0c0c0;
+  font-family: "Bahnschrift", "Segoe UI", Tahoma, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.settings-modal-actions-version:empty {
+  display: none;
 }
 
 .settings-page {
