@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Initializing Streamline</title>
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body>
+  <main class="setup-root">
+    <section class="setup-card">
+      <header class="setup-head">
+        <img class="setup-logo" src="../logo.png" alt="Streamline logo">
+        <div class="setup-head-copy">
+          <h1 class="setup-title">Initializing Streamline</h1>
+          <p class="setup-subtitle">Preparing dependencies and local data so the app is ready to run.</p>
+        </div>
+      </header>
+
+      <p id="setup-status" class="setup-status" aria-live="polite">Preparing setup...</p>
+
+      <ol id="setup-stepper" class="setup-stepper" aria-label="Initialization stages">
+        <li class="setup-step is-active" data-step="steamcmd">
+          <span class="setup-step-dot" aria-hidden="true"></span>
+          <span class="setup-step-label">SteamCMD</span>
+        </li>
+        <li class="setup-step" data-step="appids">
+          <span class="setup-step-dot" aria-hidden="true"></span>
+          <span class="setup-step-label">AppIDs</span>
+        </li>
+        <li class="setup-step" data-step="finalize">
+          <span class="setup-step-dot" aria-hidden="true"></span>
+          <span class="setup-step-label">Finalize</span>
+        </li>
+      </ol>
+
+      <div class="progress-wrap">
+        <div id="setup-progress-bar" class="progress-bar"></div>
+      </div>
+
+      <section id="setup-steamcmd-progress" class="setup-steamcmd-progress setup-progress-panel" aria-live="polite">
+        <div class="setup-steamcmd-progress-head">
+          <span class="setup-steamcmd-progress-title">SteamCMD Setup Status</span>
+          <span id="setup-steamcmd-progress-badge" class="setup-steamcmd-progress-badge state-idle">Idle</span>
+        </div>
+        <div class="setup-steamcmd-progress-bar-track">
+          <span id="setup-steamcmd-progress-bar-fill" class="setup-steamcmd-progress-bar-fill state-idle"></span>
+        </div>
+        <p id="setup-steamcmd-progress-text" class="setup-steamcmd-progress-text">Waiting for SteamCMD stage...</p>
+        <ol class="setup-steamcmd-progress-steps">
+          <li class="setup-steamcmd-progress-step is-pending" data-steamcmd-step="check">
+            <span class="setup-steamcmd-progress-step-dot" aria-hidden="true"></span>
+            <span class="setup-steamcmd-progress-step-label">Check installation</span>
+          </li>
+          <li class="setup-steamcmd-progress-step is-pending" data-steamcmd-step="download">
+            <span class="setup-steamcmd-progress-step-dot" aria-hidden="true"></span>
+            <span class="setup-steamcmd-progress-step-label">Download package</span>
+          </li>
+          <li class="setup-steamcmd-progress-step is-pending" data-steamcmd-step="initialize">
+            <span class="setup-steamcmd-progress-step-dot" aria-hidden="true"></span>
+            <span class="setup-steamcmd-progress-step-label">Initialize SteamCMD</span>
+          </li>
+          <li class="setup-steamcmd-progress-step is-pending" data-steamcmd-step="verify">
+            <span class="setup-steamcmd-progress-step-dot" aria-hidden="true"></span>
+            <span class="setup-steamcmd-progress-step-label">Verify setup</span>
+          </li>
+        </ol>
+      </section>
+
+      <section id="setup-appids-progress" class="setup-appids-progress setup-progress-panel hidden" aria-live="polite">
+        <div class="setup-appids-progress-head">
+          <span class="setup-appids-progress-title">AppIDs Fetch Status</span>
+          <span id="setup-appids-progress-badge" class="setup-appids-progress-badge state-idle">Idle</span>
+        </div>
+        <div class="setup-appids-progress-bar-track">
+          <span id="setup-appids-progress-bar-fill" class="setup-appids-progress-bar-fill state-idle"></span>
+        </div>
+        <p id="setup-appids-progress-text" class="setup-appids-progress-text">Waiting for AppIDs stage...</p>
+        <ol class="setup-appids-progress-steps">
+          <li class="setup-appids-progress-step is-pending" data-appids-step="connect">
+            <span class="setup-appids-progress-step-dot" aria-hidden="true"></span>
+            <span class="setup-appids-progress-step-label">Connect to source</span>
+          </li>
+          <li class="setup-appids-progress-step is-pending" data-appids-step="fetch">
+            <span class="setup-appids-progress-step-dot" aria-hidden="true"></span>
+            <span class="setup-appids-progress-step-label">Fetch entries</span>
+          </li>
+          <li class="setup-appids-progress-step is-pending" data-appids-step="parse">
+            <span class="setup-appids-progress-step-dot" aria-hidden="true"></span>
+            <span class="setup-appids-progress-step-label">Parse payload</span>
+          </li>
+          <li class="setup-appids-progress-step is-pending" data-appids-step="write">
+            <span class="setup-appids-progress-step-dot" aria-hidden="true"></span>
+            <span class="setup-appids-progress-step-label">Write AppIDs file</span>
+          </li>
+          <li class="setup-appids-progress-step is-pending" data-appids-step="reload">
+            <span class="setup-appids-progress-step-dot" aria-hidden="true"></span>
+            <span class="setup-appids-progress-step-label">Reload in app</span>
+          </li>
+        </ol>
+      </section>
+
+      <p id="setup-error" class="setup-error hidden"></p>
+      <div class="setup-actions">
+        <button id="setup-cancel-btn" class="setup-btn secondary" type="button">Cancel</button>
+        <button id="setup-retry-btn" class="setup-btn secondary hidden" type="button">Retry</button>
+        <button id="setup-open-anyway-btn" class="setup-btn secondary hidden" type="button">Open Anyway</button>
+        <button id="setup-open-btn" class="setup-btn primary hidden" type="button">Open Streamline</button>
+        <button id="setup-close-btn" class="setup-btn secondary hidden" type="button">Close</button>
+      </div>
+    </section>
+  </main>
+  <script src="setup.js"></script>
+</body>
+</html>

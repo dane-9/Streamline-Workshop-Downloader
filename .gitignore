@@ -1,10 +1,9 @@
 
 Files/steamcmd
-Files/chromium
-Files/Streamline
 Files/config.json
 Files/AppIDs.txt
 Files/debug
 Files/logs
+.idea/
 Downloads/
 __pycache__/

@@ -1,0 +1,482 @@
+:root {
+  --bg-0: #121212;
+  --bg-1: #1e1e1e;
+  --bg-2: #252526;
+  --line: #3f3f46;
+  --text-0: #ffffff;
+  --text-1: #d7d7d7;
+  --text-2: #a0a0a0;
+  --accent: #4d8ac9;
+  --accent-hover: #5a97d6;
+  --accent-pressed: #3d7ab9;
+  --good: #67bf8a;
+  --bad: #d97878;
+  --chip-bg: #2c2c32;
+  --chip-border: #4b4b55;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  background: radial-gradient(circle at 20% 10%, #22252c 0%, var(--bg-0) 58%);
+  color: var(--text-1);
+  opacity: 1;
+  transition: opacity 260ms ease;
+}
+
+body.fade-out {
+  opacity: 0;
+}
+
+.setup-root {
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.setup-card {
+  width: min(600px, 100%);
+  height: min(500px, calc(100vh - 32px));
+  min-height: 350px;
+  max-height: 350px;
+  background: color-mix(in srgb, var(--bg-1) 90%, var(--bg-2) 10%);
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 8px;
+  padding: 20px 20px 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.42);
+  display: flex;
+  flex-direction: column;
+}
+
+.setup-logo {
+  width: 76px;
+  height: 76px;
+  display: block;
+  object-fit: contain;
+}
+
+.setup-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.setup-head-copy {
+  min-width: 0;
+}
+
+.setup-title {
+  margin: 0 0 5px;
+  color: var(--text-0);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.setup-subtitle {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.setup-status {
+  margin: 0 0 10px;
+  color: var(--text-0);
+  font-size: 13px;
+  line-height: 1.35;
+  min-height: 20px;
+}
+
+.setup-stepper {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.setup-step {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+}
+
+.setup-step-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  background: color-mix(in srgb, var(--bg-2) 82%, transparent);
+  flex: 0 0 9px;
+}
+
+.setup-step-label {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setup-step.is-active {
+  color: #e6f1ff;
+}
+
+.setup-step.is-active .setup-step-dot {
+  border-color: color-mix(in srgb, var(--accent) 56%, transparent);
+  background: color-mix(in srgb, var(--accent) 82%, #ffffff 18%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.setup-step.is-complete {
+  color: #dcecff;
+}
+
+.setup-step.is-complete .setup-step-dot {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  background: color-mix(in srgb, var(--accent) 84%, #ffffff 16%);
+}
+
+.setup-step.is-error {
+  color: #ffdede;
+}
+
+.setup-step.is-error .setup-step-dot {
+  border-color: color-mix(in srgb, var(--bad) 64%, transparent);
+  background: color-mix(in srgb, var(--bad) 78%, #ffffff 22%);
+}
+
+.progress-wrap {
+  width: 100%;
+  height: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  background: color-mix(in srgb, var(--bg-2) 85%, transparent);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.setup-steamcmd-progress,
+.setup-appids-progress {
+  margin-top: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-2) 56%, transparent);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.setup-progress-panel {
+  animation: setup-progress-panel-fade-in 180ms ease;
+}
+
+.setup-steamcmd-progress-head,
+.setup-appids-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.setup-steamcmd-progress-title,
+.setup-appids-progress-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.setup-steamcmd-progress-badge,
+.setup-appids-progress-badge {
+  border-radius: 999px;
+  border: 1px solid var(--chip-border);
+  padding: 1px 7px;
+  font-size: 8px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.setup-steamcmd-progress-badge.state-idle,
+.setup-appids-progress-badge.state-idle {
+  background: color-mix(in srgb, var(--chip-bg) 72%, transparent);
+  color: var(--text-2);
+}
+
+.setup-steamcmd-progress-badge.state-running,
+.setup-appids-progress-badge.state-running {
+  border-color: rgba(94, 149, 255, 0.62);
+  background: rgba(94, 149, 255, 0.2);
+  color: #d9e8ff;
+}
+
+.setup-steamcmd-progress-badge.state-success,
+.setup-appids-progress-badge.state-success {
+  border-color: rgba(102, 203, 139, 0.58);
+  background: rgba(102, 203, 139, 0.2);
+  color: #c8f2d6;
+}
+
+.setup-steamcmd-progress-badge.state-error,
+.setup-appids-progress-badge.state-error {
+  border-color: rgba(213, 115, 115, 0.62);
+  background: rgba(213, 115, 115, 0.2);
+  color: #ffd8d8;
+}
+
+.setup-steamcmd-progress-bar-track,
+.setup-appids-progress-bar-track {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-2) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  overflow: hidden;
+}
+
+.setup-steamcmd-progress-bar-fill,
+.setup-appids-progress-bar-fill {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  bottom: -1px;
+  width: 0%;
+  border-radius: 999px;
+  transition: width 220ms ease;
+}
+
+.setup-steamcmd-progress-bar-fill.state-idle,
+.setup-appids-progress-bar-fill.state-idle {
+  background: color-mix(in srgb, var(--line) 85%, transparent);
+}
+
+.setup-steamcmd-progress-bar-fill.state-running,
+.setup-appids-progress-bar-fill.state-running {
+  background: linear-gradient(90deg, rgba(82, 142, 255, 0.28) 0%, rgba(82, 142, 255, 0.84) 48%, rgba(82, 142, 255, 0.3) 100%);
+}
+
+.setup-steamcmd-progress-bar-fill.state-success,
+.setup-appids-progress-bar-fill.state-success {
+  background: linear-gradient(90deg, rgba(97, 194, 132, 0.9), rgba(97, 194, 132, 0.58));
+}
+
+.setup-steamcmd-progress-bar-fill.state-error,
+.setup-appids-progress-bar-fill.state-error {
+  background: linear-gradient(90deg, rgba(213, 115, 115, 0.92), rgba(213, 115, 115, 0.62));
+}
+
+.setup-steamcmd-progress-text,
+.setup-appids-progress-text {
+  margin: 6px 0 7px;
+  font-size: 10px;
+  line-height: 1.25;
+  min-height: 13px;
+  color: var(--text-2);
+}
+
+.setup-steamcmd-progress-steps,
+.setup-appids-progress-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 0 0 auto;
+  min-height: auto;
+  padding-bottom: 2px;
+}
+
+.setup-steamcmd-progress-step,
+.setup-appids-progress-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 16px;
+  padding: 1px 0;
+  font-size: 10px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  color: var(--text-1);
+  opacity: 0.76;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+
+.setup-steamcmd-progress-step-dot,
+.setup-appids-progress-step-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+  background: color-mix(in srgb, var(--bg-2) 78%, transparent);
+  flex: 0 0 7px;
+}
+
+.setup-steamcmd-progress-step.is-pending,
+.setup-appids-progress-step.is-pending {
+  opacity: 0.65;
+}
+
+.setup-steamcmd-progress-step.is-active,
+.setup-appids-progress-step.is-active {
+  opacity: 1;
+}
+
+.setup-steamcmd-progress-step.is-active .setup-steamcmd-progress-step-dot,
+.setup-appids-progress-step.is-active .setup-appids-progress-step-dot {
+  border-color: rgba(94, 149, 255, 0.72);
+  background: rgba(94, 149, 255, 0.88);
+}
+
+.setup-steamcmd-progress-step.is-done,
+.setup-appids-progress-step.is-done {
+  opacity: 1;
+  color: var(--text-0);
+}
+
+.setup-steamcmd-progress-step.is-done .setup-steamcmd-progress-step-dot,
+.setup-appids-progress-step.is-done .setup-appids-progress-step-dot {
+  border-color: rgba(102, 203, 139, 0.68);
+  background: rgba(102, 203, 139, 0.88);
+}
+
+.setup-steamcmd-progress-step.is-error,
+.setup-appids-progress-step.is-error {
+  opacity: 1;
+}
+
+.setup-steamcmd-progress-step.is-error .setup-steamcmd-progress-step-dot,
+.setup-appids-progress-step.is-error .setup-appids-progress-step-dot {
+  border-color: rgba(213, 115, 115, 0.78);
+  background: rgba(213, 115, 115, 0.9);
+}
+
+@keyframes setup-progress-panel-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.setup-error {
+  margin: 12px 0 0;
+  border: 1px solid #6b2d2d;
+  background: #2e1b1b;
+  color: #ffbcbc;
+  padding: 10px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+
+.setup-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+}
+
+.setup-btn {
+  border: none;
+  border-radius: 4px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.setup-btn.primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.setup-btn.primary:hover {
+  background: var(--accent-hover);
+}
+
+.setup-btn.primary:active {
+  background: var(--accent-pressed);
+}
+
+.setup-btn.secondary {
+  background: #333;
+  color: var(--text-1);
+}
+
+.setup-btn.secondary:hover {
+  background: #555;
+  color: #fff;
+}
+
+.setup-btn.secondary:active {
+  background: #444;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 580px) {
+  .setup-card {
+    padding: 16px 14px 14px;
+    height: calc(100vh - 24px);
+    min-height: 0;
+  }
+
+  .setup-head {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .setup-logo {
+    width: 66px;
+    height: 66px;
+  }
+
+  .setup-status {
+    text-align: center;
+  }
+}

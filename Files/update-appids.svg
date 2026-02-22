@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="64" viewBox="0 0 160 64">
+  <defs>
+    <mask id="text-cutout">
+      <rect width="160" height="64" fill="white"/>
+      <text x="80" y="44" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="30" text-anchor="middle" fill="black">APPIDs</text>
+    </mask>
+  </defs>
+  <rect x="2" y="2" width="156" height="60" rx="10" ry="10" fill="currentColor" mask="url(#text-cutout)"/>
+</svg>
