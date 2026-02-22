@@ -1,65 +1,72 @@
 ![STREAMLINE BANNER](https://github.com/user-attachments/assets/bd9cfce7-dde0-469a-8208-7caa8b9fb91a)
 
-**Streamline** is a user-friendly application **built with pywebview** to help you effortlessly download Steam Workshop mods and collections. Leveraging SteamCMD and SteamWebAPI, this tool simplifies the process of managing multiple Steam accounts, configuring download settings, and queuing mods for efficient downloading.
+**Streamline** is a modern Steam Workshop downloader **built with pywebview**. It lets you queue, manage, and download Workshop mods and collections through an intuitive web-based interface, powered by SteamCMD and SteamWebAPI under the hood.
 
 [![GitHub Release](https://img.shields.io/github/v/release/dane-9/Streamline-Workshop-Downloader.svg?label=Current%20Release&color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge&logo=github)](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) [![GitHub Release Date](https://img.shields.io/github/release-date/dane-9/Streamline-Workshop-Downloader.svg?label=Version%20Released&color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge)](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) [![GitHub Downloads](https://img.shields.io/github/downloads/dane-9/Streamline-Workshop-Downloader/total.svg?color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge)](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) [![GitHub Stars](https://img.shields.io/github/stars/dane-9/Streamline-Workshop-Downloader.svg?color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge)](https://github.com/dane-9/Streamline-Workshop-Downloader)
 
 ## User Interface
-<img src="https://i.imgur.com/imQRfEN.png" alt="gui" width="600"/>
+<img src="https://i.imgur.com/zhf7zq9.png" alt="gui" width="600"/>
 
 ## Features
-| Feature                                               | Description                                                                                                                                                                                            |
-|-----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Robust Backend**                            | *<sub>Supports queues with **thousands of mods**.</sub>*                                                                                                                                              |
-| **Multiple Steam Accounts**                   | *<sub>Add, remove, and manage **multiple Steam accounts** to download mods.</sub>*                                                                                                                     |
-| **Mod & Collection Downloading**              | *<sub>Queue individual mods or entire collections from the Steam Workshop.</sub>*                                                                                                                     |
-| **Queue Entire Workshop for an AppID**        | *<sub>Easily queue all mods from a specific game's Workshop using its AppID.<br>Currently up to **50010 Mods per scrape**.</sub>*                                                                           |
-| **Detailed GUI with Realtime Overview**       | *<sub>**Monitor downloads as they happen** and troubleshoot issues with a Realtime Overview,<br>aided by **Status Indicators for easy troubleshooting**.</sub>*                 |
-| **Download from Multiple Providers**  | *<sub>Simultaneously download mods from **SteamCMD** and **SteamWebAPI** at once<br>and with different AppIDs.</sub>*                                                                                   |
-| **Automatic AppID List Updates**              | *<sub>Keep your AppID list up-to-date automatically using Selenium-driven scraping.<br>Scrapes directly from SteamDB.</sub>*                                                                              |
-| **Automatic SteamCMD Setup**                  | *<sub>The application handles the download and setup of SteamCMD.<br>**Passwords are NOT saved** and authentication is exclusively handled by SteamCMD.</sub>*                                        |
-| **Automatic Game Detection**                  | *<sub>Automatically detects the game associated with a mod.</sub>*                                                                                             |
-| **Detects URLs from Clipboard**           | *<sub>Automatically detects and processes Steam Workshop URLs copied to your clipboard.</sub>*                                                                                                         |
-| **Import & Export Queue**                     | *<sub>Import and export download queues for easy sharing and backup.</sub>*                                                                                                                             |
-| **Localized Downloads**                       | *<sub>Downloads mods to a folder next to the application.</sub>*                                                                                                                                      |
-| **Vertical Mouse Scrolling**                  | *<sub>Ability to Click mouse-wheel and vertically scroll.</sub>*                                                                                                                                      |
-| **Queue Reordering**                          | *<sub>Easily reorder mods in your download queue to prioritize specific downloads.</sub>*                                                                                                              |
-| **Chromium & Webdriver Setup**      | *<sub>Automatically downloads and configures Chromium and WebDriver for web scraping.</sub>*                                                                                                      |
-| **Batch Processing**                          | *<sub>Download multiple mods in configurable batches for optimized performance.</sub>*                                                                                                                  |
-| **Customizable Settings**                     | *<sub>Adjust batch sizes, toggle visibility for UI elements,<br>and other settings to suit your preferences.</sub>*                                                                                        |
+| Feature | Description |
+|---|---|
+| **Virtual-Scrolled Queue** | *<sub>Handles **thousands of mods** with no lag. Only visible rows are rendered, with smart fetch-ahead buffering and backend pagination.</sub>* |
+| **Command Palette** | *<sub>A searchable launcher (`Ctrl+K` or double-tap `Shift`) that gives you fast access to **every action** in the app. Replaces the old menu bar.</sub>* |
+| **Interactive SteamCMD Terminal** | *<sub>Authenticate accounts directly inside Streamline. Streams SteamCMD output in real time and lets you enter **Steam Guard codes** without leaving the app. Password input is visible as you type for convenience (unlike SteamCMD's hidden input).<br>**Passwords are NOT saved**; authentication is handled exclusively by SteamCMD.</sub>* |
+| **Realtime Log Overview** | *<sub>Logs are organized into collapsible operation groups with **color-coded state badges** (`RUN` / `DONE` / `ERROR` / `STOP`). Filterable by category.</sub>* |
+| **Multiple Steam Accounts** | *<sub>Add, remove, re-authenticate, and **drag-reorder** multiple Steam accounts. Avatars are fetched and displayed automatically.</sub>* |
+| **Mod & Collection Downloading** | *<sub>Queue individual mods, entire collections, or an **entire game's Workshop** (up to 50,010 mods per scrape).</sub>* |
+| **Download from Multiple Providers** | *<sub>Simultaneously download mods from **SteamCMD** and **SteamWebAPI** at once and with different AppIDs.</sub>* |
+| **Automatic SteamCMD Setup** | *<sub>Streamline handles downloading and initializing SteamCMD automatically.</sub>* |
+| **Automatic AppID Updates** | *<sub>Keep your AppID list current by scraping directly from SteamDB using **Botasaurus**. Supports headless and visible browser modes.</sub>* |
+| **Automatic Game Detection** | *<sub>Automatically detects the game associated with a mod when queueing.</sub>* |
+| **Clipboard URL Detection** | *<sub>Detects Steam Workshop URLs copied to your clipboard and optionally adds them to the queue automatically.</sub>* |
+| **Import & Export Queue** | *<sub>Save and load download queues for sharing or backup.</sub>* |
+| **Batch Processing** | *<sub>Download mods in configurable batches for optimized performance.</sub>* |
+| **Customizable Settings** | *<sub>Adjust themes, batch sizes, folder naming, provider defaults, visibility toggles, and startup behavior.</sub>* |
+| **Custom Frameless Window** | *<sub>Fully frameless window with a custom title bar, native resize grips, and persistent window size.</sub>* |
 
-*No additional installations or Python dependencies are required as the application is packaged into a standalone executable.* ***An alternative is running from source with your existing Python installation***.
+*No additional installations or Python dependencies are required as the application is packaged into a standalone executable.* ***An alternative is running from source with your existing Python installation.***
 
 ## Installation
 
-1. **Download the Executable OR Source Code**
+### Option A: Executable
 
-   Download the latest version of `Streamline.exe`  from the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page. Then drag it into a folder and launch it.
-   
-   **OR**
-   
-   Download the `Source Code (zip)` from the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page.
+1. Download the latest `Streamline.exe` from the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page
+2. Place it in its own folder and launch it
 
-2. **If using Source Code: Extract the Files**
+### Option B: Run from Source (in a Virtual Environment)
 
-   Extract the contents of the downloaded `.zip` file to your desired installation directory.
+If you prefer to run from source code:
 
-3. **Install Dependencies**
-
+1. Clone the repository:
    ```bash
-   python -m pip install --upgrade pip
-   python -m pip install -r Files/requirements.txt
+   git clone https://github.com/dane-9/Streamline-Workshop-Downloader.git
    ```
-
-4. **Run Streamline**
-
+2. Navigate to the directory:
+   ```bash
+   cd Streamline-Workshop-Downloader
+   ```
+3. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   # On Windows:
+   venv\Scripts\activate
+   # On macOS/Linux:
+   source venv/bin/activate
+   ```
+4. Install dependencies:
+   ```bash
+   pip install -r Files/requirements.txt
+   ```
+5. Run Streamline:
    ```bash
    python downloader.py
    ```
 
-## Support 
+## Support
 
-Before opening an issue, please review the [Documentation](https://github.com/dane-9/Streamline-Workshop-Downloader/wiki/Documentation). 
+Before opening an issue, please review the [Documentation](https://github.com/dane-9/Streamline-Workshop-Downloader/wiki/Documentation).
 If you still encounter problems or have questions, feel free to open an [issue](https://github.com/dane-9/Streamline-Workshop-Downloader/issues).
 
 ## License
