@@ -48,6 +48,8 @@ DEFAULT_SETTINGS = {
     "reset_provider_on_startup": False,
     "download_provider": "Default",
     "log_category_filter": "all",
+    "command_palette_filters": ["all", "controls", "appearance", "tools", "help"],
+    "command_palette_all_type_filters": [],
     "reset_window_size_on_startup": True,
     "show_tutorial_on_startup": True,
     "tutorial_shown": False,
