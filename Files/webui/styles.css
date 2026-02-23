@@ -1464,7 +1464,7 @@ button.control:not(:disabled):active,
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 48px 12px 12px;
+  padding: 64px 12px 12px;
   z-index: 105;
   opacity: 1;
   visibility: visible;
