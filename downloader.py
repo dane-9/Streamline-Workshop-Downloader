@@ -1,5 +1,6 @@
 import ctypes
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -72,23 +73,27 @@ def resource_path(relative_path):
 
 
 def _get_runtime_executable_path():
+    appimage_path = str(os.environ.get("APPIMAGE", "")).strip()
+    if appimage_path and os.path.isfile(appimage_path):
+        return os.path.abspath(appimage_path)
+
     argv0 = str(sys.argv[0] if sys.argv else "").strip()
-    argv0_lower = argv0.lower()
     if argv0:
         candidate = os.path.abspath(argv0)
-        if candidate.lower().endswith(".exe") and os.path.isfile(candidate):
+        if os.path.isfile(candidate) and not candidate.lower().endswith((".py", ".pyw")):
             return candidate
 
+    argv0_lower = argv0.lower()
     running_script = argv0_lower.endswith(".py") or argv0_lower.endswith(".pyw")
     if not running_script:
         exe_path = str(getattr(sys, "executable", "")).strip()
-        if exe_path and exe_path.lower().endswith(".exe") and os.path.isfile(exe_path):
+        if exe_path and os.path.isfile(exe_path):
             return os.path.abspath(exe_path)
 
     is_frozen = bool(getattr(sys, "frozen", False)) or hasattr(sys, "_MEIPASS") or ("__compiled__" in globals())
     if is_frozen:
         exe_path = str(getattr(sys, "executable", "")).strip()
-        if exe_path and exe_path.lower().endswith(".exe") and os.path.isfile(exe_path):
+        if exe_path and os.path.isfile(exe_path):
             return os.path.abspath(exe_path)
     return ""
 
