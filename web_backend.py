@@ -990,11 +990,13 @@ class StreamlineWebBackend:
 
         app_id = None
         numeric_id = None
+        explicit_workshop_item_url = False
 
         if "store.steampowered.com/app/" in input_text:
             app_id = self._extract_appid(input_text)
         elif "steamcommunity.com/sharedfiles/filedetails/" in input_text or "steamcommunity.com/workshop/filedetails/" in input_text:
             numeric_id = self._extract_id(input_text)
+            explicit_workshop_item_url = bool(numeric_id)
         elif input_text.isdigit():
             numeric_id = input_text
             if numeric_id in self.app_ids:
@@ -1003,6 +1005,11 @@ class StreamlineWebBackend:
             app_id = self._extract_appid(input_text)
             if not app_id:
                 numeric_id = self._extract_id(input_text)
+
+        if explicit_workshop_item_url and numeric_id:
+            if self._is_collection(numeric_id):
+                return ("collection", numeric_id)
+            return ("workshop_item", numeric_id)
 
         if app_id and self._check_if_appid_has_workshop(app_id):
             return ("game", app_id)
