@@ -306,6 +306,7 @@ class StreamlineWebBackend:
         self._hydration_lock = threading.Lock()
         self._hydration_inflight = set()
         self._hydration_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="mod-hydrate")
+        self._workshop_ui_cache = {}
 
         self.config = self._load_config()
         self.app_ids = {}
@@ -1028,8 +1029,17 @@ class StreamlineWebBackend:
         return (None, None)
 
     def _check_if_appid_has_workshop(self, app_id: str):
+        return self._get_workshop_ui_mode(app_id) in {"legacy", "beta"}
+
+    def _get_workshop_ui_mode(self, app_id: str):
+        key = str(app_id or "").strip()
+        if not key:
+            return None
+        cached = self._workshop_ui_cache.get(key)
+        if cached in {"legacy", "beta", "none"}:
+            return None if cached == "none" else cached
         try:
-            workshop_url = f"https://steamcommunity.com/app/{app_id}/workshop/"
+            workshop_url = f"https://steamcommunity.com/app/{key}/workshop/"
             response = requests.get(
                 workshop_url,
                 allow_redirects=True,
@@ -1038,13 +1048,50 @@ class StreamlineWebBackend:
             )
             final_url = response.url
             if "store.steampowered.com" in final_url and "/workshop/" not in final_url:
-                return False
+                self._workshop_ui_cache[key] = "none"
+                return None
             if response.status_code != 200:
-                return False
+                self._workshop_ui_cache[key] = "none"
+                return None
             markers = ["workshopItemsContainer", "workshopBrowseItems", "workshop_browse_menu"]
-            return any(marker in response.text for marker in markers)
+            if any(marker in response.text for marker in markers):
+                self._workshop_ui_cache[key] = "legacy"
+                return "legacy"
+            tree = html.fromstring(response.text)
+            if self._is_beta_workshop_app_page(tree, response.text, key):
+                self._workshop_ui_cache[key] = "beta"
+                return "beta"
+            self._workshop_ui_cache[key] = "none"
+            return None
         except Exception:
+            return None
+
+    def _is_beta_workshop_app_page(self, tree, page_content: str, app_id: str):
+        page_text = (page_content or "").lower()
+        beta_markers = [
+            "exit steam workshop beta",
+            "view workshop beta",
+            "the steam workshop for",
+            "browsing: items",
+            "entries matching filters",
+        ]
+        if not any(marker in page_text for marker in beta_markers):
             return False
+
+        app_links = tree.xpath(
+            f'//a[contains(@href, "/app/{app_id}") or contains(@href, "store.steampowered.com/app/{app_id}")]'
+        )
+        workshop_headers = tree.xpath(
+            '//*[self::h1 or self::h2 or self::div][contains(translate(normalize-space(.), '
+            '"ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "the steam workshop for")]'
+        )
+        workshop_item_links = tree.xpath(
+            '//a['
+            'contains(@href, "sharedfiles/filedetails") '
+            'or contains(@href, "workshop/filedetails")'
+            ']'
+        )
+        return bool(app_links) and (bool(workshop_headers) or bool(workshop_item_links))
 
     def _is_collection(self, item_id: str):
         try:
@@ -1302,7 +1349,92 @@ class StreamlineWebBackend:
                     "app_id": str(app_id),
                     "game_name": game_name,
                 })
-        return mods
+        if mods:
+            return mods
+
+        mods_by_id = {}
+        workshop_links = page_tree.xpath(
+            '//a['
+            'contains(@href, "sharedfiles/filedetails") '
+            'or contains(@href, "workshop/filedetails")'
+            ']'
+        )
+        for link in workshop_links:
+            href = link.get("href", "")
+            if not href or "/discussion/" in href:
+                continue
+            mod_id = self._extract_id(href)
+            if not mod_id:
+                continue
+            mod_name = " ".join(link.text_content().split())
+            if not mod_name:
+                mod_name = f"Mod {mod_id}"
+            existing = mods_by_id.get(str(mod_id))
+            if existing and not self._mod_name_needs_hydration(existing.get("mod_name"), str(mod_id)):
+                continue
+            mods_by_id[str(mod_id)] = {
+                "mod_id": str(mod_id),
+                "mod_name": mod_name,
+                "app_id": str(app_id),
+                "game_name": game_name,
+            }
+        return list(mods_by_id.values())
+
+    def _extract_workshop_total_pages(self, tree, mods_per_page: int, max_pages: int, ui_mode: str):
+        page_numbers = []
+        if ui_mode == "beta":
+            paginator_blocks = tree.xpath(
+                '//span[.//*[@role="button"] and .//div[normalize-space(.)="..."]] | '
+                '//div[contains(@style, "--direction:row") and .//*[@role="button"] and .//div[normalize-space(.)="..."]]'
+            )
+            page_buttons = []
+            if paginator_blocks:
+                best_block = max(
+                    paginator_blocks,
+                    key=lambda node: len(node.xpath('.//*[@role="button"]')),
+                )
+                page_buttons = best_block.xpath('.//*[@role="button"]')
+            if not page_buttons:
+                page_buttons = tree.xpath('//*[@role="button"]')
+            for button in page_buttons:
+                text = " ".join(button.text_content().split())
+                if not text:
+                    continue
+                digits = re.sub(r"\D", "", text)
+                if not digits:
+                    continue
+                try:
+                    page_number = int(digits)
+                except Exception:
+                    continue
+                if 1 <= page_number <= max_pages:
+                    page_numbers.append(page_number)
+            if page_numbers:
+                highest_page = max(page_numbers)
+                if highest_page >= 2:
+                    return highest_page
+
+        paging_info = tree.xpath("//div[@class='workshopBrowsePagingInfo']/text()")
+        total_entries = 0
+        for info in paging_info:
+            match = re.search(r"\bof\s+([\d,]+)", info, flags=re.IGNORECASE)
+            if match:
+                try:
+                    total_entries = int(match.group(1).replace(",", ""))
+                    break
+                except Exception:
+                    total_entries = 0
+        if total_entries <= 0:
+            page_text = " ".join(tree.xpath("//text()"))
+            match = re.search(r"([\d,]+)\s+entries\s+matching\s+filters", page_text, flags=re.IGNORECASE)
+            if match:
+                try:
+                    total_entries = int(match.group(1).replace(",", ""))
+                except Exception:
+                    total_entries = 0
+        if total_entries <= 0:
+            return 1
+        return min((total_entries + mods_per_page - 1) // mods_per_page, max_pages)
 
     def _scrape_workshop_app(
         self,
@@ -1313,7 +1445,25 @@ class StreamlineWebBackend:
         operation_id: str = "",
     ):
         base_url = "https://steamcommunity.com/workshop/browse/"
-        params = {"appid": str(app_id), "browsesort": "toprated", "section": "readytouseitems", "p": "1"}
+        ui_mode = self._get_workshop_ui_mode(app_id) or "legacy"
+        if ui_mode == "beta":
+            mods_per_page = 50
+            max_pages = min(max_pages, 1000)
+            params = {
+                "appid": str(app_id),
+                "browsesort": "toprated",
+                "section": "readytouseitems",
+                "p": "1",
+                "num_per_page": str(mods_per_page),
+            }
+        else:
+            mods_per_page = 30
+            params = {
+                "appid": str(app_id),
+                "browsesort": "toprated",
+                "section": "readytouseitems",
+                "p": "1",
+            }
         mods = []
         seen_mod_ids = set()
         game_name = self.app_ids.get(str(app_id), f"AppID {app_id}")
@@ -1324,6 +1474,10 @@ class StreamlineWebBackend:
 
         if game_name.startswith("AppID "):
             game_nodes = tree.xpath('//div[@class="apphub_AppName ellipsis"]/text()')
+            if not game_nodes:
+                game_nodes = tree.xpath(
+                    f'//a[contains(@href, "/app/{app_id}") or contains(@href, "store.steampowered.com/app/{app_id}")]/text()'
+                )
             if game_nodes:
                 game_name = game_nodes[0].strip()
 
@@ -1353,24 +1507,7 @@ class StreamlineWebBackend:
                     )
 
         first_page_mods = self._parse_workshop_page(response.text, app_id=str(app_id), game_name=game_name)
-
-        paging_info = tree.xpath("//div[@class='workshopBrowsePagingInfo']/text()")
-        total_entries = 0
-        for info in paging_info:
-            match = re.search(r"\bof\s+([\d,]+)", info, flags=re.IGNORECASE)
-            if match:
-                try:
-                    total_entries = int(match.group(1).replace(",", ""))
-                    break
-                except Exception:
-                    total_entries = 0
-
-        if total_entries <= 0:
-            emit_batch(first_page_mods, 1, 1)
-            return mods
-
-        mods_per_page = 30
-        total_pages = min((total_entries + mods_per_page - 1) // mods_per_page, max_pages)
+        total_pages = self._extract_workshop_total_pages(tree, mods_per_page, max_pages, ui_mode)
         emit_batch(first_page_mods, 1, total_pages)
         if total_pages <= 1:
             return mods
