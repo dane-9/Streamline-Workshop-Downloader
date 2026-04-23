@@ -648,6 +648,21 @@ class StartupSetupManager:
         with open(self.appids_path, "w", encoding="utf-8") as handle:
             handle.write("\n".join(entries))
 
+    def _seed_appids_from_bundle(self):
+        bundled_appids_path = resource_path(os.path.join("Files", "AppIDs.txt"))
+        if not os.path.isfile(bundled_appids_path):
+            return False
+        try:
+            source_path = os.path.abspath(bundled_appids_path)
+            target_path = os.path.abspath(self.appids_path)
+            if source_path == target_path:
+                return True
+            os.makedirs(os.path.dirname(self.appids_path), exist_ok=True)
+            shutil.copy2(bundled_appids_path, self.appids_path)
+            return True
+        except Exception:
+            return False
+
     def _cleanup_files(self):
         if os.path.isdir(self.steamcmd_dir):
             try:
@@ -701,8 +716,11 @@ class StartupSetupManager:
 
             self._set_state(progress=60, status="Checking AppIDs database...")
             if not os.path.isfile(self.appids_path):
-                self._set_state(progress=70, status="Scraping SteamDB for AppIDs...")
-                self._download_appids()
+                self._set_state(progress=70, status="Seeding bundled AppIDs database...")
+                seeded = self._seed_appids_from_bundle()
+                if not seeded:
+                    self._set_state(progress=70, status="Scraping SteamDB for AppIDs...")
+                    self._download_appids()
                 if self._cancel_event.is_set():
                     self._finish_canceled()
                     return
