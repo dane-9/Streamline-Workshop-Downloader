@@ -3333,13 +3333,15 @@ class StreamlineWebBackend:
             return 0
 
     def _start_clipboard_monitoring(self):
-        if platform.system().lower() != "windows":
-            return
         thread = self._clipboard_monitor_thread
         if thread is not None and thread.is_alive():
             return
         self._clipboard_stop_event = threading.Event()
         self._clipboard_last_seq = self._get_clipboard_sequence_windows()
+        try:
+            self.last_clipboard_text = (self._read_clipboard_text() or "").strip()
+        except Exception:
+            self.last_clipboard_text = ""
         self._clipboard_monitor_thread = threading.Thread(
             target=self._clipboard_monitor_loop,
             name="streamline-clipboard-monitor",
@@ -3391,6 +3393,45 @@ class StreamlineWebBackend:
                     pass
         return ""
 
+    def _read_clipboard_text_subprocess(self):
+        clipboard_commands = []
+        system_name = platform.system().lower()
+        if system_name == "darwin":
+            clipboard_commands.append(["pbpaste"])
+        else:
+            clipboard_commands.extend([
+                ["wl-paste", "--no-newline"],
+                ["xclip", "-selection", "clipboard", "-o"],
+                ["xsel", "--clipboard", "--output"],
+            ])
+
+        for command in clipboard_commands:
+            executable = shutil.which(command[0])
+            if not executable:
+                continue
+            try:
+                result = subprocess.run(
+                    [executable, *command[1:]],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                    timeout=1.0,
+                    check=False,
+                )
+            except Exception:
+                continue
+            if result.returncode == 0:
+                return str(result.stdout or "")
+        return ""
+
+    def _read_clipboard_text(self):
+        if platform.system().lower() == "windows":
+            return self._read_clipboard_text_windows()
+        return self._read_clipboard_text_subprocess()
+
     def _is_valid_workshop_clipboard_input(self, text: str):
         value = (text or "").strip()
         if not value:
@@ -3408,7 +3449,7 @@ class StreamlineWebBackend:
         if not self.config.get("auto_detect_urls", False):
             return
 
-        current_text = (self._read_clipboard_text_windows() or "").strip()
+        current_text = (self._read_clipboard_text() or "").strip()
         if not current_text:
             return
 
