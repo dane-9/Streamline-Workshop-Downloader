@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import zipfile
@@ -11,7 +12,14 @@ from pathlib import Path
 
 import requests
 
-from web_backend import AppIDScraper, StreamlineWebBackend
+from web_backend import (
+    AppIDScraper,
+    StreamlineWebBackend,
+    get_steamcmd_bootstrap_url,
+    get_steamcmd_executable_path,
+    get_steamcmd_required_paths,
+    is_windows_platform,
+)
 
 current_version = "2.0.0"
 DEFAULT_WINDOW_WIDTH = 695
@@ -576,28 +584,33 @@ class StartupSetupManager:
         return {"success": True}
 
     def _check_steamcmd_installed(self):
-        steamcmd_executable = os.path.join(self.steamcmd_dir, "steamcmd.exe")
-        essential_files = [
-            os.path.join(self.steamcmd_dir, "steam.dll"),
-            os.path.join(self.steamcmd_dir, "steamclient.dll"),
-        ]
+        steamcmd_executable = get_steamcmd_executable_path(self.steamcmd_dir)
+        essential_files = get_steamcmd_required_paths(self.steamcmd_dir)
         return os.path.isfile(steamcmd_executable) and all(os.path.isfile(path) for path in essential_files)
 
     def _download_steamcmd(self):
         os.makedirs(self.steamcmd_dir, exist_ok=True)
-        steamcmd_zip_url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
-        response = requests.get(steamcmd_zip_url, stream=True, timeout=60)
+        response = requests.get(get_steamcmd_bootstrap_url(), stream=True, timeout=60)
         response.raise_for_status()
-        with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
-            zip_ref.extractall(self.steamcmd_dir)
+        archive_data = BytesIO(response.content)
+        if is_windows_platform():
+            with zipfile.ZipFile(archive_data) as zip_ref:
+                zip_ref.extractall(self.steamcmd_dir)
+        else:
+            with tarfile.open(fileobj=archive_data, mode="r:gz") as tar_ref:
+                tar_ref.extractall(self.steamcmd_dir)
+            steamcmd_executable = get_steamcmd_executable_path(self.steamcmd_dir)
+            if os.path.isfile(steamcmd_executable):
+                current_mode = os.stat(steamcmd_executable).st_mode
+                os.chmod(steamcmd_executable, current_mode | 0o111)
 
     def _initialize_steamcmd(self):
-        steamcmd_executable = os.path.join(self.steamcmd_dir, "steamcmd.exe")
+        steamcmd_executable = get_steamcmd_executable_path(self.steamcmd_dir)
         if not os.path.isfile(steamcmd_executable):
-            raise FileNotFoundError("steamcmd.exe was not found after extraction.")
+            raise FileNotFoundError("SteamCMD executable was not found after extraction.")
 
         creationflags = 0
-        if os.name == "nt":
+        if is_windows_platform():
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
         steamcmd_process = subprocess.Popen(
@@ -608,7 +621,7 @@ class StartupSetupManager:
             stdin=subprocess.PIPE,
             text=True,
             bufsize=1,
-            shell=(os.name == "nt"),
+            shell=is_windows_platform(),
             creationflags=creationflags,
         )
 
@@ -621,10 +634,7 @@ class StartupSetupManager:
         steamcmd_process.wait()
 
         # SteamCMD may return non-zero on first run/update; verify required outputs instead.
-        essential_files = [
-            os.path.join(self.steamcmd_dir, "steam.dll"),
-            os.path.join(self.steamcmd_dir, "steamclient.dll"),
-        ]
+        essential_files = get_steamcmd_required_paths(self.steamcmd_dir)
         if not all(os.path.isfile(path) for path in essential_files):
             raise RuntimeError(
                 f"SteamCMD initialization failed (exit code {steamcmd_process.returncode}). "

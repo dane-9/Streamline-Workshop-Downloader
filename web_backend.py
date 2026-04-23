@@ -82,6 +82,38 @@ else:
     def _scrape_steamdb_botasaurus_visible(_data):
         raise RuntimeError("Botasaurus is not available in this environment.")
 
+
+def is_windows_platform():
+    return platform.system().lower() == "windows"
+
+
+def get_steamcmd_executable_name():
+    return "steamcmd.exe" if is_windows_platform() else "steamcmd.sh"
+
+
+def get_steamcmd_executable_path(steamcmd_dir: str):
+    return os.path.join(steamcmd_dir, get_steamcmd_executable_name())
+
+
+def get_steamcmd_bootstrap_url():
+    if is_windows_platform():
+        return "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
+    return "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
+
+
+def get_steamcmd_required_paths(steamcmd_dir: str):
+    executable_path = get_steamcmd_executable_path(steamcmd_dir)
+    if is_windows_platform():
+        return [
+            executable_path,
+            os.path.join(steamcmd_dir, "steam.dll"),
+            os.path.join(steamcmd_dir, "steamclient.dll"),
+        ]
+    return [
+        executable_path,
+        os.path.join(steamcmd_dir, "linux32", "steamcmd"),
+    ]
+
 class SteamCmdConPTYSession:
     def __init__(self, steamcmd_exe: str, steamcmd_dir: str, username: str, password: str = "", cols: int = 120, rows: int = 40):
         self.steamcmd_exe = steamcmd_exe
@@ -127,11 +159,11 @@ class SteamCmdConPTYSession:
 
     def start(self):
         if not os.path.isfile(self.steamcmd_exe):
-            return False, "steamcmd.exe not found."
+            return False, "SteamCMD executable not found."
 
         try:
             creationflags = 0
-            if platform.system().lower() == "windows":
+            if is_windows_platform():
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
             cmd = [self.steamcmd_exe, "+login", self.username]
@@ -251,7 +283,7 @@ class StreamlineWebBackend:
         self.config_path = os.path.join(self.files_dir, "config.json")
         self.downloads_root = os.path.join(self.script_dir, "Downloads")
         self.steamcmd_dir = os.path.join(self.files_dir, "steamcmd")
-        self.steamcmd_exe = os.path.join(self.steamcmd_dir, "steamcmd.exe")
+        self.steamcmd_exe = get_steamcmd_executable_path(self.steamcmd_dir)
         self.steamcmd_download_path = os.path.join(self.downloads_root, "SteamCMD")
         self.steamwebapi_download_path = os.path.join(self.downloads_root, "SteamWebAPI")
         self.mod_log_path = os.path.join(self.files_dir, "Logs", "mod_downloads.json")
