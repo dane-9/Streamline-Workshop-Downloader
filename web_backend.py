@@ -114,7 +114,16 @@ def get_steamcmd_required_paths(steamcmd_dir: str):
         os.path.join(steamcmd_dir, "linux32", "steamcmd"),
     ]
 
-class SteamCmdConPTYSession:
+
+def strip_ansi_control_sequences(text: str):
+    value = str(text or "")
+    if not value:
+        return ""
+    value = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", value)
+    value = value.replace("\r", "")
+    return value
+
+class SteamCmdInteractiveSession:
     def __init__(self, steamcmd_exe: str, steamcmd_dir: str, username: str, password: str = "", cols: int = 120, rows: int = 40):
         self.steamcmd_exe = steamcmd_exe
         self.steamcmd_dir = steamcmd_dir
@@ -155,7 +164,7 @@ class SteamCmdConPTYSession:
             else:
                 text = str(chunk)
             if text:
-                self._append_output(text)
+                self._append_output(strip_ansi_control_sequences(text))
 
     def start(self):
         if not os.path.isfile(self.steamcmd_exe):
@@ -207,7 +216,7 @@ class SteamCmdConPTYSession:
         with self._lock:
             if not self._started or not self._popen or not self._popen.stdin:
                 return {"success": False, "error": "SteamCMD session is not running."}
-            payload = ((text or "") + "\r\n").encode("utf-8", errors="ignore")
+            payload = ((text or "") + "\n").encode("utf-8", errors="ignore")
             if not payload:
                 return {"success": False, "error": "Input is empty."}
             try:
@@ -3513,13 +3522,28 @@ class StreamlineWebBackend:
         return record, changed
 
     def _get_steamcmd_config_vdf_path(self):
-        return os.path.join(self.steamcmd_dir, "config", "config.vdf")
+        return os.path.join(self._get_steamcmd_runtime_root(), "config", "config.vdf")
 
     def _get_steamcmd_connection_log_path(self):
-        return os.path.join(self.steamcmd_dir, "logs", "connection_log.txt")
+        return os.path.join(self._get_steamcmd_runtime_root(), "logs", "connection_log.txt")
 
     def _get_steamcmd_console_log_path(self):
-        return os.path.join(self.steamcmd_dir, "logs", "console_log.txt")
+        return os.path.join(self._get_steamcmd_runtime_root(), "logs", "console_log.txt")
+
+    def _get_steamcmd_runtime_root(self):
+        if is_windows_platform():
+            return self.steamcmd_dir
+        home_dir = os.path.expanduser("~")
+        candidates = [
+            os.path.join(home_dir, "Steam"),
+            os.path.join(home_dir, ".steam", "steam"),
+            os.path.join(home_dir, ".local", "share", "Steam"),
+            self.steamcmd_dir,
+        ]
+        for path in candidates:
+            if os.path.isdir(path):
+                return path
+        return self.steamcmd_dir
 
     def _get_file_size(self, path):
         try:
@@ -3534,7 +3558,7 @@ class StreamlineWebBackend:
             with open(path, "rb") as f:
                 if offset:
                     f.seek(max(0, int(offset)), os.SEEK_SET)
-                return f.read().decode("utf-8", errors="ignore")
+                return strip_ansi_control_sequences(f.read().decode("utf-8", errors="ignore"))
         except Exception:
             return ""
 
@@ -3736,9 +3760,6 @@ class StreamlineWebBackend:
         if not os.path.isfile(self.steamcmd_exe):
             return {"success": False, "error": "SteamCMD is not installed."}
 
-        if platform.system().lower() != "windows":
-            return {"success": False, "error": "ConPTY login is only supported on Windows."}
-
         with self.steamcmd_login_lock:
             if self.steamcmd_login_session is not None:
                 try:
@@ -3769,14 +3790,14 @@ class StreamlineWebBackend:
                 "detected_steamid64": "",
             }
 
-            session = SteamCmdConPTYSession(self.steamcmd_exe, self.steamcmd_dir, username, password)
+            session = SteamCmdInteractiveSession(self.steamcmd_exe, self.steamcmd_dir, username, password)
             ok, error = session.start()
             if not ok:
                 self.pending_login_context = None
-                return {"success": False, "error": f"Failed to start ConPTY session: {error}"}
+                return {"success": False, "error": f"Failed to start SteamCMD session: {error}"}
 
             self.steamcmd_login_session = session
-            return {"success": True, "mode": "conpty"}
+            return {"success": True, "mode": "session"}
         except Exception as e:
             self.pending_login_context = None
             return {"success": False, "error": str(e)}

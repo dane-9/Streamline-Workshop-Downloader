@@ -5176,7 +5176,7 @@ async function openAccountsManager() {
               return;
             }
 
-            if (launchResult.mode === "conpty") {
+            if (launchResult.mode === "session" || launchResult.mode === "conpty") {
               let terminalResult = null;
               setFooterPurgeVisible(false);
               try {
