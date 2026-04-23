@@ -87,6 +87,14 @@ def is_windows_platform():
     return platform.system().lower() == "windows"
 
 
+def is_macos_platform():
+    return platform.system().lower() == "darwin"
+
+
+def is_linux_platform():
+    return platform.system().lower() == "linux"
+
+
 def get_steamcmd_executable_name():
     return "steamcmd.exe" if is_windows_platform() else "steamcmd.sh"
 
@@ -98,6 +106,8 @@ def get_steamcmd_executable_path(steamcmd_dir: str):
 def get_steamcmd_bootstrap_url():
     if is_windows_platform():
         return "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
+    if is_macos_platform():
+        return "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz"
     return "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
 
 
@@ -109,6 +119,8 @@ def get_steamcmd_required_paths(steamcmd_dir: str):
             os.path.join(steamcmd_dir, "steam.dll"),
             os.path.join(steamcmd_dir, "steamclient.dll"),
         ]
+    if is_macos_platform():
+        return [executable_path]
     return [
         executable_path,
         os.path.join(steamcmd_dir, "linux32", "steamcmd"),
@@ -3592,12 +3604,19 @@ class StreamlineWebBackend:
         if is_windows_platform():
             return self.steamcmd_dir
         home_dir = os.path.expanduser("~")
-        candidates = [
-            os.path.join(home_dir, "Steam"),
-            os.path.join(home_dir, ".steam", "steam"),
-            os.path.join(home_dir, ".local", "share", "Steam"),
-            self.steamcmd_dir,
-        ]
+        if is_macos_platform():
+            candidates = [
+                os.path.join(home_dir, "Library", "Application Support", "Steam"),
+                os.path.join(home_dir, "Steam"),
+                self.steamcmd_dir,
+            ]
+        else:
+            candidates = [
+                os.path.join(home_dir, "Steam"),
+                os.path.join(home_dir, ".steam", "steam"),
+                os.path.join(home_dir, ".local", "share", "Steam"),
+                self.steamcmd_dir,
+            ]
         for path in candidates:
             if os.path.isdir(path):
                 return path
