@@ -6612,11 +6612,16 @@ async function handleEvent(event) {
   }
 
   if (type === "clipboard" && payload.url) {
+    const provider = providerSelect.value || "Default";
     itemUrlInput.value = payload.url;
     addLog("Detected workshop URL from clipboard.", "info", {
       source: "clipboard",
       action: "detected_url"
     });
+    if (state.config.auto_add_to_queue) {
+      queueForm.reset();
+      setProviderValue(provider);
+    }
   }
 }
 
