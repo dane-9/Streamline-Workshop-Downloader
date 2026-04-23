@@ -3297,9 +3297,16 @@ class StreamlineWebBackend:
             if mod:
                 target = self._get_download_path(mod)
         os.makedirs(target, exist_ok=True)
-        if hasattr(os, "startfile"):
-            os.startfile(target)  # type: ignore[attr-defined]
-        return {"success": True, "message": target}
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(target)  # type: ignore[attr-defined]
+            elif platform.system().lower() == "darwin":
+                subprocess.Popen(["open", target])
+            else:
+                subprocess.Popen(["xdg-open", target])
+            return {"success": True, "message": target}
+        except Exception as e:
+            return {"success": False, "error": str(e), "message": target}
 
     def get_settings(self):
         return dict(self.config)
