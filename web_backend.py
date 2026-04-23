@@ -3396,7 +3396,14 @@ class StreamlineWebBackend:
     def _read_clipboard_text_subprocess(self):
         clipboard_commands = []
         system_name = platform.system().lower()
-        if system_name == "darwin":
+        if system_name == "windows":
+            clipboard_commands.append([
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "Get-Clipboard -Raw",
+            ])
+        elif system_name == "darwin":
             clipboard_commands.append(["pbpaste"])
         else:
             clipboard_commands.extend([
@@ -3429,7 +3436,10 @@ class StreamlineWebBackend:
 
     def _read_clipboard_text(self):
         if platform.system().lower() == "windows":
-            return self._read_clipboard_text_windows()
+            text = self._read_clipboard_text_windows()
+            if text:
+                return text
+            return self._read_clipboard_text_subprocess()
         return self._read_clipboard_text_subprocess()
 
     def _is_valid_workshop_clipboard_input(self, text: str):
