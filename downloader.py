@@ -935,7 +935,10 @@ def run_pywebview_main_gui():
         create_window_kwargs["html"] = "<h2>Streamline</h2><p>Web UI files were not found.</p>"
 
     webview.create_window(**create_window_kwargs)
-    webview.start(debug=False)
+    if platform.system().lower() == "linux":
+        webview.start(debug=False, gui="qt")
+    else:
+        webview.start(debug=False)
     return 0
 
 
