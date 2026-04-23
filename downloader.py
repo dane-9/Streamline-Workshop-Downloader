@@ -110,6 +110,7 @@ class WebMainGuiApi:
         self.script_path = script_path
         self.files_dir = files_dir
         self.main_url = ""
+        self._window_resize_state = None
         self.backend = StreamlineWebBackend(
             script_path=script_path,
             files_dir=files_dir,
@@ -379,7 +380,27 @@ class WebMainGuiApi:
         if window is None:
             return {"success": False, "error": "Window is not ready."}
         if os.name != "nt":
-            return {"success": False, "error": "Custom resize is only supported on Windows."}
+            normalized_mode = str(mode or "southeast").strip().lower()
+            if normalized_mode not in {"east", "west", "south", "southeast", "southwest"}:
+                normalized_mode = "southeast"
+            try:
+                start_width = max(MIN_WINDOW_WIDTH, int(getattr(window, "width", 0) or 0))
+                start_height = max(MIN_WINDOW_HEIGHT, int(getattr(window, "height", 0) or 0))
+                start_window_x = int(getattr(window, "x", 0) or 0)
+                start_window_y = int(getattr(window, "y", 0) or 0)
+                if start_width <= 0 or start_height <= 0:
+                    return {"success": False, "error": "Could not determine window size."}
+                self._window_resize_state = {
+                    "mode": normalized_mode,
+                    "start_width": start_width,
+                    "start_height": start_height,
+                    "start_window_x": start_window_x,
+                    "start_window_y": start_window_y,
+                }
+                return {"success": True, "strategy": "pointer"}
+            except Exception as e:
+                self._window_resize_state = None
+                return {"success": False, "error": str(e)}
 
         normalized_mode = str(mode or "southeast").strip().lower()
         if normalized_mode not in {"east", "west", "south", "southeast", "southwest"}:
@@ -469,6 +490,67 @@ class WebMainGuiApi:
 
             self._persist_window_size(window)
             return {"success": True, "width": last_width, "height": last_height}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def update_window_resize(self, screen_x, screen_y, start_screen_x, start_screen_y):
+        window = self._get_window()
+        if window is None:
+            return {"success": False, "error": "Window is not ready."}
+        resize_state = self._window_resize_state
+        if not isinstance(resize_state, dict):
+            return {"success": False, "error": "No active resize session."}
+
+        try:
+            current_x = int(float(screen_x))
+            current_y = int(float(screen_y))
+            start_x = int(float(start_screen_x))
+            start_y = int(float(start_screen_y))
+        except Exception:
+            return {"success": False, "error": "Invalid resize coordinates."}
+
+        mode = str(resize_state.get("mode") or "southeast")
+        start_width = max(MIN_WINDOW_WIDTH, int(resize_state.get("start_width", MIN_WINDOW_WIDTH)))
+        start_height = max(MIN_WINDOW_HEIGHT, int(resize_state.get("start_height", MIN_WINDOW_HEIGHT)))
+        start_window_x = int(resize_state.get("start_window_x", 0) or 0)
+        start_window_y = int(resize_state.get("start_window_y", 0) or 0)
+        dx = current_x - start_x
+        dy = current_y - start_y
+
+        target_width = start_width
+        target_height = start_height
+        target_window_x = start_window_x
+
+        if mode in {"east", "southeast"}:
+            target_width = max(MIN_WINDOW_WIDTH, start_width + dx)
+        elif mode in {"west", "southwest"}:
+            target_width = max(MIN_WINDOW_WIDTH, start_width - dx)
+            target_window_x = start_window_x + (start_width - target_width)
+
+        if mode in {"south", "southeast", "southwest"}:
+            target_height = max(MIN_WINDOW_HEIGHT, start_height + dy)
+
+        try:
+            if mode in {"west", "southwest"}:
+                window.move(int(target_window_x), int(start_window_y))
+            window.resize(int(target_width), int(target_height))
+            return {
+                "success": True,
+                "width": int(target_width),
+                "height": int(target_height),
+                "x": int(target_window_x),
+                "y": int(start_window_y),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def end_window_resize(self):
+        window = self._get_window()
+        self._window_resize_state = None
+        if window is None:
+            return {"success": False, "error": "Window is not ready."}
+        try:
+            return self._persist_window_size(window, use_js_viewport=False)
         except Exception as e:
             return {"success": False, "error": str(e)}
 

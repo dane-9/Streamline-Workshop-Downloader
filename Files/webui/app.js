@@ -6696,6 +6696,76 @@ function beginWindowResize(mode, cursorClass) {
     });
 }
 
+function beginWindowResizeDrag(event, mode, cursorClass) {
+  if (!state.apiAvailable || !event) {
+    return;
+  }
+
+  const startScreenX = Number(event.screenX || 0);
+  const startScreenY = Number(event.screenY || 0);
+
+  if (cursorClass) {
+    document.body.classList.add(cursorClass);
+  }
+
+  callApi("begin_window_resize", mode)
+    .then((result) => {
+      if (result && result.success === false && result.error) {
+        addLog(result.error, "bad");
+        document.body.classList.remove("window-resizing");
+        document.body.classList.remove("window-resizing-ew");
+        document.body.classList.remove("window-resizing-ns");
+        return;
+      }
+
+      if (!result || result.strategy !== "pointer") {
+        document.body.classList.remove("window-resizing");
+        document.body.classList.remove("window-resizing-ew");
+        document.body.classList.remove("window-resizing-ns");
+        return;
+      }
+
+      const moveHandler = (moveEvent) => {
+        callApi(
+          "update_window_resize",
+          Number(moveEvent.screenX || 0),
+          Number(moveEvent.screenY || 0),
+          startScreenX,
+          startScreenY
+        ).then((updateResult) => {
+          if (updateResult && updateResult.success === false && updateResult.error) {
+            addLog(updateResult.error, "bad");
+          }
+        }).catch(() => {
+          addLog("Window resize failed.", "bad");
+        });
+      };
+
+      const endHandler = () => {
+        window.removeEventListener("mousemove", moveHandler);
+        window.removeEventListener("mouseup", endHandler);
+        callApi("end_window_resize")
+          .catch(() => {
+            addLog("Window resize failed.", "bad");
+          })
+          .finally(() => {
+            document.body.classList.remove("window-resizing");
+            document.body.classList.remove("window-resizing-ew");
+            document.body.classList.remove("window-resizing-ns");
+          });
+      };
+
+      window.addEventListener("mousemove", moveHandler);
+      window.addEventListener("mouseup", endHandler, { once: true });
+    })
+    .catch(() => {
+      addLog("Window resize failed.", "bad");
+      document.body.classList.remove("window-resizing");
+      document.body.classList.remove("window-resizing-ew");
+      document.body.classList.remove("window-resizing-ns");
+    });
+}
+
 function wireWindowResizeGrip() {
   const hasAnyHandle = windowResizeEast || windowResizeSouth;
   if (!hasAnyHandle) {
@@ -6708,7 +6778,7 @@ function wireWindowResizeGrip() {
         return;
       }
       event.preventDefault();
-      beginWindowResize("east", "window-resizing-ew");
+      beginWindowResizeDrag(event, "east", "window-resizing-ew");
     });
   }
 
@@ -6718,7 +6788,7 @@ function wireWindowResizeGrip() {
         return;
       }
       event.preventDefault();
-      beginWindowResize("south", "window-resizing-ns");
+      beginWindowResizeDrag(event, "south", "window-resizing-ns");
     });
   }
 }
