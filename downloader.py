@@ -1,8 +1,10 @@
 import ctypes
 import os
+import platform
 import shutil
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import zipfile
@@ -11,7 +13,14 @@ from pathlib import Path
 
 import requests
 
-from web_backend import AppIDScraper, StreamlineWebBackend
+from web_backend import (
+    AppIDScraper,
+    StreamlineWebBackend,
+    get_steamcmd_bootstrap_url,
+    get_steamcmd_executable_path,
+    get_steamcmd_required_paths,
+    is_windows_platform,
+)
 
 current_version = "2.0.0"
 DEFAULT_WINDOW_WIDTH = 695
@@ -48,6 +57,8 @@ DEFAULT_SETTINGS = {
     "reset_provider_on_startup": False,
     "download_provider": "Default",
     "log_category_filter": "all",
+    "command_palette_filters": ["all", "controls", "appearance", "tools", "help"],
+    "command_palette_all_type_filters": [],
     "reset_window_size_on_startup": True,
     "show_tutorial_on_startup": True,
     "tutorial_shown": False,
@@ -62,23 +73,27 @@ def resource_path(relative_path):
 
 
 def _get_runtime_executable_path():
+    appimage_path = str(os.environ.get("APPIMAGE", "")).strip()
+    if appimage_path and os.path.isfile(appimage_path):
+        return os.path.abspath(appimage_path)
+
     argv0 = str(sys.argv[0] if sys.argv else "").strip()
-    argv0_lower = argv0.lower()
     if argv0:
         candidate = os.path.abspath(argv0)
-        if candidate.lower().endswith(".exe") and os.path.isfile(candidate):
+        if os.path.isfile(candidate) and not candidate.lower().endswith((".py", ".pyw")):
             return candidate
 
+    argv0_lower = argv0.lower()
     running_script = argv0_lower.endswith(".py") or argv0_lower.endswith(".pyw")
     if not running_script:
         exe_path = str(getattr(sys, "executable", "")).strip()
-        if exe_path and exe_path.lower().endswith(".exe") and os.path.isfile(exe_path):
+        if exe_path and os.path.isfile(exe_path):
             return os.path.abspath(exe_path)
 
     is_frozen = bool(getattr(sys, "frozen", False)) or hasattr(sys, "_MEIPASS") or ("__compiled__" in globals())
     if is_frozen:
         exe_path = str(getattr(sys, "executable", "")).strip()
-        if exe_path and exe_path.lower().endswith(".exe") and os.path.isfile(exe_path):
+        if exe_path and os.path.isfile(exe_path):
             return os.path.abspath(exe_path)
     return ""
 
@@ -100,6 +115,7 @@ class WebMainGuiApi:
         self.script_path = script_path
         self.files_dir = files_dir
         self.main_url = ""
+        self._window_resize_state = None
         self.backend = StreamlineWebBackend(
             script_path=script_path,
             files_dir=files_dir,
@@ -369,7 +385,27 @@ class WebMainGuiApi:
         if window is None:
             return {"success": False, "error": "Window is not ready."}
         if os.name != "nt":
-            return {"success": False, "error": "Custom resize is only supported on Windows."}
+            normalized_mode = str(mode or "southeast").strip().lower()
+            if normalized_mode not in {"east", "west", "south", "southeast", "southwest"}:
+                normalized_mode = "southeast"
+            try:
+                start_width = max(MIN_WINDOW_WIDTH, int(getattr(window, "width", 0) or 0))
+                start_height = max(MIN_WINDOW_HEIGHT, int(getattr(window, "height", 0) or 0))
+                start_window_x = int(getattr(window, "x", 0) or 0)
+                start_window_y = int(getattr(window, "y", 0) or 0)
+                if start_width <= 0 or start_height <= 0:
+                    return {"success": False, "error": "Could not determine window size."}
+                self._window_resize_state = {
+                    "mode": normalized_mode,
+                    "start_width": start_width,
+                    "start_height": start_height,
+                    "start_window_x": start_window_x,
+                    "start_window_y": start_window_y,
+                }
+                return {"success": True, "strategy": "pointer"}
+            except Exception as e:
+                self._window_resize_state = None
+                return {"success": False, "error": str(e)}
 
         normalized_mode = str(mode or "southeast").strip().lower()
         if normalized_mode not in {"east", "west", "south", "southeast", "southwest"}:
@@ -459,6 +495,67 @@ class WebMainGuiApi:
 
             self._persist_window_size(window)
             return {"success": True, "width": last_width, "height": last_height}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def update_window_resize(self, screen_x, screen_y, start_screen_x, start_screen_y):
+        window = self._get_window()
+        if window is None:
+            return {"success": False, "error": "Window is not ready."}
+        resize_state = self._window_resize_state
+        if not isinstance(resize_state, dict):
+            return {"success": False, "error": "No active resize session."}
+
+        try:
+            current_x = int(float(screen_x))
+            current_y = int(float(screen_y))
+            start_x = int(float(start_screen_x))
+            start_y = int(float(start_screen_y))
+        except Exception:
+            return {"success": False, "error": "Invalid resize coordinates."}
+
+        mode = str(resize_state.get("mode") or "southeast")
+        start_width = max(MIN_WINDOW_WIDTH, int(resize_state.get("start_width", MIN_WINDOW_WIDTH)))
+        start_height = max(MIN_WINDOW_HEIGHT, int(resize_state.get("start_height", MIN_WINDOW_HEIGHT)))
+        start_window_x = int(resize_state.get("start_window_x", 0) or 0)
+        start_window_y = int(resize_state.get("start_window_y", 0) or 0)
+        dx = current_x - start_x
+        dy = current_y - start_y
+
+        target_width = start_width
+        target_height = start_height
+        target_window_x = start_window_x
+
+        if mode in {"east", "southeast"}:
+            target_width = max(MIN_WINDOW_WIDTH, start_width + dx)
+        elif mode in {"west", "southwest"}:
+            target_width = max(MIN_WINDOW_WIDTH, start_width - dx)
+            target_window_x = start_window_x + (start_width - target_width)
+
+        if mode in {"south", "southeast", "southwest"}:
+            target_height = max(MIN_WINDOW_HEIGHT, start_height + dy)
+
+        try:
+            if mode in {"west", "southwest"}:
+                window.move(int(target_window_x), int(start_window_y))
+            window.resize(int(target_width), int(target_height))
+            return {
+                "success": True,
+                "width": int(target_width),
+                "height": int(target_height),
+                "x": int(target_window_x),
+                "y": int(start_window_y),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def end_window_resize(self):
+        window = self._get_window()
+        self._window_resize_state = None
+        if window is None:
+            return {"success": False, "error": "Window is not ready."}
+        try:
+            return self._persist_window_size(window, use_js_viewport=False)
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -574,28 +671,33 @@ class StartupSetupManager:
         return {"success": True}
 
     def _check_steamcmd_installed(self):
-        steamcmd_executable = os.path.join(self.steamcmd_dir, "steamcmd.exe")
-        essential_files = [
-            os.path.join(self.steamcmd_dir, "steam.dll"),
-            os.path.join(self.steamcmd_dir, "steamclient.dll"),
-        ]
+        steamcmd_executable = get_steamcmd_executable_path(self.steamcmd_dir)
+        essential_files = get_steamcmd_required_paths(self.steamcmd_dir)
         return os.path.isfile(steamcmd_executable) and all(os.path.isfile(path) for path in essential_files)
 
     def _download_steamcmd(self):
         os.makedirs(self.steamcmd_dir, exist_ok=True)
-        steamcmd_zip_url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
-        response = requests.get(steamcmd_zip_url, stream=True, timeout=60)
+        response = requests.get(get_steamcmd_bootstrap_url(), stream=True, timeout=60)
         response.raise_for_status()
-        with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
-            zip_ref.extractall(self.steamcmd_dir)
+        archive_data = BytesIO(response.content)
+        if is_windows_platform():
+            with zipfile.ZipFile(archive_data) as zip_ref:
+                zip_ref.extractall(self.steamcmd_dir)
+        else:
+            with tarfile.open(fileobj=archive_data, mode="r:gz") as tar_ref:
+                tar_ref.extractall(self.steamcmd_dir)
+            steamcmd_executable = get_steamcmd_executable_path(self.steamcmd_dir)
+            if os.path.isfile(steamcmd_executable):
+                current_mode = os.stat(steamcmd_executable).st_mode
+                os.chmod(steamcmd_executable, current_mode | 0o111)
 
     def _initialize_steamcmd(self):
-        steamcmd_executable = os.path.join(self.steamcmd_dir, "steamcmd.exe")
+        steamcmd_executable = get_steamcmd_executable_path(self.steamcmd_dir)
         if not os.path.isfile(steamcmd_executable):
-            raise FileNotFoundError("steamcmd.exe was not found after extraction.")
+            raise FileNotFoundError("SteamCMD executable was not found after extraction.")
 
         creationflags = 0
-        if os.name == "nt":
+        if is_windows_platform():
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
         steamcmd_process = subprocess.Popen(
@@ -606,7 +708,7 @@ class StartupSetupManager:
             stdin=subprocess.PIPE,
             text=True,
             bufsize=1,
-            shell=(os.name == "nt"),
+            shell=is_windows_platform(),
             creationflags=creationflags,
         )
 
@@ -619,10 +721,7 @@ class StartupSetupManager:
         steamcmd_process.wait()
 
         # SteamCMD may return non-zero on first run/update; verify required outputs instead.
-        essential_files = [
-            os.path.join(self.steamcmd_dir, "steam.dll"),
-            os.path.join(self.steamcmd_dir, "steamclient.dll"),
-        ]
+        essential_files = get_steamcmd_required_paths(self.steamcmd_dir)
         if not all(os.path.isfile(path) for path in essential_files):
             raise RuntimeError(
                 f"SteamCMD initialization failed (exit code {steamcmd_process.returncode}). "
@@ -635,6 +734,21 @@ class StartupSetupManager:
             raise RuntimeError("SteamDB scraping returned zero AppIDs.")
         with open(self.appids_path, "w", encoding="utf-8") as handle:
             handle.write("\n".join(entries))
+
+    def _seed_appids_from_bundle(self):
+        bundled_appids_path = resource_path(os.path.join("Files", "AppIDs.txt"))
+        if not os.path.isfile(bundled_appids_path):
+            return False
+        try:
+            source_path = os.path.abspath(bundled_appids_path)
+            target_path = os.path.abspath(self.appids_path)
+            if source_path == target_path:
+                return True
+            os.makedirs(os.path.dirname(self.appids_path), exist_ok=True)
+            shutil.copy2(bundled_appids_path, self.appids_path)
+            return True
+        except Exception:
+            return False
 
     def _cleanup_files(self):
         if os.path.isdir(self.steamcmd_dir):
@@ -689,8 +803,11 @@ class StartupSetupManager:
 
             self._set_state(progress=60, status="Checking AppIDs database...")
             if not os.path.isfile(self.appids_path):
-                self._set_state(progress=70, status="Scraping SteamDB for AppIDs...")
-                self._download_appids()
+                self._set_state(progress=70, status="Seeding bundled AppIDs database...")
+                seeded = self._seed_appids_from_bundle()
+                if not seeded:
+                    self._set_state(progress=70, status="Scraping SteamDB for AppIDs...")
+                    self._download_appids()
                 if self._cancel_event.is_set():
                     self._finish_canceled()
                     return
@@ -733,11 +850,14 @@ def run_pywebview_main_gui():
 
     runtime_webui_index = runtime_path(os.path.join("Files", "webui", "index.html"))
     runtime_setup_index = runtime_path(os.path.join("Files", "webui", "setup.html"))
+    runtime_logo_icon = runtime_path(os.path.join("Files", "logo.png"))
     bundled_webui_index = resource_path(os.path.join("Files", "webui", "index.html"))
     bundled_setup_index = resource_path(os.path.join("Files", "webui", "setup.html"))
+    bundled_logo_icon = resource_path(os.path.join("Files", "logo.png"))
 
     webui_index = runtime_webui_index if os.path.isfile(runtime_webui_index) else bundled_webui_index
     setup_index = runtime_setup_index if os.path.isfile(runtime_setup_index) else bundled_setup_index
+    window_icon = runtime_logo_icon if os.path.isfile(runtime_logo_icon) else bundled_logo_icon
     api.main_url = Path(webui_index).resolve().as_uri() if os.path.isfile(webui_index) else ""
 
     default_window_width = DEFAULT_WINDOW_WIDTH
@@ -823,7 +943,10 @@ def run_pywebview_main_gui():
         create_window_kwargs["html"] = "<h2>Streamline</h2><p>Web UI files were not found.</p>"
 
     webview.create_window(**create_window_kwargs)
-    webview.start(debug=False)
+    if platform.system().lower() == "linux":
+        webview.start(debug=False, gui="qt", icon=window_icon)
+    else:
+        webview.start(debug=False, icon=window_icon)
     return 0
 
 

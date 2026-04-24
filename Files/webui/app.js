@@ -37,6 +37,10 @@ const queueContextMenu = document.getElementById("queue-context-menu");
 const logsContextMenu = document.getElementById("logs-context-menu");
 const headerContextMenu = document.getElementById("header-context-menu");
 const commandPaletteOverlay = document.getElementById("command-palette-overlay");
+const commandPaletteFilters = document.getElementById("command-palette-filters");
+const commandPaletteFilterTabs = document.getElementById("command-palette-filter-tabs");
+const commandPaletteFilterMenuBtn = document.getElementById("command-palette-filter-menu-btn");
+const commandPaletteFilterMenu = document.getElementById("command-palette-filter-menu");
 const commandPaletteInput = document.getElementById("command-palette-input");
 const commandPaletteList = document.getElementById("command-palette-list");
 const queueTable = document.getElementById("queue-table");
@@ -71,6 +75,10 @@ let commandPaletteActions = [];
 let commandPaletteResults = [];
 let commandPaletteSelectedIndex = 0;
 let commandPaletteLastFocusedElement = null;
+let commandPaletteSectionFilter = "all";
+let commandPaletteAvailableSections = [];
+let commandPaletteVisibleFilters = [];
+let commandPaletteAllTypeFilters = [];
 let lastShiftTapAt = 0;
 const animatedSelectControllers = new Map();
 let suppressNextBackendClearEvent = false;
@@ -91,6 +99,14 @@ const STARTUP_LOG_TONE_TEST_DEFAULTS = {
   good: "Startup tone test: GOOD",
   bad: "Startup tone test: ERROR"
 };
+const COMMAND_PALETTE_SECTION_LABELS = {
+  all: "All",
+  controls: "Controls",
+  appearance: "Appearance",
+  tools: "Tools",
+  help: "Help"
+};
+const COMMAND_PALETTE_SECTION_ORDER = ["all", "controls", "appearance", "tools", "help"];
 
 let virtualRowHeight = VIRTUAL_ROW_HEIGHT_FALLBACK;
 let virtualItems = [];
@@ -174,6 +190,8 @@ const SETTINGS_DEFAULTS = {
   reset_provider_on_startup: false,
   download_provider: "Default",
   log_category_filter: "all",
+  command_palette_filters: ["all", "controls", "appearance", "tools", "help"],
+  command_palette_all_type_filters: [],
   reset_window_size_on_startup: true,
   show_tutorial_on_startup: true
 };
@@ -1777,19 +1795,410 @@ function bindCommandToButton(button, commandId, { closeMenus = false } = {}) {
   });
 }
 
+function normalizeCommandPaletteSectionKey(value) {
+  const text = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return text || "all";
+}
+
+function getCommandPaletteSectionLabel(key) {
+  const normalized = normalizeCommandPaletteSectionKey(key);
+  if (COMMAND_PALETTE_SECTION_LABELS[normalized]) {
+    return COMMAND_PALETTE_SECTION_LABELS[normalized];
+  }
+  return normalized
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getCommandPaletteActionBaseSection(action) {
+  const explicit = normalizeCommandPaletteSectionKey(action?.section || "");
+  if (explicit && explicit !== "all") {
+    return explicit;
+  }
+  const hint = normalizeCommandPaletteSectionKey(action?.hint || "");
+  if (hint && hint !== "all") {
+    return hint;
+  }
+  return "";
+}
+
+function getCommandPaletteActionSections(action) {
+  const sections = new Set();
+  const base = getCommandPaletteActionBaseSection(action);
+  if (base) {
+    sections.add(base);
+  }
+  if (base === "queue") {
+    sections.add("controls");
+  }
+  if (base === "current") {
+    sections.add("appearance");
+  }
+  if (!sections.size) {
+    sections.add("controls");
+  }
+  return sections;
+}
+
+function getCommandPaletteAvailableSections(actions = commandPaletteActions) {
+  const dynamic = new Set(COMMAND_PALETTE_SECTION_ORDER);
+  (actions || []).forEach((action) => {
+    const sections = getCommandPaletteActionSections(action);
+    sections.forEach((section) => {
+      const normalized = normalizeCommandPaletteSectionKey(section);
+      if (normalized && normalized !== "all") {
+        dynamic.add(normalized);
+      }
+    });
+  });
+  const known = COMMAND_PALETTE_SECTION_ORDER.filter((section) => dynamic.has(section));
+  const extras = Array.from(dynamic)
+    .filter((section) => !COMMAND_PALETTE_SECTION_ORDER.includes(section))
+    .sort((left, right) => getCommandPaletteSectionLabel(left).localeCompare(getCommandPaletteSectionLabel(right)));
+  return [...known, ...extras];
+}
+
+function sanitizeCommandPaletteVisibleFilters(filters, availableSections = commandPaletteAvailableSections) {
+  const available = Array.isArray(availableSections) && availableSections.length
+    ? availableSections
+    : getCommandPaletteAvailableSections(commandPaletteActions);
+  const allowed = new Set(available.map((section) => normalizeCommandPaletteSectionKey(section)));
+  const next = [];
+  const source = Array.isArray(filters) ? filters : [];
+  source.forEach((section) => {
+    const normalized = normalizeCommandPaletteSectionKey(section);
+    if (!allowed.has(normalized) || next.includes(normalized)) {
+      return;
+    }
+    next.push(normalized);
+  });
+  if (!next.length) {
+    if (allowed.has("all")) {
+      next.push("all");
+    } else if (available.length) {
+      next.push(normalizeCommandPaletteSectionKey(available[0]));
+    } else {
+      next.push("all");
+    }
+  }
+  return next;
+}
+
+function sanitizeCommandPaletteAllTypeFilters(filters, availableSections = commandPaletteAvailableSections) {
+  const available = (Array.isArray(availableSections) ? availableSections : [])
+    .map((section) => normalizeCommandPaletteSectionKey(section))
+    .filter((section) => section && section !== "all");
+  if (!available.length) {
+    return [];
+  }
+  const allowed = new Set(available);
+  const next = [];
+  const source = Array.isArray(filters) ? filters : [];
+  source.forEach((section) => {
+    const normalized = normalizeCommandPaletteSectionKey(section);
+    if (!allowed.has(normalized) || next.includes(normalized)) {
+      return;
+    }
+    next.push(normalized);
+  });
+  return next.length ? next : available.slice();
+}
+
+function renderCommandPaletteFilterButtons() {
+  if (!commandPaletteFilterTabs) {
+    return;
+  }
+  commandPaletteFilterTabs.innerHTML = "";
+  const visible = sanitizeCommandPaletteVisibleFilters(commandPaletteVisibleFilters, commandPaletteAvailableSections);
+  visible.forEach((section) => {
+    const button = document.createElement("button");
+    button.className = "command-palette-filter-btn";
+    button.type = "button";
+    button.dataset.commandFilter = section;
+    button.setAttribute("aria-pressed", "false");
+    button.textContent = getCommandPaletteSectionLabel(section);
+    commandPaletteFilterTabs.appendChild(button);
+  });
+}
+
+function syncCommandPaletteFilterButtons() {
+  if (!commandPaletteFilterTabs) {
+    return;
+  }
+  const active = normalizeCommandPaletteSectionKey(commandPaletteSectionFilter);
+  commandPaletteFilterTabs.querySelectorAll(".command-palette-filter-btn[data-command-filter]").forEach((button) => {
+    const section = normalizeCommandPaletteSectionKey(button.dataset.commandFilter);
+    const isActive = section === active;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+}
+
+function hideCommandPaletteFilterMenu() {
+  commandPaletteFilterMenu?.classList.add("hidden");
+  commandPaletteFilterMenu?.classList.remove("submenu-open-left");
+}
+
+function renderCommandPaletteFilterMenu() {
+  if (!commandPaletteFilterMenu) {
+    return;
+  }
+  const visibleHeader = new Set(commandPaletteVisibleFilters);
+  const headerOptions = commandPaletteAvailableSections.map((section) => {
+    const label = getCommandPaletteSectionLabel(section);
+    const checked = visibleHeader.has(section) ? "✓ " : "";
+    return `<button class="queue-context-item" type="button" data-command-filter-menu-action="toggle_header" data-command-filter-menu-key="${escapeHtml(section)}">${checked}${escapeHtml(label)}</button>`;
+  }).join("");
+  const availableTypeSections = commandPaletteAvailableSections.filter((section) => section !== "all");
+  const visibleTypes = new Set(commandPaletteAllTypeFilters);
+  const typeOptions = availableTypeSections.map((section) => {
+    const label = getCommandPaletteSectionLabel(section);
+    const checked = visibleTypes.has(section) ? "✓ " : "";
+    return `<button class="header-context-item" type="button" data-command-filter-menu-action="toggle_all_type" data-command-all-type-key="${escapeHtml(section)}">${checked}${escapeHtml(label)}</button>`;
+  }).join("");
+  commandPaletteFilterMenu.innerHTML = `
+    <div class="queue-context-submenu">
+      <button class="queue-context-parent" type="button">Header</button>
+      <div class="queue-context-subpopup">
+        ${headerOptions}
+      </div>
+    </div>
+    <div class="header-context-sep"></div>
+    <div class="header-context-label">Filter When All Is Selected</div>
+    ${typeOptions}
+    <div class="header-context-sep"></div>
+    <button class="header-context-item" type="button" data-command-filter-menu-action="reset">Reset Filters</button>
+  `;
+}
+
+function showCommandPaletteFilterMenu(clientX, clientY) {
+  if (!commandPaletteFilterMenu || !isCommandPaletteOpen()) {
+    return;
+  }
+  renderCommandPaletteFilterMenu();
+  const margin = 8;
+  const placement = positionFloatingMenu(commandPaletteFilterMenu, clientX, clientY, margin);
+  const subPopup = commandPaletteFilterMenu.querySelector(".queue-context-subpopup");
+  const subSize = measureFloatingElement(subPopup);
+  const subWidth = Math.max(120, subSize.width || 0);
+  const availableRight = Math.max(0, placement.viewportWidth - (placement.left + placement.menuWidth) - margin);
+  const availableLeft = Math.max(0, placement.left - margin);
+  const rightFits = availableRight >= subWidth;
+  const leftFits = availableLeft >= subWidth;
+  const openLeft = rightFits ? false : (leftFits ? true : availableLeft > availableRight);
+  commandPaletteFilterMenu.classList.toggle("submenu-open-left", !!openLeft);
+  commandPaletteFilterMenu.classList.remove("hidden");
+}
+
+function syncCommandPaletteFilterMenuSelection() {
+  if (!commandPaletteFilterMenu || commandPaletteFilterMenu.classList.contains("hidden")) {
+    return;
+  }
+  const visibleHeader = new Set(commandPaletteVisibleFilters);
+  commandPaletteFilterMenu.querySelectorAll("[data-command-filter-menu-key]").forEach((button) => {
+    const key = normalizeCommandPaletteSectionKey(button.dataset.commandFilterMenuKey);
+    const label = getCommandPaletteSectionLabel(key);
+    const checked = visibleHeader.has(key) ? "✓ " : "";
+    button.textContent = `${checked}${label}`;
+  });
+  const visibleTypes = new Set(commandPaletteAllTypeFilters);
+  commandPaletteFilterMenu.querySelectorAll("[data-command-all-type-key]").forEach((button) => {
+    const key = normalizeCommandPaletteSectionKey(button.dataset.commandAllTypeKey);
+    const label = getCommandPaletteSectionLabel(key);
+    const checked = visibleTypes.has(key) ? "✓ " : "";
+    button.textContent = `${checked}${label}`;
+  });
+}
+
+function getCommandPaletteFilterMenuOptionKeys(attributeName) {
+  if (!commandPaletteFilterMenu) {
+    return [];
+  }
+  return Array.from(commandPaletteFilterMenu.querySelectorAll(`[${attributeName}]`))
+    .map((button) => normalizeCommandPaletteSectionKey(button.getAttribute(attributeName) || ""));
+}
+
+async function persistCommandPaletteFilterPreferences() {
+  if (!state.config || typeof state.config !== "object") {
+    state.config = {};
+  }
+  state.config.command_palette_filters = commandPaletteVisibleFilters.slice();
+  state.config.command_palette_all_type_filters = commandPaletteAllTypeFilters.slice();
+  if (!state.apiAvailable) {
+    return true;
+  }
+  try {
+    const result = await callApi("update_settings", {
+      command_palette_filters: commandPaletteVisibleFilters.slice(),
+      command_palette_all_type_filters: commandPaletteAllTypeFilters.slice()
+    });
+    if (!result?.success) {
+      addLog(result?.error || "Failed to save command filter preferences.", "bad");
+      return false;
+    }
+    state.config = result.config || {
+      ...state.config,
+      command_palette_filters: commandPaletteVisibleFilters.slice(),
+      command_palette_all_type_filters: commandPaletteAllTypeFilters.slice()
+    };
+    return true;
+  } catch {
+    addLog("Failed to save command filter preferences.", "bad");
+    return false;
+  }
+}
+
+function syncCommandPaletteFilterConfig({ resetSelection = false } = {}) {
+  commandPaletteAvailableSections = getCommandPaletteAvailableSections(commandPaletteActions);
+  const configured = Array.isArray(state.config?.command_palette_filters)
+    ? state.config.command_palette_filters
+    : SETTINGS_DEFAULTS.command_palette_filters;
+  commandPaletteVisibleFilters = sanitizeCommandPaletteVisibleFilters(configured, commandPaletteAvailableSections);
+  const configuredAllTypes = Array.isArray(state.config?.command_palette_all_type_filters)
+    ? state.config.command_palette_all_type_filters
+    : SETTINGS_DEFAULTS.command_palette_all_type_filters;
+  commandPaletteAllTypeFilters = sanitizeCommandPaletteAllTypeFilters(configuredAllTypes, commandPaletteAvailableSections);
+  if (resetSelection) {
+    commandPaletteSectionFilter = commandPaletteVisibleFilters.includes("all")
+      ? "all"
+      : commandPaletteVisibleFilters[0];
+  } else if (!commandPaletteVisibleFilters.includes(commandPaletteSectionFilter)) {
+    commandPaletteSectionFilter = commandPaletteVisibleFilters[0];
+  }
+  renderCommandPaletteFilterButtons();
+  syncCommandPaletteFilterButtons();
+  if (commandPaletteFilterMenu && !commandPaletteFilterMenu.classList.contains("hidden")) {
+    const currentHeaderKeys = getCommandPaletteFilterMenuOptionKeys("data-command-filter-menu-key");
+    const nextHeaderKeys = commandPaletteAvailableSections.map((section) => normalizeCommandPaletteSectionKey(section));
+    const currentTypeKeys = getCommandPaletteFilterMenuOptionKeys("data-command-all-type-key");
+    const nextTypeKeys = commandPaletteAvailableSections
+      .filter((section) => section !== "all")
+      .map((section) => normalizeCommandPaletteSectionKey(section));
+    const sameHeaderShape = currentHeaderKeys.length === nextHeaderKeys.length
+      && currentHeaderKeys.every((value, index) => value === nextHeaderKeys[index]);
+    const sameTypeShape = currentTypeKeys.length === nextTypeKeys.length
+      && currentTypeKeys.every((value, index) => value === nextTypeKeys[index]);
+    if (sameHeaderShape && sameTypeShape) {
+      syncCommandPaletteFilterMenuSelection();
+    } else {
+      renderCommandPaletteFilterMenu();
+    }
+  }
+}
+
+async function toggleCommandPaletteVisibleFilter(section) {
+  const key = normalizeCommandPaletteSectionKey(section);
+  if (!commandPaletteAvailableSections.includes(key)) {
+    return;
+  }
+  const next = commandPaletteVisibleFilters.slice();
+  const index = next.indexOf(key);
+  if (index >= 0) {
+    if (next.length <= 1) {
+      addLog("At least one command filter must remain visible.", "bad");
+      return;
+    }
+    next.splice(index, 1);
+  } else {
+    next.push(key);
+  }
+  const ordered = sanitizeCommandPaletteVisibleFilters(next, commandPaletteAvailableSections);
+  ordered.sort((left, right) => {
+    return commandPaletteAvailableSections.indexOf(left) - commandPaletteAvailableSections.indexOf(right);
+  });
+  commandPaletteVisibleFilters = ordered;
+  if (!commandPaletteVisibleFilters.includes(commandPaletteSectionFilter)) {
+    commandPaletteSectionFilter = commandPaletteVisibleFilters[0];
+  }
+  renderCommandPaletteFilterButtons();
+  syncCommandPaletteFilterButtons();
+  syncCommandPaletteFilterMenuSelection();
+  commandPaletteSelectedIndex = 0;
+  renderCommandPaletteList();
+  await persistCommandPaletteFilterPreferences();
+}
+
+async function toggleCommandPaletteAllTypeFilter(section) {
+  const key = normalizeCommandPaletteSectionKey(section);
+  const availableTypes = commandPaletteAvailableSections.filter((entry) => entry !== "all");
+  if (!availableTypes.includes(key)) {
+    return;
+  }
+  const next = commandPaletteAllTypeFilters.slice();
+  const index = next.indexOf(key);
+  if (index >= 0) {
+    if (next.length <= 1) {
+      addLog("At least one type filter must remain enabled for the All tab.", "bad");
+      return;
+    }
+    next.splice(index, 1);
+  } else {
+    next.push(key);
+  }
+  const ordered = sanitizeCommandPaletteAllTypeFilters(next, commandPaletteAvailableSections);
+  ordered.sort((left, right) => availableTypes.indexOf(left) - availableTypes.indexOf(right));
+  commandPaletteAllTypeFilters = ordered;
+  syncCommandPaletteFilterMenuSelection();
+  if (commandPaletteSectionFilter === "all") {
+    commandPaletteSelectedIndex = 0;
+    renderCommandPaletteList();
+  }
+  await persistCommandPaletteFilterPreferences();
+}
+
+function setCommandPaletteSectionFilter(section, options = {}) {
+  const normalized = normalizeCommandPaletteSectionKey(section);
+  const fallback = commandPaletteVisibleFilters[0] || "all";
+  const next = commandPaletteVisibleFilters.includes(normalized) ? normalized : fallback;
+  const rerender = options.rerender !== false;
+  const changed = commandPaletteSectionFilter !== next;
+  commandPaletteSectionFilter = next;
+  syncCommandPaletteFilterButtons();
+  if (!changed || !rerender || !isCommandPaletteOpen()) {
+    return;
+  }
+  commandPaletteSelectedIndex = 0;
+  renderCommandPaletteList();
+}
+
 function filterCommandPaletteActions(queryText) {
+  const activeSection = normalizeCommandPaletteSectionKey(commandPaletteSectionFilter);
+  const allowedTypes = activeSection === "all" ? new Set(commandPaletteAllTypeFilters) : null;
   const terms = String(queryText || "")
     .trim()
     .toLowerCase()
     .split(/\s+/)
     .filter(Boolean);
 
+  const scopedActions = commandPaletteActions.filter((action) => {
+    if (activeSection === "all") {
+      if (!allowedTypes || !allowedTypes.size) {
+        return true;
+      }
+      const actionSections = getCommandPaletteActionSections(action);
+      for (const section of actionSections) {
+        if (allowedTypes.has(section)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return getCommandPaletteActionSections(action).has(activeSection);
+  });
+
   if (!terms.length) {
-    return commandPaletteActions.slice();
+    return scopedActions;
   }
 
-  return commandPaletteActions.filter((action) => {
-    const haystack = `${action.label} ${action.hint || ""} ${action.keywords || ""}`.toLowerCase();
+  return scopedActions.filter((action) => {
+    const sectionsText = Array.from(getCommandPaletteActionSections(action)).join(" ");
+    const haystack = `${action.label} ${action.hint || ""} ${action.keywords || ""} ${sectionsText}`.toLowerCase();
     return terms.every((term) => haystack.includes(term));
   });
 }
@@ -1861,9 +2270,12 @@ function closeCommandPalette({ restoreFocus = true } = {}) {
     return;
   }
   commandPaletteOverlay.classList.add("hidden");
+  hideCommandPaletteFilterMenu();
   commandPaletteList.innerHTML = "";
   commandPaletteResults = [];
   commandPaletteActions = [];
+  commandPaletteAvailableSections = [];
+  commandPaletteVisibleFilters = [];
   commandPaletteSelectedIndex = 0;
 
   const restoreTarget = commandPaletteLastFocusedElement;
@@ -1968,9 +2380,11 @@ function openCommandPalette() {
   hideQueueContextMenu();
   hideLogsContextMenu();
   hideHeaderContextMenu();
+  hideCommandPaletteFilterMenu();
 
   commandPaletteLastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   commandPaletteActions = getPaletteCommands();
+  syncCommandPaletteFilterConfig({ resetSelection: true });
   commandPaletteSelectedIndex = 0;
   commandPaletteInput.value = "";
   commandPaletteOverlay.classList.remove("hidden");
@@ -1986,6 +2400,10 @@ function wireCommandPalette() {
   commandPaletteOverlay.addEventListener("mousedown", (event) => {
     if (event.target === commandPaletteOverlay) {
       closeCommandPalette();
+      return;
+    }
+    if (!(event.target instanceof Element) || !event.target.closest("#command-palette-filter-menu")) {
+      hideCommandPaletteFilterMenu();
     }
   });
 
@@ -2015,6 +2433,68 @@ function wireCommandPalette() {
       executeCommandPaletteAction(commandPaletteSelectedIndex);
     }
   });
+
+  commandPaletteFilterTabs?.addEventListener("click", (event) => {
+    const button = event.target.closest(".command-palette-filter-btn[data-command-filter]");
+    if (!(button instanceof HTMLButtonElement) || !commandPaletteFilterTabs.contains(button)) {
+      return;
+    }
+    event.preventDefault();
+    setCommandPaletteSectionFilter(button.dataset.commandFilter);
+    focusCommandPaletteInput();
+  });
+
+  commandPaletteFilterMenuBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isCommandPaletteOpen()) {
+      return;
+    }
+    if (!commandPaletteFilterMenu?.classList.contains("hidden")) {
+      hideCommandPaletteFilterMenu();
+      return;
+    }
+    const rect = commandPaletteFilterMenuBtn.getBoundingClientRect();
+    showCommandPaletteFilterMenu(Math.round(rect.right - 6), Math.round(rect.bottom + 4));
+  });
+
+  commandPaletteFilterMenu?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-command-filter-menu-action]");
+    if (!(button instanceof HTMLButtonElement) || !commandPaletteFilterMenu.contains(button)) {
+      return;
+    }
+    event.preventDefault();
+    const action = String(button.dataset.commandFilterMenuAction || "");
+    if (action === "toggle_header") {
+      void toggleCommandPaletteVisibleFilter(button.dataset.commandFilterMenuKey || "");
+      return;
+    }
+    if (action === "toggle_all_type") {
+      void toggleCommandPaletteAllTypeFilter(button.dataset.commandAllTypeKey || "");
+      return;
+    }
+    if (action === "reset") {
+      commandPaletteAllTypeFilters = sanitizeCommandPaletteAllTypeFilters(
+        SETTINGS_DEFAULTS.command_palette_all_type_filters,
+        commandPaletteAvailableSections
+      );
+      syncCommandPaletteFilterMenuSelection();
+      if (commandPaletteSectionFilter === "all") {
+        commandPaletteSelectedIndex = 0;
+        renderCommandPaletteList();
+      }
+      void persistCommandPaletteFilterPreferences();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element) || !event.target.closest("#command-palette-filter-menu")) {
+      hideCommandPaletteFilterMenu();
+    }
+  });
+
+  document.addEventListener("scroll", () => hideCommandPaletteFilterMenu(), true);
+  window.addEventListener("resize", () => hideCommandPaletteFilterMenu());
 }
 
 function wireCommandSplitMenu() {
@@ -4696,7 +5176,7 @@ async function openAccountsManager() {
               return;
             }
 
-            if (launchResult.mode === "conpty") {
+            if (launchResult.mode === "session" || launchResult.mode === "conpty") {
               let terminalResult = null;
               setFooterPurgeVisible(false);
               try {
@@ -6113,6 +6593,11 @@ async function handleEvent(event) {
     updateLogsContextMenuSelection();
     scheduleLogTimelineRender({ preserveScroll: true });
     setProviderValue(state.config.download_provider);
+    if (isCommandPaletteOpen()) {
+      commandPaletteActions = getPaletteCommands();
+      syncCommandPaletteFilterConfig();
+      renderCommandPaletteList();
+    }
     renderQueue();
     return;
   }
@@ -6127,11 +6612,16 @@ async function handleEvent(event) {
   }
 
   if (type === "clipboard" && payload.url) {
+    const provider = providerSelect.value || "Default";
     itemUrlInput.value = payload.url;
     addLog("Detected workshop URL from clipboard.", "info", {
       source: "clipboard",
       action: "detected_url"
     });
+    if (state.config.auto_add_to_queue) {
+      queueForm.reset();
+      setProviderValue(provider);
+    }
   }
 }
 
@@ -6206,6 +6696,76 @@ function beginWindowResize(mode, cursorClass) {
     });
 }
 
+function beginWindowResizeDrag(event, mode, cursorClass) {
+  if (!state.apiAvailable || !event) {
+    return;
+  }
+
+  const startScreenX = Number(event.screenX || 0);
+  const startScreenY = Number(event.screenY || 0);
+
+  if (cursorClass) {
+    document.body.classList.add(cursorClass);
+  }
+
+  callApi("begin_window_resize", mode)
+    .then((result) => {
+      if (result && result.success === false && result.error) {
+        addLog(result.error, "bad");
+        document.body.classList.remove("window-resizing");
+        document.body.classList.remove("window-resizing-ew");
+        document.body.classList.remove("window-resizing-ns");
+        return;
+      }
+
+      if (!result || result.strategy !== "pointer") {
+        document.body.classList.remove("window-resizing");
+        document.body.classList.remove("window-resizing-ew");
+        document.body.classList.remove("window-resizing-ns");
+        return;
+      }
+
+      const moveHandler = (moveEvent) => {
+        callApi(
+          "update_window_resize",
+          Number(moveEvent.screenX || 0),
+          Number(moveEvent.screenY || 0),
+          startScreenX,
+          startScreenY
+        ).then((updateResult) => {
+          if (updateResult && updateResult.success === false && updateResult.error) {
+            addLog(updateResult.error, "bad");
+          }
+        }).catch(() => {
+          addLog("Window resize failed.", "bad");
+        });
+      };
+
+      const endHandler = () => {
+        window.removeEventListener("mousemove", moveHandler);
+        window.removeEventListener("mouseup", endHandler);
+        callApi("end_window_resize")
+          .catch(() => {
+            addLog("Window resize failed.", "bad");
+          })
+          .finally(() => {
+            document.body.classList.remove("window-resizing");
+            document.body.classList.remove("window-resizing-ew");
+            document.body.classList.remove("window-resizing-ns");
+          });
+      };
+
+      window.addEventListener("mousemove", moveHandler);
+      window.addEventListener("mouseup", endHandler, { once: true });
+    })
+    .catch(() => {
+      addLog("Window resize failed.", "bad");
+      document.body.classList.remove("window-resizing");
+      document.body.classList.remove("window-resizing-ew");
+      document.body.classList.remove("window-resizing-ns");
+    });
+}
+
 function wireWindowResizeGrip() {
   const hasAnyHandle = windowResizeEast || windowResizeSouth;
   if (!hasAnyHandle) {
@@ -6218,7 +6778,7 @@ function wireWindowResizeGrip() {
         return;
       }
       event.preventDefault();
-      beginWindowResize("east", "window-resizing-ew");
+      beginWindowResizeDrag(event, "east", "window-resizing-ew");
     });
   }
 
@@ -6228,7 +6788,7 @@ function wireWindowResizeGrip() {
         return;
       }
       event.preventDefault();
-      beginWindowResize("south", "window-resizing-ns");
+      beginWindowResizeDrag(event, "south", "window-resizing-ns");
     });
   }
 }

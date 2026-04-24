@@ -82,7 +82,60 @@ else:
     def _scrape_steamdb_botasaurus_visible(_data):
         raise RuntimeError("Botasaurus is not available in this environment.")
 
-class SteamCmdConPTYSession:
+
+def is_windows_platform():
+    return platform.system().lower() == "windows"
+
+
+def is_macos_platform():
+    return platform.system().lower() == "darwin"
+
+
+def is_linux_platform():
+    return platform.system().lower() == "linux"
+
+
+def get_steamcmd_executable_name():
+    return "steamcmd.exe" if is_windows_platform() else "steamcmd.sh"
+
+
+def get_steamcmd_executable_path(steamcmd_dir: str):
+    return os.path.join(steamcmd_dir, get_steamcmd_executable_name())
+
+
+def get_steamcmd_bootstrap_url():
+    if is_windows_platform():
+        return "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
+    if is_macos_platform():
+        return "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz"
+    return "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz"
+
+
+def get_steamcmd_required_paths(steamcmd_dir: str):
+    executable_path = get_steamcmd_executable_path(steamcmd_dir)
+    if is_windows_platform():
+        return [
+            executable_path,
+            os.path.join(steamcmd_dir, "steam.dll"),
+            os.path.join(steamcmd_dir, "steamclient.dll"),
+        ]
+    if is_macos_platform():
+        return [executable_path]
+    return [
+        executable_path,
+        os.path.join(steamcmd_dir, "linux32", "steamcmd"),
+    ]
+
+
+def strip_ansi_control_sequences(text: str):
+    value = str(text or "")
+    if not value:
+        return ""
+    value = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", value)
+    value = value.replace("\r", "")
+    return value
+
+class SteamCmdInteractiveSession:
     def __init__(self, steamcmd_exe: str, steamcmd_dir: str, username: str, password: str = "", cols: int = 120, rows: int = 40):
         self.steamcmd_exe = steamcmd_exe
         self.steamcmd_dir = steamcmd_dir
@@ -123,15 +176,15 @@ class SteamCmdConPTYSession:
             else:
                 text = str(chunk)
             if text:
-                self._append_output(text)
+                self._append_output(strip_ansi_control_sequences(text))
 
     def start(self):
         if not os.path.isfile(self.steamcmd_exe):
-            return False, "steamcmd.exe not found."
+            return False, "SteamCMD executable not found."
 
         try:
             creationflags = 0
-            if platform.system().lower() == "windows":
+            if is_windows_platform():
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
             cmd = [self.steamcmd_exe, "+login", self.username]
@@ -175,7 +228,7 @@ class SteamCmdConPTYSession:
         with self._lock:
             if not self._started or not self._popen or not self._popen.stdin:
                 return {"success": False, "error": "SteamCMD session is not running."}
-            payload = ((text or "") + "\r\n").encode("utf-8", errors="ignore")
+            payload = ((text or "") + "\n").encode("utf-8", errors="ignore")
             if not payload:
                 return {"success": False, "error": "Input is empty."}
             try:
@@ -251,7 +304,7 @@ class StreamlineWebBackend:
         self.config_path = os.path.join(self.files_dir, "config.json")
         self.downloads_root = os.path.join(self.script_dir, "Downloads")
         self.steamcmd_dir = os.path.join(self.files_dir, "steamcmd")
-        self.steamcmd_exe = os.path.join(self.steamcmd_dir, "steamcmd.exe")
+        self.steamcmd_exe = get_steamcmd_executable_path(self.steamcmd_dir)
         self.steamcmd_download_path = os.path.join(self.downloads_root, "SteamCMD")
         self.steamwebapi_download_path = os.path.join(self.downloads_root, "SteamWebAPI")
         self.mod_log_path = os.path.join(self.files_dir, "Logs", "mod_downloads.json")
@@ -306,6 +359,7 @@ class StreamlineWebBackend:
         self._hydration_lock = threading.Lock()
         self._hydration_inflight = set()
         self._hydration_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="mod-hydrate")
+        self._workshop_ui_cache = {}
 
         self.config = self._load_config()
         self.app_ids = {}
@@ -990,11 +1044,13 @@ class StreamlineWebBackend:
 
         app_id = None
         numeric_id = None
+        explicit_workshop_item_url = False
 
         if "store.steampowered.com/app/" in input_text:
             app_id = self._extract_appid(input_text)
         elif "steamcommunity.com/sharedfiles/filedetails/" in input_text or "steamcommunity.com/workshop/filedetails/" in input_text:
             numeric_id = self._extract_id(input_text)
+            explicit_workshop_item_url = bool(numeric_id)
         elif input_text.isdigit():
             numeric_id = input_text
             if numeric_id in self.app_ids:
@@ -1003,6 +1059,11 @@ class StreamlineWebBackend:
             app_id = self._extract_appid(input_text)
             if not app_id:
                 numeric_id = self._extract_id(input_text)
+
+        if explicit_workshop_item_url and numeric_id:
+            if self._is_collection(numeric_id):
+                return ("collection", numeric_id)
+            return ("workshop_item", numeric_id)
 
         if app_id and self._check_if_appid_has_workshop(app_id):
             return ("game", app_id)
@@ -1021,8 +1082,17 @@ class StreamlineWebBackend:
         return (None, None)
 
     def _check_if_appid_has_workshop(self, app_id: str):
+        return self._get_workshop_ui_mode(app_id) in {"legacy", "beta"}
+
+    def _get_workshop_ui_mode(self, app_id: str):
+        key = str(app_id or "").strip()
+        if not key:
+            return None
+        cached = self._workshop_ui_cache.get(key)
+        if cached in {"legacy", "beta", "none"}:
+            return None if cached == "none" else cached
         try:
-            workshop_url = f"https://steamcommunity.com/app/{app_id}/workshop/"
+            workshop_url = f"https://steamcommunity.com/app/{key}/workshop/"
             response = requests.get(
                 workshop_url,
                 allow_redirects=True,
@@ -1031,13 +1101,50 @@ class StreamlineWebBackend:
             )
             final_url = response.url
             if "store.steampowered.com" in final_url and "/workshop/" not in final_url:
-                return False
+                self._workshop_ui_cache[key] = "none"
+                return None
             if response.status_code != 200:
-                return False
+                self._workshop_ui_cache[key] = "none"
+                return None
             markers = ["workshopItemsContainer", "workshopBrowseItems", "workshop_browse_menu"]
-            return any(marker in response.text for marker in markers)
+            if any(marker in response.text for marker in markers):
+                self._workshop_ui_cache[key] = "legacy"
+                return "legacy"
+            tree = html.fromstring(response.text)
+            if self._is_beta_workshop_app_page(tree, response.text, key):
+                self._workshop_ui_cache[key] = "beta"
+                return "beta"
+            self._workshop_ui_cache[key] = "none"
+            return None
         except Exception:
+            return None
+
+    def _is_beta_workshop_app_page(self, tree, page_content: str, app_id: str):
+        page_text = (page_content or "").lower()
+        beta_markers = [
+            "exit steam workshop beta",
+            "view workshop beta",
+            "the steam workshop for",
+            "browsing: items",
+            "entries matching filters",
+        ]
+        if not any(marker in page_text for marker in beta_markers):
             return False
+
+        app_links = tree.xpath(
+            f'//a[contains(@href, "/app/{app_id}") or contains(@href, "store.steampowered.com/app/{app_id}")]'
+        )
+        workshop_headers = tree.xpath(
+            '//*[self::h1 or self::h2 or self::div][contains(translate(normalize-space(.), '
+            '"ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "the steam workshop for")]'
+        )
+        workshop_item_links = tree.xpath(
+            '//a['
+            'contains(@href, "sharedfiles/filedetails") '
+            'or contains(@href, "workshop/filedetails")'
+            ']'
+        )
+        return bool(app_links) and (bool(workshop_headers) or bool(workshop_item_links))
 
     def _is_collection(self, item_id: str):
         try:
@@ -1295,7 +1402,92 @@ class StreamlineWebBackend:
                     "app_id": str(app_id),
                     "game_name": game_name,
                 })
-        return mods
+        if mods:
+            return mods
+
+        mods_by_id = {}
+        workshop_links = page_tree.xpath(
+            '//a['
+            'contains(@href, "sharedfiles/filedetails") '
+            'or contains(@href, "workshop/filedetails")'
+            ']'
+        )
+        for link in workshop_links:
+            href = link.get("href", "")
+            if not href or "/discussion/" in href:
+                continue
+            mod_id = self._extract_id(href)
+            if not mod_id:
+                continue
+            mod_name = " ".join(link.text_content().split())
+            if not mod_name:
+                mod_name = f"Mod {mod_id}"
+            existing = mods_by_id.get(str(mod_id))
+            if existing and not self._mod_name_needs_hydration(existing.get("mod_name"), str(mod_id)):
+                continue
+            mods_by_id[str(mod_id)] = {
+                "mod_id": str(mod_id),
+                "mod_name": mod_name,
+                "app_id": str(app_id),
+                "game_name": game_name,
+            }
+        return list(mods_by_id.values())
+
+    def _extract_workshop_total_pages(self, tree, mods_per_page: int, max_pages: int, ui_mode: str):
+        page_numbers = []
+        if ui_mode == "beta":
+            paginator_blocks = tree.xpath(
+                '//span[.//*[@role="button"] and .//div[normalize-space(.)="..."]] | '
+                '//div[contains(@style, "--direction:row") and .//*[@role="button"] and .//div[normalize-space(.)="..."]]'
+            )
+            page_buttons = []
+            if paginator_blocks:
+                best_block = max(
+                    paginator_blocks,
+                    key=lambda node: len(node.xpath('.//*[@role="button"]')),
+                )
+                page_buttons = best_block.xpath('.//*[@role="button"]')
+            if not page_buttons:
+                page_buttons = tree.xpath('//*[@role="button"]')
+            for button in page_buttons:
+                text = " ".join(button.text_content().split())
+                if not text:
+                    continue
+                digits = re.sub(r"\D", "", text)
+                if not digits:
+                    continue
+                try:
+                    page_number = int(digits)
+                except Exception:
+                    continue
+                if 1 <= page_number <= max_pages:
+                    page_numbers.append(page_number)
+            if page_numbers:
+                highest_page = max(page_numbers)
+                if highest_page >= 2:
+                    return highest_page
+
+        paging_info = tree.xpath("//div[@class='workshopBrowsePagingInfo']/text()")
+        total_entries = 0
+        for info in paging_info:
+            match = re.search(r"\bof\s+([\d,]+)", info, flags=re.IGNORECASE)
+            if match:
+                try:
+                    total_entries = int(match.group(1).replace(",", ""))
+                    break
+                except Exception:
+                    total_entries = 0
+        if total_entries <= 0:
+            page_text = " ".join(tree.xpath("//text()"))
+            match = re.search(r"([\d,]+)\s+entries\s+matching\s+filters", page_text, flags=re.IGNORECASE)
+            if match:
+                try:
+                    total_entries = int(match.group(1).replace(",", ""))
+                except Exception:
+                    total_entries = 0
+        if total_entries <= 0:
+            return 1
+        return min((total_entries + mods_per_page - 1) // mods_per_page, max_pages)
 
     def _scrape_workshop_app(
         self,
@@ -1306,7 +1498,25 @@ class StreamlineWebBackend:
         operation_id: str = "",
     ):
         base_url = "https://steamcommunity.com/workshop/browse/"
-        params = {"appid": str(app_id), "browsesort": "toprated", "section": "readytouseitems", "p": "1"}
+        ui_mode = self._get_workshop_ui_mode(app_id) or "legacy"
+        if ui_mode == "beta":
+            mods_per_page = 50
+            max_pages = min(max_pages, 1000)
+            params = {
+                "appid": str(app_id),
+                "browsesort": "toprated",
+                "section": "readytouseitems",
+                "p": "1",
+                "num_per_page": str(mods_per_page),
+            }
+        else:
+            mods_per_page = 30
+            params = {
+                "appid": str(app_id),
+                "browsesort": "toprated",
+                "section": "readytouseitems",
+                "p": "1",
+            }
         mods = []
         seen_mod_ids = set()
         game_name = self.app_ids.get(str(app_id), f"AppID {app_id}")
@@ -1317,6 +1527,10 @@ class StreamlineWebBackend:
 
         if game_name.startswith("AppID "):
             game_nodes = tree.xpath('//div[@class="apphub_AppName ellipsis"]/text()')
+            if not game_nodes:
+                game_nodes = tree.xpath(
+                    f'//a[contains(@href, "/app/{app_id}") or contains(@href, "store.steampowered.com/app/{app_id}")]/text()'
+                )
             if game_nodes:
                 game_name = game_nodes[0].strip()
 
@@ -1346,24 +1560,7 @@ class StreamlineWebBackend:
                     )
 
         first_page_mods = self._parse_workshop_page(response.text, app_id=str(app_id), game_name=game_name)
-
-        paging_info = tree.xpath("//div[@class='workshopBrowsePagingInfo']/text()")
-        total_entries = 0
-        for info in paging_info:
-            match = re.search(r"\bof\s+([\d,]+)", info, flags=re.IGNORECASE)
-            if match:
-                try:
-                    total_entries = int(match.group(1).replace(",", ""))
-                    break
-                except Exception:
-                    total_entries = 0
-
-        if total_entries <= 0:
-            emit_batch(first_page_mods, 1, 1)
-            return mods
-
-        mods_per_page = 30
-        total_pages = min((total_entries + mods_per_page - 1) // mods_per_page, max_pages)
+        total_pages = self._extract_workshop_total_pages(tree, mods_per_page, max_pages, ui_mode)
         emit_batch(first_page_mods, 1, total_pages)
         if total_pages <= 1:
             return mods
@@ -3112,9 +3309,16 @@ class StreamlineWebBackend:
             if mod:
                 target = self._get_download_path(mod)
         os.makedirs(target, exist_ok=True)
-        if hasattr(os, "startfile"):
-            os.startfile(target)  # type: ignore[attr-defined]
-        return {"success": True, "message": target}
+        try:
+            if hasattr(os, "startfile"):
+                os.startfile(target)  # type: ignore[attr-defined]
+            elif platform.system().lower() == "darwin":
+                subprocess.Popen(["open", target])
+            else:
+                subprocess.Popen(["xdg-open", target])
+            return {"success": True, "message": target}
+        except Exception as e:
+            return {"success": False, "error": str(e), "message": target}
 
     def get_settings(self):
         return dict(self.config)
@@ -3141,13 +3345,15 @@ class StreamlineWebBackend:
             return 0
 
     def _start_clipboard_monitoring(self):
-        if platform.system().lower() != "windows":
-            return
         thread = self._clipboard_monitor_thread
         if thread is not None and thread.is_alive():
             return
         self._clipboard_stop_event = threading.Event()
         self._clipboard_last_seq = self._get_clipboard_sequence_windows()
+        try:
+            self.last_clipboard_text = (self._read_clipboard_text() or "").strip()
+        except Exception:
+            self.last_clipboard_text = ""
         self._clipboard_monitor_thread = threading.Thread(
             target=self._clipboard_monitor_loop,
             name="streamline-clipboard-monitor",
@@ -3199,6 +3405,55 @@ class StreamlineWebBackend:
                     pass
         return ""
 
+    def _read_clipboard_text_subprocess(self):
+        clipboard_commands = []
+        system_name = platform.system().lower()
+        if system_name == "windows":
+            clipboard_commands.append([
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "Get-Clipboard -Raw",
+            ])
+        elif system_name == "darwin":
+            clipboard_commands.append(["pbpaste"])
+        else:
+            clipboard_commands.extend([
+                ["wl-paste", "--no-newline"],
+                ["xclip", "-selection", "clipboard", "-o"],
+                ["xsel", "--clipboard", "--output"],
+            ])
+
+        for command in clipboard_commands:
+            executable = shutil.which(command[0])
+            if not executable:
+                continue
+            try:
+                result = subprocess.run(
+                    [executable, *command[1:]],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                    timeout=1.0,
+                    check=False,
+                )
+            except Exception:
+                continue
+            if result.returncode == 0:
+                return str(result.stdout or "")
+        return ""
+
+    def _read_clipboard_text(self):
+        if platform.system().lower() == "windows":
+            text = self._read_clipboard_text_windows()
+            if text:
+                return text
+            return self._read_clipboard_text_subprocess()
+        return self._read_clipboard_text_subprocess()
+
     def _is_valid_workshop_clipboard_input(self, text: str):
         value = (text or "").strip()
         if not value:
@@ -3216,7 +3471,7 @@ class StreamlineWebBackend:
         if not self.config.get("auto_detect_urls", False):
             return
 
-        current_text = (self._read_clipboard_text_windows() or "").strip()
+        current_text = (self._read_clipboard_text() or "").strip()
         if not current_text:
             return
 
@@ -3337,13 +3592,35 @@ class StreamlineWebBackend:
         return record, changed
 
     def _get_steamcmd_config_vdf_path(self):
-        return os.path.join(self.steamcmd_dir, "config", "config.vdf")
+        return os.path.join(self._get_steamcmd_runtime_root(), "config", "config.vdf")
 
     def _get_steamcmd_connection_log_path(self):
-        return os.path.join(self.steamcmd_dir, "logs", "connection_log.txt")
+        return os.path.join(self._get_steamcmd_runtime_root(), "logs", "connection_log.txt")
 
     def _get_steamcmd_console_log_path(self):
-        return os.path.join(self.steamcmd_dir, "logs", "console_log.txt")
+        return os.path.join(self._get_steamcmd_runtime_root(), "logs", "console_log.txt")
+
+    def _get_steamcmd_runtime_root(self):
+        if is_windows_platform():
+            return self.steamcmd_dir
+        home_dir = os.path.expanduser("~")
+        if is_macos_platform():
+            candidates = [
+                os.path.join(home_dir, "Library", "Application Support", "Steam"),
+                os.path.join(home_dir, "Steam"),
+                self.steamcmd_dir,
+            ]
+        else:
+            candidates = [
+                os.path.join(home_dir, "Steam"),
+                os.path.join(home_dir, ".steam", "steam"),
+                os.path.join(home_dir, ".local", "share", "Steam"),
+                self.steamcmd_dir,
+            ]
+        for path in candidates:
+            if os.path.isdir(path):
+                return path
+        return self.steamcmd_dir
 
     def _get_file_size(self, path):
         try:
@@ -3358,7 +3635,7 @@ class StreamlineWebBackend:
             with open(path, "rb") as f:
                 if offset:
                     f.seek(max(0, int(offset)), os.SEEK_SET)
-                return f.read().decode("utf-8", errors="ignore")
+                return strip_ansi_control_sequences(f.read().decode("utf-8", errors="ignore"))
         except Exception:
             return ""
 
@@ -3560,9 +3837,6 @@ class StreamlineWebBackend:
         if not os.path.isfile(self.steamcmd_exe):
             return {"success": False, "error": "SteamCMD is not installed."}
 
-        if platform.system().lower() != "windows":
-            return {"success": False, "error": "ConPTY login is only supported on Windows."}
-
         with self.steamcmd_login_lock:
             if self.steamcmd_login_session is not None:
                 try:
@@ -3593,14 +3867,14 @@ class StreamlineWebBackend:
                 "detected_steamid64": "",
             }
 
-            session = SteamCmdConPTYSession(self.steamcmd_exe, self.steamcmd_dir, username, password)
+            session = SteamCmdInteractiveSession(self.steamcmd_exe, self.steamcmd_dir, username, password)
             ok, error = session.start()
             if not ok:
                 self.pending_login_context = None
-                return {"success": False, "error": f"Failed to start ConPTY session: {error}"}
+                return {"success": False, "error": f"Failed to start SteamCMD session: {error}"}
 
             self.steamcmd_login_session = session
-            return {"success": True, "mode": "conpty"}
+            return {"success": True, "mode": "session"}
         except Exception as e:
             self.pending_login_context = None
             return {"success": False, "error": str(e)}
