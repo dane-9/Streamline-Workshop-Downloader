@@ -26,14 +26,30 @@
 | **Customizable Settings** | *<sub>Adjust themes, batch sizes, folder naming, provider defaults, visibility toggles, and startup behavior.</sub>* |
 | **Custom Frameless Window** | *<sub>Fully frameless window with a custom title bar, native resize grips, and persistent window size.</sub>* |
 
-*No additional installations or Python dependencies are required as the application is packaged into a standalone executable.* ***An alternative is running from source with your existing Python installation.***
+*No additional Python dependencies are required when using a packaged release.* ***An alternative is running from source with your existing Python installation.***
 
 ## Installation
 
-### Option A: Executable
+### Option A: Packaged Release
+
+#### Windows
 
 1. Download the latest `Streamline.exe` from the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page
 2. Place it in its own folder and launch it
+
+#### Linux
+
+1. Download the latest `Streamline-x86_64.AppImage` from the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page
+2. Place it in its own folder
+3. Make it executable:
+   ```bash
+   chmod +x Streamline-x86_64.AppImage
+   ```
+4. Launch it:
+   ```bash
+   ./Streamline-x86_64.AppImage
+   ```
+   Or double-click the AppImage after making it executable.
 
 ### Option B: Run from Source (in a Virtual Environment)
 
