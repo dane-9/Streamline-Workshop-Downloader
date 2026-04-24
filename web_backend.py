@@ -373,6 +373,7 @@ class StreamlineWebBackend:
         self.canceled = False
         self.current_process = None
         self.successful_downloads_this_session = set()
+        self.session_steamcmd_downloads = set()
         self.session_webapi_files = {}
         self.pending_login_context = None
         self.steamcmd_login_session = None
@@ -2218,6 +2219,15 @@ class StreamlineWebBackend:
     def _get_steamcmd_content_path(self, mod):
         app_id = str(mod.get("app_id", ""))
         mod_id = str(mod.get("mod_id", ""))
+        candidate_paths = [
+            os.path.join(workshop_content_path, app_id, mod_id)
+            for workshop_content_path in self._get_steamcmd_workshop_content_paths()
+        ]
+        for candidate_path in candidate_paths:
+            if os.path.isdir(candidate_path):
+                return candidate_path
+        if candidate_paths:
+            return candidate_paths[0]
         return os.path.join(self.steamcmd_dir, "steamapps", "workshop", "content", app_id, mod_id)
 
     def _get_steamcmd_target_path(self, mod, allow_remote_lookup=False):
@@ -2519,6 +2529,12 @@ class StreamlineWebBackend:
             return
         self.successful_downloads_this_session.add(mod_id)
 
+    def _mark_session_steamcmd_downloaded(self, mod):
+        mod_id = str(mod.get("mod_id", "")).strip()
+        if not mod_id:
+            return
+        self.session_steamcmd_downloads.add(mod_id)
+
     def _set_mod_status(self, mod, status, retry_count=None):
         if not isinstance(mod, dict):
             return False
@@ -2685,28 +2701,31 @@ class StreamlineWebBackend:
         )
 
     def _cleanup_appworkshop_acf_files(self):
-        workshop_dir = os.path.join(self.steamcmd_dir, "steamapps", "workshop")
-        if not os.path.isdir(workshop_dir):
+        local_workshop_dir = os.path.join(self.steamcmd_dir, "steamapps", "workshop")
+        if not os.path.isdir(local_workshop_dir):
             return
-        for file_name in os.listdir(workshop_dir):
+        for file_name in os.listdir(local_workshop_dir):
             if file_name.lower().startswith("appworkshop_") and file_name.lower().endswith(".acf"):
                 try:
-                    os.remove(os.path.join(workshop_dir, file_name))
+                    os.remove(os.path.join(local_workshop_dir, file_name))
                 except Exception:
                     pass
 
     def _remove_all_workshop_content(self):
-        workshop_content_path = os.path.join(self.steamcmd_dir, "steamapps", "workshop", "content")
-        if not os.path.isdir(workshop_content_path):
+        allowed_mod_ids = {str(mod_id).strip() for mod_id in self.session_steamcmd_downloads if str(mod_id).strip()}
+        if not allowed_mod_ids:
             return
-        for app_id in os.listdir(workshop_content_path):
-            app_path = os.path.join(workshop_content_path, app_id)
-            if not os.path.isdir(app_path):
-                continue
-            for mod_id in os.listdir(app_path):
-                mod_path = os.path.join(app_path, mod_id)
-                if os.path.isdir(mod_path):
-                    shutil.rmtree(mod_path, ignore_errors=True)
+        for workshop_content_path in self._get_existing_steamcmd_workshop_content_paths():
+            for app_id in os.listdir(workshop_content_path):
+                app_path = os.path.join(workshop_content_path, app_id)
+                if not os.path.isdir(app_path):
+                    continue
+                for mod_id in os.listdir(app_path):
+                    if str(mod_id) not in allowed_mod_ids:
+                        continue
+                    mod_path = os.path.join(app_path, mod_id)
+                    if os.path.isdir(mod_path):
+                        shutil.rmtree(mod_path, ignore_errors=True)
 
     def _remove_mod_artifacts(self, mod):
         if mod.get("provider") == "SteamCMD":
@@ -2742,57 +2761,59 @@ class StreamlineWebBackend:
                     pass
 
     def _move_all_downloaded_mods(self):
-        workshop_content_path = os.path.join(self.steamcmd_dir, "steamapps", "workshop", "content")
-        if not os.path.isdir(workshop_content_path):
+        allowed_mod_ids = {str(mod_id).strip() for mod_id in self.session_steamcmd_downloads if str(mod_id).strip()}
+        if not allowed_mod_ids:
             return
-
         logs = self._load_mod_download_logs()
         queue_map = {}
         with self.state_lock:
             for mod in self.download_queue:
                 queue_map[str(mod.get("mod_id", ""))] = mod
 
-        for app_id in os.listdir(workshop_content_path):
-            app_path = os.path.join(workshop_content_path, app_id)
-            if not os.path.isdir(app_path):
-                continue
-            for mod_id in os.listdir(app_path):
-                source_path = os.path.join(app_path, mod_id)
-                if not os.path.isdir(source_path):
+        for workshop_content_path in self._get_existing_steamcmd_workshop_content_paths():
+            for app_id in os.listdir(workshop_content_path):
+                app_path = os.path.join(workshop_content_path, app_id)
+                if not os.path.isdir(app_path):
                     continue
+                for mod_id in os.listdir(app_path):
+                    if str(mod_id) not in allowed_mod_ids:
+                        continue
+                    source_path = os.path.join(app_path, mod_id)
+                    if not os.path.isdir(source_path):
+                        continue
 
-                queue_mod = queue_map.get(str(mod_id))
-                mod_name = None
-                if queue_mod:
-                    mod_name = queue_mod.get("mod_name")
-                if not mod_name:
-                    mod_name = logs.get(str(mod_id), {}).get("name") or f"Mod {mod_id}"
+                    queue_mod = queue_map.get(str(mod_id))
+                    mod_name = None
+                    if queue_mod:
+                        mod_name = queue_mod.get("mod_name")
+                    if not mod_name:
+                        mod_name = logs.get(str(mod_id), {}).get("name") or f"Mod {mod_id}"
 
-                move_mod = {
-                    "mod_id": str(mod_id),
-                    "mod_name": mod_name,
-                    "app_id": str((queue_mod.get("app_id") if queue_mod and queue_mod.get("app_id") else app_id)),
-                    "provider": "SteamCMD"
-                }
+                    move_mod = {
+                        "mod_id": str(mod_id),
+                        "mod_name": mod_name,
+                        "app_id": str((queue_mod.get("app_id") if queue_mod and queue_mod.get("app_id") else app_id)),
+                        "provider": "SteamCMD"
+                    }
 
-                target_path = self._get_steamcmd_target_path(move_mod, allow_remote_lookup=True)
-                try:
-                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                    if os.path.isdir(target_path):
-                        shutil.rmtree(target_path, ignore_errors=True)
-                    shutil.move(source_path, target_path)
-                    self._update_mod_download_log(move_mod)
-                    self._mark_session_downloaded(move_mod)
-                    if queue_mod and (queue_mod.get("status") == "Downloading" or "Failed" in str(queue_mod.get("status", ""))):
-                        self._set_mod_status(queue_mod, "Downloaded")
-                except Exception as e:
-                    self.log(
-                        f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}",
-                        tone="bad",
-                        source="download",
-                        action="move_downloaded_mod_failed",
-                        context={"mod_id": str(mod_id), "error": str(e)},
-                    )
+                    target_path = self._get_steamcmd_target_path(move_mod, allow_remote_lookup=True)
+                    try:
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        if os.path.isdir(target_path):
+                            shutil.rmtree(target_path, ignore_errors=True)
+                        shutil.move(source_path, target_path)
+                        self._update_mod_download_log(move_mod)
+                        self._mark_session_downloaded(move_mod)
+                        if queue_mod and (queue_mod.get("status") == "Downloading" or "Failed" in str(queue_mod.get("status", ""))):
+                            self._set_mod_status(queue_mod, "Downloaded")
+                    except Exception as e:
+                        self.log(
+                            f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}",
+                            tone="bad",
+                            source="download",
+                            action="move_downloaded_mod_failed",
+                            context={"mod_id": str(mod_id), "error": str(e)},
+                        )
 
     def _get_steamcmd_login_parts(self):
         active_account = (self.config.get("active_account") or "Anonymous").strip() or "Anonymous"
@@ -3030,6 +3051,7 @@ class StreamlineWebBackend:
             if final_status == "Downloaded":
                 self._update_mod_download_log(mod)
                 self._mark_session_downloaded(mod)
+                self._mark_session_steamcmd_downloaded(mod)
         self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=True)
 
     def _finalize_cancellation(self, delete_downloads):
@@ -3239,6 +3261,7 @@ class StreamlineWebBackend:
             self.is_downloading = True
             self.canceled = False
             self.successful_downloads_this_session = set()
+            self.session_steamcmd_downloads = set()
             self.session_webapi_files = {}
             self._active_download_operation_id = operation_id
             selected_provider = self.config.get("download_provider", "Default")
@@ -3601,8 +3624,14 @@ class StreamlineWebBackend:
         return os.path.join(self._get_steamcmd_runtime_root(), "logs", "console_log.txt")
 
     def _get_steamcmd_runtime_root(self):
+        for path in self._get_steamcmd_runtime_root_candidates():
+            if os.path.isdir(path):
+                return path
+        return self.steamcmd_dir
+
+    def _get_steamcmd_runtime_root_candidates(self):
         if is_windows_platform():
-            return self.steamcmd_dir
+            return [self.steamcmd_dir]
         home_dir = os.path.expanduser("~")
         if is_macos_platform():
             candidates = [
@@ -3617,10 +3646,30 @@ class StreamlineWebBackend:
                 os.path.join(home_dir, ".local", "share", "Steam"),
                 self.steamcmd_dir,
             ]
+        ordered = []
         for path in candidates:
-            if os.path.isdir(path):
-                return path
-        return self.steamcmd_dir
+            if path not in ordered:
+                ordered.append(path)
+        return ordered
+
+    def _get_steamcmd_workshop_dir_paths(self):
+        workshop_dirs = []
+        for root_path in self._get_steamcmd_runtime_root_candidates():
+            workshop_dir = os.path.join(root_path, "steamapps", "workshop")
+            if workshop_dir not in workshop_dirs:
+                workshop_dirs.append(workshop_dir)
+        return workshop_dirs
+
+    def _get_steamcmd_workshop_content_paths(self):
+        content_paths = []
+        for workshop_dir in self._get_steamcmd_workshop_dir_paths():
+            content_path = os.path.join(workshop_dir, "content")
+            if content_path not in content_paths:
+                content_paths.append(content_path)
+        return content_paths
+
+    def _get_existing_steamcmd_workshop_content_paths(self):
+        return [path for path in self._get_steamcmd_workshop_content_paths() if os.path.isdir(path)]
 
     def _get_file_size(self, path):
         try:
