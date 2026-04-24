@@ -850,11 +850,14 @@ def run_pywebview_main_gui():
 
     runtime_webui_index = runtime_path(os.path.join("Files", "webui", "index.html"))
     runtime_setup_index = runtime_path(os.path.join("Files", "webui", "setup.html"))
+    runtime_logo_icon = runtime_path(os.path.join("Files", "logo.png"))
     bundled_webui_index = resource_path(os.path.join("Files", "webui", "index.html"))
     bundled_setup_index = resource_path(os.path.join("Files", "webui", "setup.html"))
+    bundled_logo_icon = resource_path(os.path.join("Files", "logo.png"))
 
     webui_index = runtime_webui_index if os.path.isfile(runtime_webui_index) else bundled_webui_index
     setup_index = runtime_setup_index if os.path.isfile(runtime_setup_index) else bundled_setup_index
+    window_icon = runtime_logo_icon if os.path.isfile(runtime_logo_icon) else bundled_logo_icon
     api.main_url = Path(webui_index).resolve().as_uri() if os.path.isfile(webui_index) else ""
 
     default_window_width = DEFAULT_WINDOW_WIDTH
@@ -941,9 +944,9 @@ def run_pywebview_main_gui():
 
     webview.create_window(**create_window_kwargs)
     if platform.system().lower() == "linux":
-        webview.start(debug=False, gui="qt")
+        webview.start(debug=False, gui="qt", icon=window_icon)
     else:
-        webview.start(debug=False)
+        webview.start(debug=False, icon=window_icon)
     return 0
 
 
