@@ -8,6 +8,7 @@ import threading
 import time
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import base64
 import ctypes
 
 import requests
@@ -3576,11 +3577,29 @@ class StreamlineWebBackend:
             if not match:
                 return ""
             avatar_url = str(match.group(1) or "").strip()
-            if avatar_url.lower().startswith(("http://", "https://")):
-                return avatar_url
+            if not avatar_url.lower().startswith(("http://", "https://")):
+                return ""
         except Exception:
             return ""
-        return ""
+
+        try:
+            image_response = requests.get(
+                avatar_url,
+                timeout=(6, 18),
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            if image_response.status_code == 200:
+                content = image_response.content or b""
+                if content:
+                    content_type = str(image_response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                    if not content_type.startswith("image/"):
+                        content_type = "image/jpeg"
+                    encoded = base64.b64encode(content).decode("ascii")
+                    if encoded:
+                        return f"data:{content_type};base64,{encoded}"
+        except Exception:
+            pass
+        return avatar_url
 
     def _refresh_account_avatar_if_needed(self, account: dict):
         record = self._normalize_account_record(account)
