@@ -571,6 +571,10 @@ class WebMainGuiApi:
         try:
             # Avoid JS evaluation during shutdown because the WebView may already be disposing.
             self._persist_window_size(window, use_js_viewport=False)
+            setup_state = self.setup_manager.get_state()
+            if setup_state.get("running"):
+                self.setup_manager.cancel_setup()
+            self.backend.shutdown()
             # Defer destruction until this bridge call returns to avoid WebView2 callback errors.
             self._destroy_window_deferred(window)
             return {"success": True}
@@ -1060,10 +1064,16 @@ def run_pywebview_main_gui():
         create_window_kwargs["html"] = "<h2>Streamline</h2><p>Web UI files were not found.</p>"
 
     webview.create_window(**create_window_kwargs)
-    if platform.system().lower() == "linux":
-        webview.start(debug=False, gui="qt", icon=window_icon)
-    else:
-        webview.start(debug=False, icon=window_icon)
+    try:
+        if platform.system().lower() == "linux":
+            webview.start(debug=False, gui="qt", icon=window_icon)
+        else:
+            webview.start(debug=False, icon=window_icon)
+    finally:
+        setup_state = api.setup_manager.get_state()
+        if setup_state.get("running"):
+            api.setup_manager.cancel_setup()
+        api.backend.shutdown()
     return 0
 
 

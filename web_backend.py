@@ -326,6 +326,9 @@ class StreamlineWebBackend:
         self._config_save_timer = None
         self._config_dirty = False
         self._config_save_delay_sec = 0.25
+        self._shutdown_lock = threading.Lock()
+        self._shutting_down = False
+        self._shutdown_complete = False
         self._mod_logs_lock = threading.Lock()
         self._mod_logs_cache = None
         self._mod_logs_save_timer = None
@@ -374,6 +377,7 @@ class StreamlineWebBackend:
         self.is_downloading = False
         self.canceled = False
         self.current_process = None
+        self._download_worker_thread = None
         self.successful_downloads_this_session = set()
         self.session_steamcmd_downloads = set()
         self.session_webapi_files = {}
@@ -410,6 +414,9 @@ class StreamlineWebBackend:
                 self.events = self.events[-1500:]
 
     def _emit_queue_refresh_throttled(self, force=False):
+        if self._shutting_down:
+            return
+
         def _flush():
             with self._queue_emit_lock:
                 self._queue_emit_timer = None
@@ -527,6 +534,8 @@ class StreamlineWebBackend:
         return self._write_config_snapshot(snapshot)
 
     def save_config(self, immediate=False):
+        if self._shutting_down:
+            immediate = True
         if immediate:
             with self._config_save_lock:
                 timer = self._config_save_timer
@@ -679,6 +688,11 @@ class StreamlineWebBackend:
                 self._metadata_cache_dirty = False
                 self._metadata_cache_save_timer = None
             return
+        if self._shutting_down:
+            with self._metadata_cache_lock:
+                self._metadata_cache_dirty = True
+            self._flush_metadata_cache_save()
+            return
         with self._metadata_cache_lock:
             self._metadata_cache_dirty = True
             if self._metadata_cache_save_timer is not None and self._metadata_cache_save_timer.is_alive():
@@ -771,7 +785,7 @@ class StreamlineWebBackend:
                 self._hydration_inflight.discard(key)
 
     def _schedule_mod_metadata_hydration(self, mod_ids, collection_game_info=None):
-        if not mod_ids:
+        if not mod_ids or self._shutting_down:
             return
         for mod_id in mod_ids:
             key = str(mod_id or "").strip()
@@ -781,7 +795,11 @@ class StreamlineWebBackend:
                 if key in self._hydration_inflight:
                     continue
                 self._hydration_inflight.add(key)
-            self._hydration_executor.submit(self._hydrate_mod_metadata_worker, key, collection_game_info)
+            try:
+                self._hydration_executor.submit(self._hydrate_mod_metadata_worker, key, collection_game_info)
+            except RuntimeError:
+                with self._hydration_lock:
+                    self._hydration_inflight.discard(key)
 
     def _compute_queue_stats(self, queue_items):
         stats = {
@@ -2398,6 +2416,8 @@ class StreamlineWebBackend:
         with self._mod_logs_lock:
             self._mod_logs_cache = dict(logs or {})
 
+        if self._shutting_down:
+            immediate = True
         if immediate:
             with self._mod_logs_lock:
                 timer = self._mod_logs_save_timer
@@ -3331,6 +3351,9 @@ class StreamlineWebBackend:
             self._emit_event("queue", {"action": "refresh"})
 
     def start_download(self):
+        with self._shutdown_lock:
+            if self._shutting_down:
+                return {"success": False, "error": "Streamline is shutting down."}
         with self.state_lock:
             if self.is_downloading:
                 return {"success": False, "error": "Download already in progress."}
@@ -3388,7 +3411,19 @@ class StreamlineWebBackend:
         )
         with self._remote_update_cache_lock:
             self._remote_mod_update_cache = {}
-        threading.Thread(target=self._download_worker, daemon=True).start()
+        worker = threading.Thread(
+            target=self._download_worker,
+            name="streamline-download-worker",
+            daemon=True,
+        )
+        with self._shutdown_lock:
+            if self._shutting_down:
+                with self.state_lock:
+                    self.is_downloading = False
+                    self.canceled = True
+                return {"success": False, "error": "Streamline is shutting down."}
+            self._download_worker_thread = worker
+            worker.start()
         self._emit_event("download", {"state": "started", "operation_id": operation_id})
         return {"success": True}
 
@@ -3405,6 +3440,93 @@ class StreamlineWebBackend:
                 pass
         mode = "immediate" if delete_on_cancel else "after_batch"
         return {"success": True, "mode": mode}
+
+    def shutdown(self, wait_timeout=2.0):
+        with self._shutdown_lock:
+            if self._shutdown_complete:
+                return {"success": True, "already_shutdown": True}
+            if self._shutting_down:
+                return {"success": True, "already_shutting_down": True}
+            self._shutting_down = True
+
+        self._stop_clipboard_monitoring()
+        try:
+            self.close_steamcmd_login_session(force=True)
+        except Exception:
+            pass
+        self.pending_login_context = None
+
+        with self.state_lock:
+            self.canceled = True
+            process = self.current_process
+            worker = self._download_worker_thread
+
+        if process is not None:
+            try:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=0.75)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        try:
+                            process.wait(timeout=0.75)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            try:
+                worker.join(timeout=max(0.0, float(wait_timeout)))
+            except Exception:
+                pass
+
+        with self._queue_emit_lock:
+            queue_timer = self._queue_emit_timer
+            self._queue_emit_timer = None
+        if queue_timer is not None:
+            try:
+                queue_timer.cancel()
+            except Exception:
+                pass
+
+        for executor in (self._queue_build_executor, self._hydration_executor):
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                executor.shutdown(wait=False)
+            except Exception:
+                pass
+
+        with self._metadata_cache_lock:
+            metadata_timer = self._metadata_cache_save_timer
+            self._metadata_cache_save_timer = None
+        if metadata_timer is not None:
+            try:
+                metadata_timer.cancel()
+            except Exception:
+                pass
+
+        with self._mod_logs_lock:
+            mod_logs_timer = self._mod_logs_save_timer
+            self._mod_logs_save_timer = None
+        if mod_logs_timer is not None:
+            try:
+                mod_logs_timer.cancel()
+            except Exception:
+                pass
+
+        self.save_config(immediate=True)
+        self._flush_metadata_cache_save()
+        self._flush_pending_mod_logs_save()
+
+        with self._shutdown_lock:
+            self._shutdown_complete = True
+        return {
+            "success": True,
+            "download_worker_stopped": not bool(worker and worker.is_alive()),
+        }
 
     def open_downloads_folder(self, mod_id=None):
         target = self.downloads_root
