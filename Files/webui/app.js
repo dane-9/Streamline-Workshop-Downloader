@@ -60,7 +60,8 @@ const windowResizeSouth = document.getElementById("window-resize-south");
 document.body.style.opacity = "0";
 document.body.style.transition = "opacity 220ms ease";
 
-let started = false;
+let initializationPromise = null;
+let apiConnectionPromise = null;
 let eventPollTimer = null;
 let eventPollInFlight = false;
 let eventPollRequested = false;
@@ -6793,11 +6794,43 @@ function wireWindowResizeGrip() {
   }
 }
 
-async function init() {
-  if (started) {
-    return;
+async function connectToPythonApi() {
+  if (state.apiAvailable) {
+    return true;
   }
-  started = true;
+
+  if (apiConnectionPromise) {
+    return apiConnectionPromise;
+  }
+
+  const connection = (async () => {
+    try {
+      const data = await callApi("get_bootstrap_data");
+      state.apiAvailable = true;
+      await useBootstrapData(data);
+      addLog("Connected to Python API.", "good");
+      startEventPolling();
+      return true;
+    } catch (error) {
+      applyTheme("Dark");
+      applyModalTextColor("");
+      state.apiAvailable = false;
+      addLog(`Running without PyWebView bridge: ${error.message}`, "bad");
+      return false;
+    }
+  })();
+
+  apiConnectionPromise = connection;
+  try {
+    return await connection;
+  } finally {
+    if (apiConnectionPromise === connection) {
+      apiConnectionPromise = null;
+    }
+  }
+}
+
+async function initializeApp() {
   renderLogTimeline();
   initAllAnimatedSelects(document);
   applyWorkshopHelpTooltip();
@@ -6819,18 +6852,7 @@ async function init() {
   await wireControlButtons();
   wireFilterControls();
 
-  try {
-    const data = await callApi("get_bootstrap_data");
-    state.apiAvailable = true;
-    await useBootstrapData(data);
-    addLog("Connected to Python API.", "good");
-    startEventPolling();
-  } catch (error) {
-    applyTheme("Dark");
-    applyModalTextColor("");
-    state.apiAvailable = false;
-    addLog(`Running without PyWebView bridge: ${error.message}`, "bad");
-  }
+  await connectToPythonApi();
   emitStartupLogToneTests();
 
   queueForm.addEventListener("submit", handleAddToQueue);
@@ -6987,6 +7009,18 @@ async function init() {
   setFilter("All");
   await refreshQueue({ forceReload: true });
   revealAppWindow();
+}
+
+async function init() {
+  const isInitialCall = !initializationPromise;
+  if (isInitialCall) {
+    initializationPromise = initializeApp();
+  }
+
+  await initializationPromise;
+  if (!isInitialCall && !state.apiAvailable) {
+    await connectToPythonApi();
+  }
 }
 
 window.addEventListener("pywebviewready", init);
