@@ -619,6 +619,8 @@ class StartupSetupManager:
         self._lock = threading.Lock()
         self._cancel_event = threading.Event()
         self._thread = None
+        self._created_steamcmd_dir = False
+        self._created_appids_file = False
         self._state = {
             "running": False,
             "done": False,
@@ -646,6 +648,8 @@ class StartupSetupManager:
                 return False
 
             self._cancel_event.clear()
+            self._created_steamcmd_dir = False
+            self._created_appids_file = False
             self._state.update({
                 "running": True,
                 "done": False,
@@ -736,7 +740,10 @@ class StartupSetupManager:
         return ""
 
     def _download_steamcmd(self):
+        steamcmd_dir_existed = os.path.exists(self.steamcmd_dir)
         os.makedirs(self.steamcmd_dir, exist_ok=True)
+        if not steamcmd_dir_existed:
+            self._created_steamcmd_dir = True
         response = requests.get(get_steamcmd_bootstrap_url(), stream=True, timeout=60)
         response.raise_for_status()
         archive_data = BytesIO(response.content)
@@ -831,8 +838,11 @@ class StartupSetupManager:
         entries = self.scraper.scrape_steamdb(["Game"])
         if not entries:
             raise RuntimeError("SteamDB scraping returned zero AppIDs.")
+        appids_file_existed = os.path.exists(self.appids_path)
         with open(self.appids_path, "w", encoding="utf-8") as handle:
             handle.write("\n".join(entries))
+        if not appids_file_existed:
+            self._created_appids_file = True
 
     def _seed_appids_from_bundle(self):
         bundled_appids_path = resource_path(os.path.join("Files", "AppIDs.txt"))
@@ -843,23 +853,28 @@ class StartupSetupManager:
             target_path = os.path.abspath(self.appids_path)
             if source_path == target_path:
                 return True
+            appids_file_existed = os.path.exists(self.appids_path)
             os.makedirs(os.path.dirname(self.appids_path), exist_ok=True)
             shutil.copy2(bundled_appids_path, self.appids_path)
+            if not appids_file_existed:
+                self._created_appids_file = True
             return True
         except Exception:
             return False
 
     def _cleanup_files(self):
-        if os.path.isdir(self.steamcmd_dir):
+        if self._created_steamcmd_dir and os.path.isdir(self.steamcmd_dir):
             try:
                 shutil.rmtree(self.steamcmd_dir)
             except Exception:
                 pass
-        if os.path.isfile(self.appids_path):
+        if self._created_appids_file and os.path.isfile(self.appids_path):
             try:
                 os.remove(self.appids_path)
             except Exception:
                 pass
+        self._created_steamcmd_dir = False
+        self._created_appids_file = False
 
     def _finish_canceled(self):
         self._cleanup_files()
