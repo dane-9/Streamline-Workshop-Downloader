@@ -384,10 +384,18 @@ class WebMainGuiApi:
         window = self._get_window()
         if window is None:
             return {"success": False, "error": "Window is not ready."}
+        normalized_mode = str(mode or "southeast").strip().lower()
+        if normalized_mode not in {"east", "west", "south", "southeast", "southwest"}:
+            normalized_mode = "southeast"
+
+        if platform.system().lower() == "linux" and hasattr(window, "start_system_resize"):
+            try:
+                window.start_system_resize(normalized_mode)
+                return {"success": True, "strategy": "system"}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
         if os.name != "nt":
-            normalized_mode = str(mode or "southeast").strip().lower()
-            if normalized_mode not in {"east", "west", "south", "southeast", "southwest"}:
-                normalized_mode = "southeast"
             try:
                 start_width = max(MIN_WINDOW_WIDTH, int(getattr(window, "width", 0) or 0))
                 start_height = max(MIN_WINDOW_HEIGHT, int(getattr(window, "height", 0) or 0))
@@ -406,10 +414,6 @@ class WebMainGuiApi:
             except Exception as e:
                 self._window_resize_state = None
                 return {"success": False, "error": str(e)}
-
-        normalized_mode = str(mode or "southeast").strip().lower()
-        if normalized_mode not in {"east", "west", "south", "southeast", "southwest"}:
-            normalized_mode = "southeast"
 
         class POINT(ctypes.Structure):
             _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]

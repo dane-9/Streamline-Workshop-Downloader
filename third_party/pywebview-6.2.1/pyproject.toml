@@ -1,0 +1,136 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pywebview"
+authors = [{ name = "Roman Sirokov", email = "roman@flowrl.com" }]
+description = "Build GUI for your Python program with JavaScript, HTML, and CSS"
+keywords = ["gui", "webkit", "html", "web"]
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+classifiers = [
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Environment :: MacOS X",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: X11 Applications :: GTK",
+    "Environment :: X11 Applications :: Qt",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: User Interfaces",
+]
+dependencies = [
+    "pythonnet;sys_platform=='win32'",
+    "pyobjc-core>=9.0;sys_platform=='darwin'",
+    "pyobjc-framework-Cocoa>=9.0;sys_platform=='darwin'",
+    "pyobjc-framework-Quartz>=9.0;sys_platform=='darwin'",
+    "pyobjc-framework-WebKit>=9.0;sys_platform=='darwin'",
+    "pyobjc-framework-security>=9.0;sys_platform=='darwin'",
+    "pyobjc-framework-UniformTypeIdentifiers>=9.0;sys_platform=='darwin'",
+    "QtPy;sys_platform=='openbsd6'",
+    "importlib_resources; python_version < '3.9'",
+    "proxy_tools",
+    "bottle",
+    "typing_extensions"
+]
+version = "6.2.1+streamline.1"
+
+[project.optional-dependencies]
+cef = ["cefpython3"]
+gtk = ["PyGObject==3.50.0", "PyGObject-stubs"]
+pyside2 = ["QtPy", "PySide2"]
+pyside6 = ["QtPy", "PySide6"]
+qt = ["QtPy", "PyQt6", "PyQt6-WebEngine"]
+qt5 = ["QtPy", "PyQt5", "pyqtwebengine"]
+qt6 = ["QtPy", "PyQt6", "PyQt6-WebEngine"]
+android = ["jnius"]
+ssl = ["cryptography"]
+dev = ["ruff", "pre-commit", "pytest", "build", "twine"]
+
+[project.urls]
+Homepage = "https://pywebview.flowrl.com/"
+Repository = "https://github.com/r0x0r/pywebview"
+
+[tool.build-system]
+exclude = [
+    "docs/*",
+    "tests/*",
+    "examples/*",
+    ".github/*",
+    "logo/*",
+    "appveyor.yml",
+    ".*"
+]
+
+[tool.ruff]
+# Same as Black.
+line-length = 100
+indent-width = 4
+
+# Assume Python 3.8+
+target-version = "py38"
+
+[tool.ruff.lint]
+# Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
+# Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
+# McCabe complexity (`C901`) by default.
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+ignore = []
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.isort]
+known-first-party = ["webview"]
+
+[tool.ruff.format]
+# Use single quotes for strings.
+quote-style = "single"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+[tool.setuptools]
+include-package-data = false
+packages = [
+    "webview", "webview.dom", "webview.js", "webview.lib", "webview.platforms",
+    "webview.platforms.android", "webview.platforms.android.jinterface", "webview.platforms.android.jclass",
+    "webview.__pyinstaller"]
+
+[tool.setuptools.package-data]
+"webview.lib" = ["**/*.dll", "**/*.jar"]
+"webview.js" = ["**/*.js"]
+"webview" = ["py.typed"]
+
+[tool.uv]
+# Prefer pre-compiled wheels for better installation experience
+resolution = "highest"
+# Use index strategy that prefers wheels over source distributions
+index-strategy = "unsafe-best-match"
+
+[tool.uv.extra-build-dependencies]
+jnius = ["Cython"]
+
+[project.entry-points."pyinstaller40"]
+hook-dirs = "webview.__pyinstaller:get_hook_dirs"
