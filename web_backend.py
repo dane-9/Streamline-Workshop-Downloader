@@ -2761,12 +2761,16 @@ class StreamlineWebBackend:
                 except Exception:
                     pass
 
-    def _move_all_downloaded_mods(self):
+    def _move_all_downloaded_mods(self, mark_missing_failed=True, mod_ids=None):
         allowed_mod_ids = {str(mod_id).strip() for mod_id in self.session_steamcmd_downloads if str(mod_id).strip()}
+        if mod_ids is not None:
+            requested_mod_ids = {str(mod_id).strip() for mod_id in mod_ids if str(mod_id).strip()}
+            allowed_mod_ids.intersection_update(requested_mod_ids)
         if not allowed_mod_ids:
-            return
+            return set()
         logs = self._load_mod_download_logs()
         queue_map = {}
+        moved_mod_ids = set()
         with self.state_lock:
             for mod in self.download_queue:
                 queue_map[str(mod.get("mod_id", ""))] = mod
@@ -2803,6 +2807,9 @@ class StreamlineWebBackend:
                         if os.path.isdir(target_path):
                             shutil.rmtree(target_path, ignore_errors=True)
                         shutil.move(source_path, target_path)
+                        if not os.path.isdir(target_path):
+                            raise RuntimeError(f"Moved output was not found at {target_path}")
+                        moved_mod_ids.add(str(mod_id))
                         self._update_mod_download_log(move_mod)
                         self._mark_session_downloaded(move_mod)
                         if queue_mod and (queue_mod.get("status") == "Downloading" or "Failed" in str(queue_mod.get("status", ""))):
@@ -2815,6 +2822,40 @@ class StreamlineWebBackend:
                             action="move_downloaded_mod_failed",
                             context={"mod_id": str(mod_id), "error": str(e)},
                         )
+
+        missing_mod_ids = allowed_mod_ids.difference(moved_mod_ids)
+        for mod_id in list(missing_mod_ids):
+            queue_mod = queue_map.get(mod_id)
+            if queue_mod and self._check_mod_folder_exists(queue_mod):
+                moved_mod_ids.add(mod_id)
+                self._update_mod_download_log(queue_mod)
+                self._mark_session_downloaded(queue_mod)
+                self._set_mod_status(queue_mod, "Downloaded")
+
+        missing_mod_ids = allowed_mod_ids.difference(moved_mod_ids)
+        if mark_missing_failed:
+            for mod_id in missing_mod_ids:
+                queue_mod = queue_map.get(mod_id)
+                if queue_mod:
+                    self._set_mod_status(queue_mod, "Failed: Output Missing")
+            if missing_mod_ids:
+                checked_paths = self._get_steamcmd_workshop_content_paths()
+                sample_ids = ", ".join(sorted(missing_mod_ids)[:5])
+                if len(missing_mod_ids) > 5:
+                    sample_ids += ", ..."
+                self.log(
+                    f"SteamCMD reported {len(missing_mod_ids)} mod(s) as downloaded, but no output folders "
+                    f"were found (IDs: {sample_ids}). Checked: {', '.join(checked_paths)}",
+                    tone="bad",
+                    source="download",
+                    action="download_output_missing",
+                    context={
+                        "mod_ids": sorted(missing_mod_ids),
+                        "checked_paths": checked_paths,
+                        "downloads_root": self.downloads_root,
+                    },
+                )
+        return moved_mod_ids
 
     def _get_steamcmd_login_parts(self):
         active_account = (self.config.get("active_account") or "Anonymous").strip() or "Anonymous"
@@ -2851,13 +2892,27 @@ class StreamlineWebBackend:
                 for chunk in download_response.iter_content(chunk_size=8192):
                     if chunk:
                         file.write(chunk)
+            if not os.path.isfile(file_path) or os.path.getsize(file_path) <= 0:
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                except OSError:
+                    pass
+                return False
             with self.state_lock:
                 mod["_webapi_file_path"] = file_path
                 self.session_webapi_files[mod_id] = file_path
             self._update_mod_download_log(mod)
             self._mark_session_downloaded(mod)
             return True
-        except Exception:
+        except Exception as e:
+            self.log(
+                f"WebAPI download failed for mod {mod_id}: {e}",
+                tone="bad",
+                source="download",
+                action="webapi_download_failed",
+                context={"mod_id": mod_id, "error": str(e), "downloads_root": self.downloads_root},
+            )
             return False
 
     def _download_mods_webapi_parallel(self, mods, cancel_is_immediate=False):
@@ -3019,12 +3074,6 @@ class StreamlineWebBackend:
                     mod_id = str(success_match.group(1))
                     if mod_id in status_map and status_map.get(mod_id) != "Downloaded":
                         status_map[mod_id] = "Downloaded"
-                        queue_mod = mod_lookup.get(mod_id)
-                        if queue_mod:
-                            self._set_mod_status(queue_mod, "Downloaded")
-                            status_updated = True
-                    if status_updated:
-                        self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=False)
                     continue
 
                 fail_match = failure_re.search(clean_line)
@@ -3045,18 +3094,22 @@ class StreamlineWebBackend:
         self.current_process = None
 
         fallback_status = "Downloading" if (cancel_is_immediate and self.canceled) else "Failed No Confirmation"
+        confirmed_mod_ids = set()
         for mod in download_candidates:
             mod_id = str(mod.get("mod_id"))
             final_status = status_map.get(mod_id, fallback_status)
-            self._set_mod_status(mod, final_status)
             if final_status == "Downloaded":
-                self._update_mod_download_log(mod)
-                self._mark_session_downloaded(mod)
                 self._mark_session_steamcmd_downloaded(mod)
+                confirmed_mod_ids.add(mod_id)
+            else:
+                self._set_mod_status(mod, final_status)
+
+        if confirmed_mod_ids and not (cancel_is_immediate and self.canceled):
+            self._move_all_downloaded_mods(mod_ids=confirmed_mod_ids)
         self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=True)
 
     def _finalize_cancellation(self, delete_downloads):
-        keep_downloaded = bool(self.config.get("keep_downloaded_in_queue", False))
+        keep_downloaded = bool(self.config.get("keep_downloaded_in_queue", True))
 
         if delete_downloads:
             self._remove_all_workshop_content()
@@ -3068,7 +3121,7 @@ class StreamlineWebBackend:
                     pass
             self.session_webapi_files = {}
         else:
-            self._move_all_downloaded_mods()
+            self._move_all_downloaded_mods(mark_missing_failed=False)
 
         with self.state_lock:
             for mod in self.download_queue:
@@ -3140,7 +3193,7 @@ class StreamlineWebBackend:
                     self._emit_event("queue", {"action": "refresh"})
                     break
 
-                if not self.config.get("keep_downloaded_in_queue", False):
+                if not self.config.get("keep_downloaded_in_queue", True):
                     with self.state_lock:
                         self.download_queue = [mod for mod in self.download_queue if mod.get("status") != "Downloaded"]
                         self._rebuild_queue_indexes_locked()
@@ -3148,8 +3201,20 @@ class StreamlineWebBackend:
                 self._emit_event("queue", {"action": "refresh"})
 
             if not self.canceled:
-                self._move_all_downloaded_mods()
+                with self.state_lock:
+                    pending_steamcmd_ids = {
+                        str(mod.get("mod_id", "")).strip()
+                        for mod in self.download_queue
+                        if mod.get("status") == "Downloading"
+                        and str(mod.get("mod_id", "")).strip() in self.session_steamcmd_downloads
+                    }
+                if pending_steamcmd_ids:
+                    self._move_all_downloaded_mods(mod_ids=pending_steamcmd_ids)
                 self._cleanup_appworkshop_acf_files()
+                if not self.config.get("keep_downloaded_in_queue", True):
+                    with self.state_lock:
+                        self.download_queue = [mod for mod in self.download_queue if mod.get("status") != "Downloaded"]
+                        self._rebuild_queue_indexes_locked()
 
             with self.state_lock:
                 snapshot = self._get_active_download_progress_snapshot_locked() or {
@@ -3299,7 +3364,7 @@ class StreamlineWebBackend:
             (
                 f"Download run started: {total_targets:,} queued "
                 f"(SteamCMD {provider_counts['SteamCMD']:,}, WebAPI {provider_counts['SteamWebAPI']:,}), "
-                f"batch size {batch_size}."
+                f"batch size {batch_size}. Output: {self.downloads_root}"
             ),
             source="download",
             action="download_run_started",
