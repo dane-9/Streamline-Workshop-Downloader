@@ -3231,6 +3231,12 @@ class StreamlineWebBackend:
             self._emit_event("queue", {"action": "refresh"})
         except Exception as e:
             with self.state_lock:
+                active_targets = set(self._active_download_targets or set())
+                for mod in self.download_queue:
+                    mod_id = str(mod.get("mod_id", "")).strip()
+                    if mod_id in active_targets and mod.get("status") == "Downloading":
+                        mod["status"] = "Failed: Worker Error"
+                self._rebuild_queue_indexes_locked()
                 self.is_downloading = False
                 self._active_download_operation_id = ""
                 self._active_download_targets = set()
@@ -3248,6 +3254,7 @@ class StreamlineWebBackend:
                 operation_id=operation_id,
             )
             self._emit_event("download", {"state": "error", "error": str(e), "operation_id": operation_id})
+            self._emit_event("queue", {"action": "refresh"})
 
     def start_download(self):
         with self.state_lock:

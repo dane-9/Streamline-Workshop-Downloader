@@ -1,6 +1,7 @@
 const statusEl = document.getElementById("setup-status");
 const progressBarEl = document.getElementById("setup-progress-bar");
 const errorEl = document.getElementById("setup-error");
+const setupCardEl = document.querySelector(".setup-card");
 const stepEls = Array.from(document.querySelectorAll(".setup-step"));
 const steamcmdProgressEl = document.getElementById("setup-steamcmd-progress");
 const steamcmdProgressBadgeEl = document.getElementById("setup-steamcmd-progress-badge");
@@ -77,6 +78,9 @@ function setVisible(el, visible) {
     el.classList.remove("hidden");
   } else {
     el.classList.add("hidden");
+  }
+  if (el === errorEl) {
+    setupCardEl?.classList.toggle("has-error", visible);
   }
 }
 
@@ -178,7 +182,7 @@ function renderSteamcmdProgress(state, stageInfo) {
   if (state?.done && !state?.success && !appidsStageSeen) {
     setSteamcmdBadge("error", "Failed");
     setSteamcmdBar("error", 100);
-    setSteamcmdText(String(state?.error || "SteamCMD setup failed."));
+    setSteamcmdText("SteamCMD setup failed. See the details below.");
     markSteamcmdStepError(steamcmdActiveStepIndex >= 0 ? steamcmdActiveStepIndex : 0);
     return;
   }
@@ -213,6 +217,11 @@ function renderSteamcmdProgress(state, stageInfo) {
   if (statusLower.includes("initializing steamcmd")) {
     setSteamcmdText("Initializing SteamCMD...");
     setSteamcmdActiveStep(2);
+    return;
+  }
+  if (statusLower.includes("verifying steamcmd runtime")) {
+    setSteamcmdText("Verifying SteamCMD runtime...");
+    setSteamcmdActiveStep(3);
     return;
   }
   if (statusLower.includes("steamcmd setup complete")) {
@@ -337,7 +346,7 @@ function renderAppidsProgress(state, stageInfo) {
   if (state?.done && !state?.success) {
     setAppidsBadge("error", "Failed");
     setAppidsBar("error", 100);
-    setAppidsText(String(state?.error || "AppIDs setup failed."));
+    setAppidsText("AppIDs setup failed. See the details below.");
     markAppidsStepError(appidsActiveStepIndex >= 0 ? appidsActiveStepIndex : 0);
     appidsStepStartedAt = 0;
     return;

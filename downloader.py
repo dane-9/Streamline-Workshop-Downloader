@@ -19,6 +19,7 @@ from web_backend import (
     get_steamcmd_bootstrap_url,
     get_steamcmd_executable_path,
     get_steamcmd_required_paths,
+    is_linux_platform,
     is_windows_platform,
 )
 
@@ -679,6 +680,61 @@ class StartupSetupManager:
         essential_files = get_steamcmd_required_paths(self.steamcmd_dir)
         return os.path.isfile(steamcmd_executable) and all(os.path.isfile(path) for path in essential_files)
 
+    def _ensure_steamcmd_executable_permissions(self):
+        if is_windows_platform():
+            return
+
+        executable_paths = get_steamcmd_required_paths(self.steamcmd_dir)
+        for executable_path in executable_paths:
+            if not os.path.isfile(executable_path):
+                raise FileNotFoundError(f"SteamCMD executable was not found: {executable_path}")
+            try:
+                current_mode = os.stat(executable_path).st_mode
+                os.chmod(executable_path, current_mode | 0o111)
+            except OSError as e:
+                raise RuntimeError(
+                    f"Could not make SteamCMD executable: {executable_path}\n{e}\n"
+                    "Move Streamline to a writable Linux filesystem and try again."
+                ) from e
+
+    def _steamcmd_runtime_error(self, output, returncode=None, launch_error=None):
+        output_text = str(output or "").strip()
+        combined = f"{launch_error or ''}\n{output_text}".lower()
+        command_hint = (
+            "Install SteamCMD's 32-bit runtime, then click Retry:\n"
+            "sudo dpkg --add-architecture i386\n"
+            "sudo apt update\n"
+            "sudo apt install lib32gcc-s1 libc6:i386"
+        )
+
+        if "permission denied" in combined or "operation not permitted" in combined:
+            return (
+                "SteamCMD could not be executed. Its files may lack execute permission or be located "
+                "on a filesystem mounted with 'noexec'. Move Streamline to your Linux home directory "
+                "and click Retry."
+            )
+
+        missing_runtime_markers = (
+            "error while loading shared libraries",
+            "cannot execute: required file not found",
+            "cannot execute binary file",
+            "bad elf interpreter",
+            "no such file or directory",
+        )
+        if is_linux_platform() and any(marker in combined for marker in missing_runtime_markers):
+            return f"SteamCMD's required 32-bit Linux runtime is unavailable.\n{command_hint}"
+
+        if launch_error is not None:
+            return f"SteamCMD could not be started: {launch_error}"
+
+        if returncode not in (None, 0):
+            output_lines = [line.strip() for line in output_text.splitlines() if line.strip()]
+            output_tail = "\n".join(output_lines[-8:])
+            detail = f"\n\nSteamCMD output:\n{output_tail}" if output_tail else ""
+            return f"SteamCMD runtime check failed with exit code {returncode}.{detail}"
+
+        return ""
+
     def _download_steamcmd(self):
         os.makedirs(self.steamcmd_dir, exist_ok=True)
         response = requests.get(get_steamcmd_bootstrap_url(), stream=True, timeout=60)
@@ -700,37 +756,76 @@ class StartupSetupManager:
         if not os.path.isfile(steamcmd_executable):
             raise FileNotFoundError("SteamCMD executable was not found after extraction.")
 
+        self._ensure_steamcmd_executable_permissions()
+
         creationflags = 0
         if is_windows_platform():
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-        steamcmd_process = subprocess.Popen(
-            [steamcmd_executable, "+quit"],
-            cwd=self.steamcmd_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            shell=is_windows_platform(),
-            creationflags=creationflags,
-        )
+        def run_runtime_check():
+            try:
+                steamcmd_process = subprocess.Popen(
+                    [steamcmd_executable, "+quit"],
+                    cwd=self.steamcmd_dir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    shell=is_windows_platform(),
+                    creationflags=creationflags,
+                )
+            except OSError as e:
+                message = self._steamcmd_runtime_error("", launch_error=e)
+                raise RuntimeError(message) from e
 
-        if steamcmd_process.stdout is not None:
-            for _line in steamcmd_process.stdout:
-                if self._cancel_event.is_set():
-                    steamcmd_process.terminate()
+            started_at = time.monotonic()
+            output = ""
+            while True:
+                try:
+                    output, _ = steamcmd_process.communicate(timeout=0.25)
                     break
-            steamcmd_process.stdout.close()
-        steamcmd_process.wait()
+                except subprocess.TimeoutExpired:
+                    if self._cancel_event.is_set():
+                        steamcmd_process.terminate()
+                        try:
+                            output, _ = steamcmd_process.communicate(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            steamcmd_process.kill()
+                            output, _ = steamcmd_process.communicate()
+                        break
+                    if time.monotonic() - started_at >= 180:
+                        steamcmd_process.kill()
+                        output, _ = steamcmd_process.communicate()
+                        raise RuntimeError("SteamCMD runtime check timed out after 180 seconds.")
+            return output, steamcmd_process.returncode
 
-        # SteamCMD may return non-zero on first run/update; verify required outputs instead.
-        essential_files = get_steamcmd_required_paths(self.steamcmd_dir)
-        if not all(os.path.isfile(path) for path in essential_files):
-            raise RuntimeError(
-                f"SteamCMD initialization failed (exit code {steamcmd_process.returncode}). "
-                "Required SteamCMD files were not created."
-            )
+        for attempt in range(2):
+            output, returncode = run_runtime_check()
+
+            essential_files = get_steamcmd_required_paths(self.steamcmd_dir)
+            if not all(os.path.isfile(path) for path in essential_files):
+                raise RuntimeError(
+                    f"SteamCMD initialization failed (exit code {returncode}). "
+                    "Required SteamCMD files were not created."
+                )
+
+            if self._cancel_event.is_set():
+                return
+
+            runtime_error = self._steamcmd_runtime_error(output, returncode=returncode)
+            if not runtime_error:
+                return
+
+            update_completed = "update complete, launching" in str(output or "").lower()
+            generic_exit_error = runtime_error.startswith("SteamCMD runtime check failed with exit code")
+            if attempt == 0 and returncode not in (None, 0) and update_completed and generic_exit_error:
+                if self._cancel_event.wait(0.5):
+                    return
+                continue
+
+            raise RuntimeError(runtime_error)
 
     def _download_appids(self):
         entries = self.scraper.scrape_steamdb(["Game"])
@@ -794,11 +889,14 @@ class StartupSetupManager:
                     self._finish_canceled()
                     return
 
-                self._set_state(progress=30, status="Initializing SteamCMD...")
-                self._initialize_steamcmd()
-                if self._cancel_event.is_set():
-                    self._finish_canceled()
-                    return
+            self._set_state(
+                progress=30,
+                status="Initializing SteamCMD..." if not steamcmd_present else "Verifying SteamCMD runtime...",
+            )
+            self._initialize_steamcmd()
+            if self._cancel_event.is_set():
+                self._finish_canceled()
+                return
 
             self._set_state(progress=50, status="SteamCMD setup complete.")
             if self._cancel_event.is_set():
