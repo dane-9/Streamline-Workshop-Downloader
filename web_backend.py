@@ -9,6 +9,7 @@ import time
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import base64
+import csv
 import ctypes
 
 import requests
@@ -1703,12 +1704,13 @@ class StreamlineWebBackend:
         added = 0
         skipped = 0
         with self.state_lock:
-            with open(file_path, "r", encoding="utf-8") as file:
-                for raw in file:
-                    parts = raw.strip().split("|")
-                    if len(parts) < 4:
+            with open(file_path, "r", encoding="utf-8", newline="") as file:
+                reader = csv.reader(file, delimiter="|")
+                for parts in reader:
+                    if len(parts) not in (4, 5):
                         continue
                     game_name, mod_id, mod_name, provider = parts[0], parts[1], parts[2], parts[3]
+                    app_id = parts[4].strip() if len(parts) == 5 else ""
                     mod_id = str(mod_id).strip()
                     if not mod_id or self._is_mod_in_queue(mod_id):
                         skipped += 1
@@ -1719,7 +1721,7 @@ class StreamlineWebBackend:
                         "mod_name": mod_name,
                         "status": "Queued",
                         "retry_count": 0,
-                        "app_id": None,
+                        "app_id": app_id or None,
                         "provider": provider or "Default"
                     }
                     self.download_queue.append(queue_mod)
@@ -1735,9 +1737,16 @@ class StreamlineWebBackend:
         with self.state_lock:
             queue_copy = [dict(mod) for mod in self.download_queue]
 
-        with open(file_path, "w", encoding="utf-8") as file:
+        with open(file_path, "w", encoding="utf-8", newline="") as file:
+            writer = csv.writer(file, delimiter="|", lineterminator="\n")
             for mod in queue_copy:
-                file.write(f"{mod['game_name']}|{mod['mod_id']}|{mod['mod_name']}|{mod['provider']}\n")
+                writer.writerow([
+                    mod.get("game_name", "Unknown Game"),
+                    mod.get("mod_id", ""),
+                    mod.get("mod_name", "Unknown Title"),
+                    mod.get("provider", "Default"),
+                    mod.get("app_id") or "",
+                ])
 
         return {"success": True, "path": file_path}
 
