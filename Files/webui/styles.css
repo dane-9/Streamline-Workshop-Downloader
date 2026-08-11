@@ -3209,6 +3209,10 @@ body.column-resizing {
   font-weight: 600;
 }
 
+#queue-table td[data-col-key="status"] .queue-cell-content {
+  justify-content: center;
+}
+
 .queue-status-badge {
   display: inline-flex;
   align-items: center;
@@ -3347,6 +3351,15 @@ body.column-resizing {
 #queue-table th[data-col-key="status"],
 #queue-table td[data-col-key="status"] {
   width: var(--queue-col-width-status);
+}
+
+#queue-table th[data-col-key="status"] {
+  text-align: center;
+}
+
+#queue-table th[data-col-key="status"].sortable.sort-asc,
+#queue-table th[data-col-key="status"].sortable.sort-desc {
+  padding-left: 22px;
 }
 
 #queue-table th[data-col-key="provider"],
