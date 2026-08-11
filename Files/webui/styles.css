@@ -2859,6 +2859,44 @@ select.form-control:hover {
   pointer-events: none;
 }
 
+.queue-import-drop-overlay {
+  position: fixed;
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  transform: translate(-50%, -50%);
+  border: 1px solid #0078d4;
+  border-radius: 4px;
+  background: var(--tree-bg);
+  color: var(--fg-hover);
+  box-shadow: var(--elev-floating);
+  contain: layout paint style;
+  pointer-events: none;
+}
+
+.queue-table-wrap.queue-file-dragover {
+  outline: 2px solid #0078d4;
+  outline-offset: -2px;
+}
+
+.queue-import-drop-overlay.hidden {
+  display: none;
+}
+
+.queue-import-drop-overlay strong {
+  font-size: 14px;
+}
+
+.queue-import-drop-overlay span {
+  color: var(--menu-text);
+}
+
 .queue-selection-bar {
   position: absolute;
   inset: 0;

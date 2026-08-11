@@ -280,6 +280,9 @@ class WebMainGuiApi:
     def import_queue(self, file_path):
         return self.backend.import_queue(file_path)
 
+    def import_queue_data(self, file_data):
+        return self.backend.import_queue_data(file_data)
+
     def export_queue(self, file_path):
         return self.backend.export_queue(file_path)
 

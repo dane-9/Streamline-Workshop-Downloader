@@ -53,6 +53,7 @@ const queueHeadRow = document.getElementById("queue-head-row");
 const queueTableWrap = document.querySelector(".queue-table-wrap");
 const queueEmptyState = document.getElementById("queue-empty-state");
 const queueEmptyTitle = document.getElementById("queue-empty-title");
+const queueImportDropOverlay = document.getElementById("queue-import-drop-overlay");
 const modalOverlay = document.getElementById("modal-overlay");
 const modalTitle = document.getElementById("modal-title");
 const modalMessage = document.getElementById("modal-message");
@@ -4777,6 +4778,119 @@ async function handleQueueContextAction(action) {
   }
 }
 
+function wireQueueFileDrop() {
+  if (!queueTableWrap || !queueImportDropOverlay) {
+    return;
+  }
+
+  let importInProgress = false;
+  const hasDraggedFiles = (event) => {
+    const types = event.dataTransfer?.types;
+    if (!types) {
+      return false;
+    }
+    if (typeof types.contains === "function") {
+      return types.contains("Files");
+    }
+    if (typeof types.includes === "function") {
+      return types.includes("Files");
+    }
+    return false;
+  };
+  const hideDropOverlay = () => {
+    queueImportDropOverlay.classList.add("hidden");
+    queueTableWrap.classList.remove("queue-file-dragover");
+  };
+  const showDropOverlay = (forceLayout = false) => {
+    if (!forceLayout && !queueImportDropOverlay.classList.contains("hidden")) {
+      return;
+    }
+    const rect = queueTableWrap.getBoundingClientRect();
+    queueImportDropOverlay.style.left = `${rect.left + (rect.width / 2)}px`;
+    queueImportDropOverlay.style.top = `${rect.top + (rect.height / 2)}px`;
+    queueTableWrap.classList.add("queue-file-dragover");
+    queueImportDropOverlay.classList.remove("hidden");
+  };
+
+  window.addEventListener("dragenter", (event) => {
+    if (!hasDraggedFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    showDropOverlay();
+  });
+
+  window.addEventListener("dragover", (event) => {
+    if (!hasDraggedFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+  });
+
+  window.addEventListener("dragleave", (event) => {
+    if (!hasDraggedFiles(event)) {
+      return;
+    }
+    const outsideWindow = event.clientX <= 0
+      || event.clientY <= 0
+      || event.clientX >= window.innerWidth
+      || event.clientY >= window.innerHeight;
+    if (outsideWindow) {
+      hideDropOverlay();
+    }
+  });
+
+  window.addEventListener("drop", async (event) => {
+    if (!hasDraggedFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    const files = Array.from(event.dataTransfer?.files || []);
+    hideDropOverlay();
+
+    if (importInProgress) {
+      addLog("A queue import is already in progress.", "bad");
+      return;
+    }
+    if (files.length !== 1) {
+      addLog("Drop one exported queue file at a time.", "bad");
+      return;
+    }
+
+    const file = files[0];
+    if (file.size > 10 * 1024 * 1024) {
+      addLog("The dropped queue file exceeds the 10 MB limit.", "bad");
+      return;
+    }
+
+    importInProgress = true;
+    try {
+      const fileData = await file.text();
+      const result = await callApi("import_queue_data", fileData);
+      if (!result?.success) {
+        addLog(result?.error || "Import failed.", "bad");
+        return;
+      }
+      addLog(`Queue imported from ${file.name} (${result.added} added, ${result.skipped} skipped).`, "good");
+      await refreshQueue({ forceReload: true });
+    } catch (error) {
+      addLog(error?.message || "Unable to read the dropped queue file.", "bad");
+    } finally {
+      importInProgress = false;
+    }
+  });
+
+  window.addEventListener("blur", hideDropOverlay);
+  window.addEventListener("resize", () => {
+    if (!queueImportDropOverlay.classList.contains("hidden")) {
+      showDropOverlay(true);
+    }
+  });
+}
+
 function setFilter(filterName) {
   state.filter = filterName;
   document.querySelectorAll(".filter-item").forEach((btn) => {
@@ -7670,6 +7784,7 @@ async function initializeApp() {
   wireQueueSelectionBar();
   wireQueueVirtualization();
   wireQueueRowInteractions();
+  wireQueueFileDrop();
   wireGlobalShortcuts();
   wireWindowResizeGrip();
   window.addEventListener("resize", () => {

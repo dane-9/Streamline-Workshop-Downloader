@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import base64
 import csv
 import ctypes
+import io
 
 import requests
 from lxml import html
@@ -1758,39 +1759,56 @@ class StreamlineWebBackend:
         self._emit_event("queue", {"action": "refresh"})
         return {"success": True, "reset": reset_count}
 
+    def _import_queue_rows(self, reader):
+        added = 0
+        skipped = 0
+        with self.state_lock:
+            for parts in reader:
+                if len(parts) not in (4, 5):
+                    continue
+                game_name, mod_id, mod_name, provider = parts[0], parts[1], parts[2], parts[3]
+                app_id = parts[4].strip() if len(parts) == 5 else ""
+                mod_id = str(mod_id).strip()
+                if not mod_id or self._is_mod_in_queue(mod_id):
+                    skipped += 1
+                    continue
+                queue_mod = {
+                    "game_name": game_name,
+                    "mod_id": mod_id,
+                    "mod_name": mod_name,
+                    "status": "Queued",
+                    "retry_count": 0,
+                    "app_id": app_id or None,
+                    "provider": provider or "Default"
+                }
+                self.download_queue.append(queue_mod)
+                self._queue_mod_ids.add(mod_id)
+                self._queue_mod_map[mod_id] = queue_mod
+                added += 1
+        self._emit_event("queue", {"action": "refresh"})
+        return {"success": True, "added": added, "skipped": skipped}
+
     def import_queue(self, file_path):
         if not file_path or not os.path.isfile(file_path):
             return {"success": False, "error": "File not found."}
 
-        added = 0
-        skipped = 0
-        with self.state_lock:
-            with open(file_path, "r", encoding="utf-8", newline="") as file:
-                reader = csv.reader(file, delimiter="|")
-                for parts in reader:
-                    if len(parts) not in (4, 5):
-                        continue
-                    game_name, mod_id, mod_name, provider = parts[0], parts[1], parts[2], parts[3]
-                    app_id = parts[4].strip() if len(parts) == 5 else ""
-                    mod_id = str(mod_id).strip()
-                    if not mod_id or self._is_mod_in_queue(mod_id):
-                        skipped += 1
-                        continue
-                    queue_mod = {
-                        "game_name": game_name,
-                        "mod_id": mod_id,
-                        "mod_name": mod_name,
-                        "status": "Queued",
-                        "retry_count": 0,
-                        "app_id": app_id or None,
-                        "provider": provider or "Default"
-                    }
-                    self.download_queue.append(queue_mod)
-                    self._queue_mod_ids.add(mod_id)
-                    self._queue_mod_map[mod_id] = queue_mod
-                    added += 1
-        self._emit_event("queue", {"action": "refresh"})
-        return {"success": True, "added": added, "skipped": skipped}
+        try:
+            with open(file_path, "r", encoding="utf-8-sig", newline="") as file:
+                return self._import_queue_rows(csv.reader(file, delimiter="|"))
+        except (OSError, UnicodeError, csv.Error) as error:
+            return {"success": False, "error": f"Unable to import queue: {error}"}
+
+    def import_queue_data(self, file_data):
+        if not isinstance(file_data, str) or not file_data.strip():
+            return {"success": False, "error": "The dropped queue file is empty."}
+        if len(file_data.encode("utf-8")) > 10 * 1024 * 1024:
+            return {"success": False, "error": "The dropped queue file exceeds the 10 MB limit."}
+
+        try:
+            stream = io.StringIO(file_data.lstrip("\ufeff"), newline="")
+            return self._import_queue_rows(csv.reader(stream, delimiter="|"))
+        except (UnicodeError, csv.Error) as error:
+            return {"success": False, "error": f"Unable to import queue: {error}"}
 
     def export_queue(self, file_path):
         if not file_path:
