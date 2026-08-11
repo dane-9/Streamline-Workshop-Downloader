@@ -300,37 +300,55 @@ function emitStartupLogToneTests() {
 }
 
 function buildLogClipboardText() {
-  if (!eventLog) {
-    return "";
-  }
-  const renderedRows = eventLog.querySelectorAll(".log-line");
-  if (!renderedRows.length) {
-    return "";
-  }
+  const categoryFilter = getCurrentLogCategoryFilter();
   const lines = [];
-  for (const row of renderedRows) {
-    const time = row.querySelector(".log-time")?.textContent?.trim() || "";
-    const tone = row.querySelector(".log-tone")?.textContent?.trim() || "";
-    const message = row.querySelector(".log-message")?.textContent?.trim() || "";
-    const source = row.querySelector(".log-source")?.textContent?.trim() || "";
-    if (!time && !tone && !message && !source) {
+
+  const appendEntry = (entry, indent = "") => {
+    if (!entry) {
+      return;
+    }
+    const time = formatLogClock(normalizeLogTimestampMs(entry.timestampMs));
+    const tone = logToneLabel(normalizeLogTone(entry.tone));
+    const message = String(entry.message || "").trim();
+    const source = String(entry.source || "ui").trim().toUpperCase() || "UI";
+    lines.push(`${indent}[${time}] [${tone}] ${message} (${source})`.trimEnd());
+  };
+
+  for (const item of logTopItems) {
+    if (item?.kind === "single") {
+      if (item.entry && doesLogEntryMatchCategory(item.entry, categoryFilter)) {
+        appendEntry(item.entry);
+      }
       continue;
     }
-    const parts = [];
-    if (time) {
-      parts.push(`[${time}]`);
+    if (item?.kind !== "group") {
+      continue;
     }
-    if (tone) {
-      parts.push(`[${tone}]`);
+    const group = logGroupsByOperation.get(String(item.operationId || ""));
+    if (!group) {
+      continue;
     }
-    if (message) {
-      parts.push(message);
+    const entries = categoryFilter === "all"
+      ? group.entries
+      : group.entries.filter((entry) => doesLogEntryMatchCategory(entry, categoryFilter));
+    if (!entries.length) {
+      continue;
     }
-    if (source) {
-      parts.push(`(${source})`);
+    let groupState = "";
+    for (const entry of entries) {
+      groupState = deriveOperationState(groupState, entry);
     }
-    lines.push(parts.join(" "));
+    const lastEntry = entries[entries.length - 1];
+    const time = formatLogClock(normalizeLogTimestampMs(lastEntry.timestampMs));
+    const tone = getOperationTagLabel(groupState || group.state);
+    const summary = formatOperationSummary(lastEntry);
+    const logCount = `${entries.length} ${entries.length === 1 ? "log" : "logs"}`;
+    lines.push(`[${time}] [${tone}] ${group.label}: ${summary} (${logCount})`);
+    for (const entry of entries) {
+      appendEntry(entry, "  ");
+    }
   }
+
   return lines.join("\n");
 }
 
