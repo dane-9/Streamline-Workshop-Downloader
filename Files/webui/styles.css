@@ -1313,6 +1313,14 @@ button.control:not(:disabled):active,
   padding-right: 22px;
 }
 
+.queue-context-parent:hover,
+.queue-context-parent:focus-visible,
+.queue-context-submenu:hover > .queue-context-parent,
+.queue-context-submenu:focus-within > .queue-context-parent {
+  background: var(--menu-hover);
+  color: var(--menu-text-hover);
+}
+
 .queue-context-parent::after {
   content: "";
   position: absolute;
