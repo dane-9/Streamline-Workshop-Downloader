@@ -3611,8 +3611,121 @@ class StreamlineWebBackend:
     def get_settings(self):
         return dict(self.config)
 
+    def _get_linux_package_install_details(self, package_name):
+        distro_ids = set()
+        try:
+            with open("/etc/os-release", "r", encoding="utf-8") as file:
+                for raw_line in file:
+                    key, separator, raw_value = raw_line.partition("=")
+                    if not separator or key not in {"ID", "ID_LIKE"}:
+                        continue
+                    value = raw_value.strip().strip('"').strip("'").lower()
+                    distro_ids.update(part for part in value.split() if part)
+        except OSError:
+            pass
+
+        if "steamos" in distro_ids:
+            return {"install_command": f"sudo pacman -S {package_name}"}
+        if "bazzite" in distro_ids:
+            return {
+                "install_command": f"rpm-ostree install {package_name}",
+                "install_note": "Restart your system after installation to apply the change.",
+            }
+        if distro_ids.intersection({"debian", "ubuntu"}):
+            return {"install_command": f"sudo apt install {package_name}"}
+        if distro_ids.intersection({"fedora", "rhel"}):
+            return {"install_command": f"sudo dnf install {package_name}"}
+        if "arch" in distro_ids:
+            return {"install_command": f"sudo pacman -S {package_name}"}
+        if distro_ids.intersection({"opensuse", "suse"}):
+            return {"install_command": f"sudo zypper install {package_name}"}
+        return {"install_command": ""}
+
+    def get_clipboard_support(self):
+        system_name = platform.system().lower()
+        if system_name == "windows":
+            return {"available": True, "reader": "Win32 clipboard API", "session": "Windows"}
+        if system_name == "darwin":
+            available = bool(shutil.which("pbpaste"))
+            return {
+                "available": available,
+                "reader": "pbpaste",
+                "session": "macOS",
+                "error": "The macOS clipboard reader 'pbpaste' was not found." if not available else "",
+            }
+        if system_name != "linux":
+            return {
+                "available": False,
+                "reader": "",
+                "session": platform.system() or "Unknown",
+                "error": "Clipboard URL detection is not supported on this operating system.",
+            }
+
+        session_type = str(os.environ.get("XDG_SESSION_TYPE", "") or "").strip().lower()
+        is_wayland = session_type == "wayland" or bool(os.environ.get("WAYLAND_DISPLAY"))
+        is_x11 = session_type in {"x11", "xorg"} or bool(os.environ.get("DISPLAY"))
+
+        if is_wayland:
+            if shutil.which("wl-paste"):
+                return {"available": True, "reader": "wl-paste", "session": "Wayland"}
+            package_name = "wl-clipboard"
+            install_details = self._get_linux_package_install_details(package_name)
+            return {
+                "available": False,
+                "reader": "wl-paste",
+                "session": "Wayland",
+                "package": package_name,
+                "error": "Auto-detect Clipboard URLs requires 'wl-paste' on Wayland.",
+                **install_details,
+            }
+
+        if is_x11:
+            reader = next((name for name in ("xclip", "xsel") if shutil.which(name)), "")
+            if reader:
+                return {"available": True, "reader": reader, "session": "X11"}
+            package_name = "xclip"
+            install_details = self._get_linux_package_install_details(package_name)
+            return {
+                "available": False,
+                "reader": "xclip or xsel",
+                "session": "X11",
+                "package": package_name,
+                "error": "Auto-detect Clipboard URLs requires 'xclip' or 'xsel' on X11.",
+                **install_details,
+            }
+
+        reader = next((name for name in ("wl-paste", "xclip", "xsel") if shutil.which(name)), "")
+        if reader:
+            return {"available": True, "reader": reader, "session": "Linux"}
+        package_name = "wl-clipboard"
+        install_details = self._get_linux_package_install_details(package_name)
+        return {
+            "available": False,
+            "reader": "wl-paste, xclip, or xsel",
+            "session": "Linux",
+            "package": package_name,
+            "error": "No supported Linux clipboard reader was found.",
+            **install_details,
+        }
+
     def update_settings(self, settings: dict):
-        for key, value in (settings or {}).items():
+        requested_settings = dict(settings or {})
+        enabling_auto_detect = (
+            bool(requested_settings.get("auto_detect_urls"))
+            and not bool(self.config.get("auto_detect_urls", False))
+        )
+        if enabling_auto_detect:
+            clipboard_support = self.get_clipboard_support()
+            if not clipboard_support.get("available"):
+                return {
+                    "success": False,
+                    "error": clipboard_support.get("error") or "A clipboard reader is required.",
+                    "dependency_required": True,
+                    "clipboard_support": clipboard_support,
+                    "config": dict(self.config),
+                }
+
+        for key, value in requested_settings.items():
             if key in self.default_settings:
                 self.config[key] = value
         if not self.config.get("auto_detect_urls", False):

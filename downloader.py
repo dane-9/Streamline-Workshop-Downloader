@@ -320,6 +320,9 @@ class WebMainGuiApi:
     def get_settings(self):
         return self.backend.get_settings()
 
+    def get_clipboard_support(self):
+        return self.backend.get_clipboard_support()
+
     def update_settings(self, settings):
         return self.backend.update_settings(settings)
 

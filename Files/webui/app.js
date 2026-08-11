@@ -1002,7 +1002,7 @@ function showConfirmDialog({
         <h3 class="confirm-title">${escapeHtml(title)}</h3>
         <p class="confirm-message">${escapeHtml(message)}</p>
         <div class="confirm-actions">
-          <button type="button" class="control modal-btn" data-confirm-action="cancel">${escapeHtml(cancelLabel)}</button>
+          ${cancelLabel ? `<button type="button" class="control modal-btn" data-confirm-action="cancel">${escapeHtml(cancelLabel)}</button>` : ""}
           <button type="button" class="control modal-btn primary" data-confirm-action="ok">${escapeHtml(okLabel)}</button>
         </div>
       </div>
@@ -1037,6 +1037,27 @@ function showConfirmDialog({
     cancelBtn?.addEventListener("click", () => cleanup(false));
     document.addEventListener("keydown", onKeyDown, true);
     okBtn?.focus();
+  });
+}
+
+async function showClipboardDependencyPrompt(result) {
+  const support = result?.clipboard_support || result || {};
+  let message = String(support.error || result?.error || "A clipboard reader is required.").trim();
+  const installCommand = String(support.install_command || "").trim();
+  const installNote = String(support.install_note || "").trim();
+  if (installCommand) {
+    message += ` Install it with: ${installCommand}`;
+  } else if (!installNote && support.package) {
+    message += ` Install the '${support.package}' package with your system package manager.`;
+  }
+  if (installNote) {
+    message += ` ${installNote}`;
+  }
+  await showConfirmDialog({
+    title: "Clipboard Reader Required",
+    message,
+    okLabel: "Close",
+    cancelLabel: ""
   });
 }
 
@@ -4674,7 +4695,24 @@ async function openSettingsEditor() {
           setSettingsPage(button.dataset.settingsPageBtn || "appearance");
         });
       });
-      autoDetect.addEventListener("change", syncAutoAdd);
+      autoDetect.addEventListener("change", async () => {
+        syncAutoAdd();
+        if (!autoDetect.checked) {
+          return;
+        }
+        try {
+          const support = await callApi("get_clipboard_support");
+          if (!support?.available) {
+            autoDetect.checked = false;
+            syncAutoAdd();
+            await showClipboardDependencyPrompt(support);
+          }
+        } catch (error) {
+          autoDetect.checked = false;
+          syncAutoAdd();
+          addLog(error?.message || "Failed to check clipboard support.", "bad");
+        }
+      });
       resetDefaultsBtn.addEventListener("click", () => {
         resetFormToDefaults();
         addLog("Settings reset to defaults in the dialog. Click Apply to save.", "good");
@@ -4710,6 +4748,9 @@ async function openSettingsEditor() {
 
       const result = await callApi("update_settings", patch);
       if (!result?.success) {
+        if (result?.dependency_required) {
+          await showClipboardDependencyPrompt(result);
+        }
         addLog(result?.error || "Failed to update settings.", "bad");
         return false;
       }
@@ -4730,6 +4771,9 @@ async function openSettingsEditor() {
 async function applySettingsPatch(patch, successMessage = "Settings updated.") {
   const result = await callApi("update_settings", patch);
   if (!result?.success) {
+    if (result?.dependency_required) {
+      await showClipboardDependencyPrompt(result);
+    }
     addLog(result?.error || "Failed to update settings.", "bad");
     return false;
   }
