@@ -181,7 +181,7 @@ const SETTINGS_DEFAULTS = {
   show_logs: true,
   show_provider: true,
   show_queue_entire_workshop: true,
-  keep_downloaded_in_queue: false,
+  keep_downloaded_in_queue: true,
   folder_naming_format: "id",
   auto_detect_urls: false,
   auto_add_to_queue: false,

@@ -37,7 +37,7 @@ DEFAULT_SETTINGS = {
     "show_logs": True,
     "show_provider": True,
     "show_queue_entire_workshop": True,
-    "keep_downloaded_in_queue": False,
+    "keep_downloaded_in_queue": True,
     "folder_naming_format": "id",
     "auto_detect_urls": False,
     "auto_add_to_queue": False,
