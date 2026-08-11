@@ -144,10 +144,15 @@
     <div id="window-resize-south" class="window-resize-edge south"></div>
   </div>
   <div id="queue-context-menu" class="queue-context-menu hidden">
-    <button class="queue-context-item" data-action="move_top" type="button">Move to Top</button>
-    <button class="queue-context-item" data-action="move_up" type="button">Move Up</button>
-    <button class="queue-context-item" data-action="move_down" type="button">Move Down</button>
-    <button class="queue-context-item" data-action="move_bottom" type="button">Move to Bottom</button>
+    <div class="queue-context-submenu">
+      <button class="queue-context-parent" type="button">Move</button>
+      <div class="queue-context-subpopup">
+        <button class="queue-context-item" data-action="move_top" type="button">Top</button>
+        <button class="queue-context-item" data-action="move_up" type="button">Up</button>
+        <button class="queue-context-item" data-action="move_down" type="button">Down</button>
+        <button class="queue-context-item" data-action="move_bottom" type="button">Bottom</button>
+      </div>
+    </div>
     <div class="queue-context-sep"></div>
     <div class="queue-context-submenu">
       <button class="queue-context-parent" type="button">Provider</button>
