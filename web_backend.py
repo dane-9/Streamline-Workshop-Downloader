@@ -891,6 +891,7 @@ class StreamlineWebBackend:
         return {
             "version": self.app_version,
             "config": dict(self.config),
+            "settings_defaults": dict(self.default_settings),
             "queue": [],
             "queue_stats": queue_stats,
             "queue_total": int(queue_stats.get("total", 0)),
@@ -3260,7 +3261,7 @@ class StreamlineWebBackend:
         self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=True)
 
     def _finalize_cancellation(self, delete_downloads):
-        keep_downloaded = bool(self.config.get("keep_downloaded_in_queue", True))
+        keep_downloaded = bool(self.config["keep_downloaded_in_queue"])
 
         if delete_downloads:
             self._remove_all_workshop_content()
@@ -3344,7 +3345,7 @@ class StreamlineWebBackend:
                     self._emit_event("queue", {"action": "refresh"})
                     break
 
-                if not self.config.get("keep_downloaded_in_queue", True):
+                if not self.config["keep_downloaded_in_queue"]:
                     with self.state_lock:
                         self.download_queue = [mod for mod in self.download_queue if mod.get("status") != "Downloaded"]
                         self._rebuild_queue_indexes_locked()
@@ -3362,7 +3363,7 @@ class StreamlineWebBackend:
                 if pending_steamcmd_ids:
                     self._move_all_downloaded_mods(mod_ids=pending_steamcmd_ids)
                 self._cleanup_appworkshop_acf_files()
-                if not self.config.get("keep_downloaded_in_queue", True):
+                if not self.config["keep_downloaded_in_queue"]:
                     with self.state_lock:
                         self.download_queue = [mod for mod in self.download_queue if mod.get("status") != "Downloaded"]
                         self._rebuild_queue_indexes_locked()

@@ -142,6 +142,7 @@ const state = {
   regex: false,
   caseSensitive: false,
   config: {},
+  settingsDefaults: {},
   version: "",
   selectedModIds: new Set(),
   isDownloading: false,
@@ -174,36 +175,6 @@ const state = {
   }
 };
 
-const SETTINGS_DEFAULTS = {
-  current_theme: "Dark",
-  logo_style: "Light",
-  batch_size: 20,
-  show_logs: true,
-  show_provider: true,
-  show_queue_entire_workshop: true,
-  keep_downloaded_in_queue: true,
-  folder_naming_format: "id",
-  auto_detect_urls: false,
-  auto_add_to_queue: false,
-  delete_downloads_on_cancel: false,
-  steamcmd_existing_mod_behavior: "Only Redownload if Updated",
-  download_button: true,
-  show_searchbar: true,
-  show_commands_button: true,
-  show_export_import_buttons: true,
-  show_sort_indicator: true,
-  show_row_numbers: false,
-  header_locked: true,
-  queue_tree_column_widths: null,
-  queue_tree_column_hidden: null,
-  reset_provider_on_startup: false,
-  download_provider: "Default",
-  log_category_filter: "all",
-  command_palette_filters: ["all", "controls", "appearance", "tools", "help"],
-  command_palette_all_type_filters: [],
-  reset_window_size_on_startup: true,
-  show_tutorial_on_startup: true
-};
 const LOG_CATEGORY_FILTER_OPTIONS = ["all", "ui", "system", "queue", "download", "clipboard", "debug"];
 
 const QUEUE_COLUMNS = [
@@ -278,7 +249,7 @@ function normalizeLogCategoryFilter(value) {
 function getCurrentLogCategoryFilter() {
   const configured = state?.config?.log_category_filter ?? state?.config?.log_level_filter;
   return normalizeLogCategoryFilter(
-    configured === undefined ? SETTINGS_DEFAULTS.log_category_filter : configured
+    configured === undefined ? state.settingsDefaults.log_category_filter : configured
   );
 }
 
@@ -1528,7 +1499,7 @@ function initAllAnimatedSelects(root = document) {
 
 function getSharedCommands() {
   const config = {
-    ...SETTINGS_DEFAULTS,
+    ...state.settingsDefaults,
     ...(state.config || {})
   };
   const showSearch = config.show_searchbar !== false;
@@ -2088,11 +2059,11 @@ function syncCommandPaletteFilterConfig({ resetSelection = false } = {}) {
   commandPaletteAvailableSections = getCommandPaletteAvailableSections(commandPaletteActions);
   const configured = Array.isArray(state.config?.command_palette_filters)
     ? state.config.command_palette_filters
-    : SETTINGS_DEFAULTS.command_palette_filters;
+    : state.settingsDefaults.command_palette_filters;
   commandPaletteVisibleFilters = sanitizeCommandPaletteVisibleFilters(configured, commandPaletteAvailableSections);
   const configuredAllTypes = Array.isArray(state.config?.command_palette_all_type_filters)
     ? state.config.command_palette_all_type_filters
-    : SETTINGS_DEFAULTS.command_palette_all_type_filters;
+    : state.settingsDefaults.command_palette_all_type_filters;
   commandPaletteAllTypeFilters = sanitizeCommandPaletteAllTypeFilters(configuredAllTypes, commandPaletteAvailableSections);
   if (resetSelection) {
     commandPaletteSectionFilter = commandPaletteVisibleFilters.includes("all")
@@ -2505,7 +2476,7 @@ function wireCommandPalette() {
     }
     if (action === "reset") {
       commandPaletteAllTypeFilters = sanitizeCommandPaletteAllTypeFilters(
-        SETTINGS_DEFAULTS.command_palette_all_type_filters,
+        state.settingsDefaults.command_palette_all_type_filters,
         commandPaletteAvailableSections
       );
       syncCommandPaletteFilterMenuSelection();
@@ -5056,6 +5027,9 @@ async function refreshAccounts(activeFromConfig = "") {
 
 async function useBootstrapData(data) {
   const config = data?.config || {};
+  state.settingsDefaults = data?.settings_defaults && typeof data.settings_defaults === "object"
+    ? data.settings_defaults
+    : {};
   state.config = config;
   state.version = String(data?.version || "");
   state.queue = (data?.queue || []).map(normalizeQueueItem);
@@ -5282,7 +5256,7 @@ async function handleHeaderContextAction(button) {
   if (action === "reset_layout") {
     const defaults = getDefaultQueueColumnWidths();
     if (await applyHeaderLayoutPatch({
-      show_row_numbers: SETTINGS_DEFAULTS.show_row_numbers,
+      show_row_numbers: state.settingsDefaults.show_row_numbers,
       queue_tree_column_hidden: QUEUE_COLUMNS.map(() => false),
       queue_tree_column_widths: defaults
     }, "Header layout reset to defaults.")) {
@@ -5562,26 +5536,26 @@ async function openSettingsEditor() {
         }
       };
       const resetFormToDefaults = () => {
-        setSelect("st-theme", SETTINGS_DEFAULTS.current_theme);
-        setSelect("st-logo", SETTINGS_DEFAULTS.logo_style);
-        setSelect("st-provider", SETTINGS_DEFAULTS.download_provider);
-        setNumber("st-batch", SETTINGS_DEFAULTS.batch_size);
-        setSelect("st-existing", SETTINGS_DEFAULTS.steamcmd_existing_mod_behavior);
-        setSelect("st-folder-format", SETTINGS_DEFAULTS.folder_naming_format);
+        setSelect("st-theme", state.settingsDefaults.current_theme);
+        setSelect("st-logo", state.settingsDefaults.logo_style);
+        setSelect("st-provider", state.settingsDefaults.download_provider);
+        setNumber("st-batch", state.settingsDefaults.batch_size);
+        setSelect("st-existing", state.settingsDefaults.steamcmd_existing_mod_behavior);
+        setSelect("st-folder-format", state.settingsDefaults.folder_naming_format);
 
-        setCheck("st-download-btn", SETTINGS_DEFAULTS.download_button);
-        setCheck("st-search-bar", SETTINGS_DEFAULTS.show_searchbar);
-        setCheck("st-import-export", SETTINGS_DEFAULTS.show_export_import_buttons);
-        setCheck("st-logs", SETTINGS_DEFAULTS.show_logs);
-        setCheck("st-provider-show", SETTINGS_DEFAULTS.show_provider);
-        setCheck("st-queue-workshop", SETTINGS_DEFAULTS.show_queue_entire_workshop);
-        setCheck("st-keep-downloaded", SETTINGS_DEFAULTS.keep_downloaded_in_queue);
-        setCheck("st-delete-on-cancel", SETTINGS_DEFAULTS.delete_downloads_on_cancel);
-        setCheck("st-auto-detect", SETTINGS_DEFAULTS.auto_detect_urls);
-        setCheck("st-auto-add", SETTINGS_DEFAULTS.auto_add_to_queue);
-        setCheck("st-show-tutorial", SETTINGS_DEFAULTS.show_tutorial_on_startup);
-        setCheck("st-reset-provider", SETTINGS_DEFAULTS.reset_provider_on_startup);
-        setCheck("st-reset-window", SETTINGS_DEFAULTS.reset_window_size_on_startup);
+        setCheck("st-download-btn", state.settingsDefaults.download_button);
+        setCheck("st-search-bar", state.settingsDefaults.show_searchbar);
+        setCheck("st-import-export", state.settingsDefaults.show_export_import_buttons);
+        setCheck("st-logs", state.settingsDefaults.show_logs);
+        setCheck("st-provider-show", state.settingsDefaults.show_provider);
+        setCheck("st-queue-workshop", state.settingsDefaults.show_queue_entire_workshop);
+        setCheck("st-keep-downloaded", state.settingsDefaults.keep_downloaded_in_queue);
+        setCheck("st-delete-on-cancel", state.settingsDefaults.delete_downloads_on_cancel);
+        setCheck("st-auto-detect", state.settingsDefaults.auto_detect_urls);
+        setCheck("st-auto-add", state.settingsDefaults.auto_add_to_queue);
+        setCheck("st-show-tutorial", state.settingsDefaults.show_tutorial_on_startup);
+        setCheck("st-reset-provider", state.settingsDefaults.reset_provider_on_startup);
+        setCheck("st-reset-window", state.settingsDefaults.reset_window_size_on_startup);
 
         syncAutoAdd();
       };
