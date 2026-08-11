@@ -4524,7 +4524,7 @@ function buildSettingsFormHtml(settings) {
               <input id="st-batch" class="form-control" type="number" min="1" max="500" value="${Number(settings.batch_size || 20)}">
             </div>
             <div class="form-block" style="grid-column: 1 / -1;">
-              <label for="st-existing">SteamCMD Existing Mods</label>
+              <label for="st-existing">Existing Mods</label>
               <div class="select-chevron-wrap">
                 <select id="st-existing" class="form-control">
                   <option value="Only Redownload if Updated" ${settings.steamcmd_existing_mod_behavior === "Only Redownload if Updated" ? "selected" : ""}>Only Redownload if Updated</option>

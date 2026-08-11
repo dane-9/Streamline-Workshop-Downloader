@@ -2444,16 +2444,43 @@ class StreamlineWebBackend:
         mod_id = str(mod.get("mod_id", ""))
         if not mod_id:
             return
+        provider = str(mod.get("provider", "") or "").strip()
+        log_entry = {
+            "name": mod.get("mod_name", "Unknown"),
+            "app_id": mod.get("app_id"),
+            "provider": provider,
+            "timestamp": time.time(),
+            "date": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+        }
+        if provider == "SteamWebAPI":
+            output_path = str(mod.get("_webapi_file_path", "") or "").strip()
+            if output_path:
+                log_entry["file_name"] = os.path.basename(output_path)
         logs = self._get_mod_download_logs_cache()
         with self._mod_logs_lock:
-            logs[mod_id] = {
-                "name": mod.get("mod_name", "Unknown"),
-                "app_id": mod.get("app_id"),
-                "timestamp": time.time(),
-                "date": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-            }
+            logs[mod_id] = log_entry
             snapshot = dict(logs)
         self._save_mod_download_logs(snapshot)
+
+    def _get_webapi_filename(self, mod, file_details=None):
+        details = file_details if isinstance(file_details, dict) else {}
+        mod_id = str((mod or {}).get("mod_id", "") or "").strip() or "workshop_item"
+        filename = details.get("filename") or details.get("title") or f"{mod_id}.zip"
+        filename = re.sub(r"[\x00-\x1f]", "", str(filename))
+        filename = re.sub(r'[<>:"/\\|?*]', "_", filename.strip()).strip(" .")
+        return filename or f"{mod_id}.zip"
+
+    def _get_logged_webapi_file_path(self, mod_id, download_logs):
+        log_entry = (download_logs or {}).get(str(mod_id), {})
+        if not isinstance(log_entry, dict) or log_entry.get("provider") != "SteamWebAPI":
+            return None, log_entry if isinstance(log_entry, dict) else {}
+        file_name = str(log_entry.get("file_name", "") or "").strip()
+        if not file_name or file_name != os.path.basename(file_name):
+            return None, log_entry
+        file_path = os.path.join(self.steamwebapi_download_path, file_name)
+        if not os.path.isfile(file_path):
+            return None, log_entry
+        return file_path, log_entry
 
     def _fetch_published_file_details_batch(self, mod_ids, timeout=20, chunk_size=100):
         normalized_ids = []
@@ -2909,8 +2936,7 @@ class StreamlineWebBackend:
             if not file_url:
                 return False
 
-            filename = file_details.get("filename") or file_details.get("title") or f"{mod_id}.zip"
-            filename = re.sub(r'[<>:"/\\|?*]', "_", filename.strip())
+            filename = self._get_webapi_filename(mod, file_details)
             file_path = os.path.join(self._get_download_path(mod), filename)
 
             download_response = requests.get(file_url, stream=True, timeout=120)
@@ -2954,14 +2980,49 @@ class StreamlineWebBackend:
             timeout=30,
             chunk_size=100,
         )
+        download_logs_cache = self._get_mod_download_logs_cache()
+        with self._mod_logs_lock:
+            download_logs = dict(download_logs_cache)
+        existing_mod_behavior = self.config.get("steamcmd_existing_mod_behavior", "Only Redownload if Updated")
         max_workers = max(1, min(6, len(webapi_mods)))
 
         def download_one(mod):
             if cancel_is_immediate and self.canceled:
                 return
-            self._set_mod_status(mod, "Downloading")
             mod_id = str(mod.get("mod_id", "")).strip()
-            success = self._download_mod_webapi(mod, details_by_mod_id.get(mod_id))
+            file_details = details_by_mod_id.get(mod_id, {})
+            existing_path, log_entry = self._get_logged_webapi_file_path(mod_id, download_logs)
+            should_download = True
+            if existing_path:
+                if existing_mod_behavior == "Skip Existing Mods":
+                    should_download = False
+                elif existing_mod_behavior == "Only Redownload if Updated":
+                    try:
+                        local_timestamp = float(log_entry.get("timestamp", 0) or 0)
+                    except Exception:
+                        local_timestamp = 0.0
+                    try:
+                        remote_timestamp = int(file_details.get("time_updated", 0) or 0)
+                    except Exception:
+                        remote_timestamp = 0
+                    if local_timestamp and remote_timestamp and remote_timestamp <= local_timestamp:
+                        should_download = False
+
+                if should_download:
+                    try:
+                        os.remove(existing_path)
+                    except OSError:
+                        pass
+
+            if not should_download:
+                with self.state_lock:
+                    mod["_webapi_file_path"] = existing_path
+                self._mark_session_downloaded(mod)
+                self._set_mod_status(mod, "Downloaded")
+                return
+
+            self._set_mod_status(mod, "Downloading")
+            success = self._download_mod_webapi(mod, file_details)
             if success:
                 self._set_mod_status(mod, "Downloaded")
                 return
