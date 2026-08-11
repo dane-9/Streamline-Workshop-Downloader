@@ -3645,6 +3645,12 @@ body.theme-light .log-line:hover {
   color: #ffd8d8;
 }
 
+.log-tone.warn {
+  border-color: rgba(239, 165, 55, 0.68);
+  background: rgba(239, 165, 55, 0.22);
+  color: #ffe2ad;
+}
+
 .log-tone.run {
   border-color: rgba(94, 149, 255, 0.62);
   background: rgba(94, 149, 255, 0.22);
@@ -3720,6 +3726,10 @@ body.theme-light .log-tone.good {
 
 body.theme-light .log-tone.bad {
   color: #b21d1d;
+}
+
+body.theme-light .log-tone.warn {
+  color: #9a5900;
 }
 
 body.theme-light .log-tone.run {

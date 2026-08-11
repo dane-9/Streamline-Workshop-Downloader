@@ -471,6 +471,8 @@ class StreamlineWebBackend:
         src = str(source or "system").strip().lower() or "system"
         act = str(action or "").strip().lower()
         op_id = str(operation_id or "").strip()
+        if not op_id and src == "download":
+            op_id = str(getattr(self, "_active_download_operation_id", "") or "").strip()
         safe_context = context
         if safe_context is not None and not isinstance(safe_context, (dict, list, str, int, float, bool)):
             safe_context = str(safe_context)
@@ -1406,13 +1408,14 @@ class StreamlineWebBackend:
                 raise
             self.log(
                 f"Collection parsing stopped early for {collection_id}: {e}",
+                tone="warn",
                 source="queue",
                 action="collection_processing_partial",
                 context={
                     "collection_id": str(collection_id),
                     "error": str(e),
                     "items_found": len(mods_info),
-                    "operation_state": "run",
+                    "operation_state": "warn",
                 },
                 operation_id=operation_id,
             )
@@ -1644,10 +1647,10 @@ class StreamlineWebBackend:
                 except Exception as callback_error:
                     self.log(
                         f"Queue batch callback failed: {callback_error}",
-                        tone="bad",
+                        tone="warn",
                         source="queue",
                         action="queue_batch_callback_failed",
-                        context={"error": str(callback_error), "operation_state": "error"},
+                        context={"error": str(callback_error), "operation_state": "warn"},
                         operation_id=operation_id,
                     )
 
@@ -1702,6 +1705,7 @@ class StreamlineWebBackend:
                 emit_batch(ordered_batch_mods, pages_fetched, total_pages)
             self.log(
                 f"Pages fetched: {pages_fetched} / {total_pages}",
+                tone="warn" if pages_failed > 0 else "info",
                 source="queue",
                 action="pages_fetched",
                 context={
@@ -1709,7 +1713,7 @@ class StreamlineWebBackend:
                     "total_pages": total_pages,
                     "pages_failed": pages_failed,
                     "app_id": str(app_id),
-                    "operation_state": "run",
+                    "operation_state": "warn" if pages_failed > 0 else "run",
                 },
                 operation_id=operation_id,
             )
@@ -2972,10 +2976,10 @@ class StreamlineWebBackend:
                     except Exception as e:
                         self.log(
                             f"Failed to move mod {mod_id} to Downloads/SteamCMD: {e}",
-                            tone="bad",
+                            tone="warn",
                             source="download",
                             action="move_downloaded_mod_failed",
-                            context={"mod_id": str(mod_id), "error": str(e)},
+                            context={"mod_id": str(mod_id), "error": str(e), "operation_state": "warn"},
                         )
 
         missing_mod_ids = allowed_mod_ids.difference(moved_mod_ids)
@@ -3001,13 +3005,14 @@ class StreamlineWebBackend:
                 self.log(
                     f"SteamCMD reported {len(missing_mod_ids)} mod(s) as downloaded, but no output folders "
                     f"were found (IDs: {sample_ids}). Checked: {', '.join(checked_paths)}",
-                    tone="bad",
+                    tone="warn",
                     source="download",
                     action="download_output_missing",
                     context={
                         "mod_ids": sorted(missing_mod_ids),
                         "checked_paths": checked_paths,
                         "downloads_root": self.downloads_root,
+                        "operation_state": "warn",
                     },
                 )
         return moved_mod_ids
@@ -3062,10 +3067,15 @@ class StreamlineWebBackend:
         except Exception as e:
             self.log(
                 f"WebAPI download failed for mod {mod_id}: {e}",
-                tone="bad",
+                tone="warn",
                 source="download",
                 action="webapi_download_failed",
-                context={"mod_id": mod_id, "error": str(e), "downloads_root": self.downloads_root},
+                context={
+                    "mod_id": mod_id,
+                    "error": str(e),
+                    "downloads_root": self.downloads_root,
+                    "operation_state": "warn",
+                },
             )
             return False
 
@@ -3440,8 +3450,8 @@ class StreamlineWebBackend:
                 )
             else:
                 summary_action = "download_run_completed"
-                summary_tone = "bad" if failed > 0 else "good"
-                summary_state = "done" if failed <= 0 else "error"
+                summary_tone = "warn" if failed > 0 else "good"
+                summary_state = "done" if failed <= 0 else "warn"
                 summary_message = (
                     f"Download run complete: {completed:,}/{total:,} completed, {failed:,} failed "
                     f"in {duration_text}."
@@ -3504,7 +3514,7 @@ class StreamlineWebBackend:
                 tone="bad",
                 source="download",
                 action="worker_crashed",
-                context={"error": str(e)},
+                context={"error": str(e), "operation_state": "error"},
                 operation_id=operation_id,
             )
             self._emit_event("download", {"state": "error", "error": str(e), "operation_id": operation_id})
@@ -4003,17 +4013,7 @@ class StreamlineWebBackend:
 
         if self.config.get("auto_add_to_queue", False):
             provider = self.config.get("download_provider", "Default")
-            result = self.add_preview_queue_item(current_text, "", provider)
-            if not result.get("success"):
-                error_text = str(result.get("error") or "")
-                if "Invalid input" not in error_text:
-                    self.log(
-                        f"Auto-add from clipboard failed: {error_text}",
-                        tone="bad",
-                        source="clipboard",
-                        action="auto_add_failed",
-                        context={"error": str(error_text)},
-                    )
+            self.add_preview_queue_item(current_text, "", provider)
         return True
 
     def _clipboard_monitor_loop(self):

@@ -207,7 +207,7 @@ function setProviderValue(value) {
 
 function normalizeLogTone(value) {
   const tone = String(value || "").trim().toLowerCase();
-  if (tone === "good" || tone === "bad") {
+  if (tone === "good" || tone === "bad" || tone === "warn") {
     return tone;
   }
   return "info";
@@ -235,6 +235,9 @@ function logToneLabel(tone) {
   }
   if (tone === "bad") {
     return "ERROR";
+  }
+  if (tone === "warn") {
+    return "WARN";
   }
   return "INFO";
 }
@@ -421,8 +424,33 @@ function deriveOperationState(currentState, entry) {
     : null;
   const explicitState = String(context?.operation_state || context?.operationState || "").trim().toLowerCase();
 
-  if (explicitState === "run" || explicitState === "done" || explicitState === "error" || explicitState === "canceled") {
-    return explicitState;
+  const isRestart = /(start|restart|resume)/.test(action);
+  if (explicitState === "canceled") {
+    return "canceled";
+  }
+  if (isRestart && explicitState === "run") {
+    return "run";
+  }
+  if (current === "canceled" || current === "error") {
+    return current;
+  }
+  if (explicitState === "error") {
+    return "error";
+  }
+  if (explicitState === "warn" || tone === "warn") {
+    return "warn";
+  }
+  if (current === "warn") {
+    return "warn";
+  }
+  if (explicitState === "done") {
+    return "done";
+  }
+  if (current === "done" && explicitState === "run") {
+    return "done";
+  }
+  if (explicitState === "run") {
+    return "run";
   }
 
   if (/cancel/.test(action)) {
@@ -448,6 +476,9 @@ function getOperationToneByState(stateName) {
   if (state === "error") {
     return "bad";
   }
+  if (state === "warn") {
+    return "warn";
+  }
   if (state === "canceled") {
     return "stop";
   }
@@ -464,6 +495,9 @@ function getOperationTagLabel(stateName) {
   }
   if (state === "error") {
     return "ERROR";
+  }
+  if (state === "warn") {
+    return "WARN";
   }
   if (state === "canceled") {
     return "STOP";
@@ -580,6 +614,11 @@ function addEntryToGroupedTimeline(entry) {
       updatedAt: 0
     };
     logGroupsByOperation.set(opId, group);
+  }
+  const rawPrefix = getOperationPrefixFromId(rawOperationId);
+  if (rawPrefix === "queue-build") {
+    group.prefix = rawPrefix;
+    group.label = formatOperationLabel(rawPrefix);
   }
 
   let entryAdded = true;
