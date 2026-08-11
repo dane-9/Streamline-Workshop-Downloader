@@ -401,7 +401,7 @@ function formatOperationLabel(prefix) {
   const key = String(prefix || "").trim().toLowerCase();
   const known = {
     "queue-build": "Queue Build",
-    "queue-input": "Queue Input",
+    "queue-input": "Add to Queue",
     "download": "Download Queue"
   };
   if (known[key]) {
@@ -412,6 +412,95 @@ function formatOperationLabel(prefix) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ") || "Operation";
+}
+
+function formatOperationSummary(entry) {
+  const action = String(entry?.action || "").trim().toLowerCase();
+  const rawContext = entry?.context;
+  const context = rawContext && typeof rawContext === "object" && !Array.isArray(rawContext)
+    ? rawContext
+    : {};
+  const count = (key) => Math.max(0, Number.parseInt(String(context[key] ?? 0), 10) || 0).toLocaleString();
+  const appId = String(context.app_id || "").trim();
+  const itemId = String(context.item_id || context.collection_id || "").trim();
+
+  if (action === "queue_input_started") {
+    return "Resolving input…";
+  }
+  if (action === "item_processing") {
+    return itemId ? `Resolving Workshop item ${itemId}…` : "Resolving Workshop item…";
+  }
+  if (action === "collection_processing") {
+    return itemId ? `Reading collection ${itemId}…` : "Reading collection…";
+  }
+  if (action === "collection_detected") {
+    return "Collection detected…";
+  }
+  if (action === "item_metadata_deferred") {
+    return "Metadata refresh pending…";
+  }
+  if (action === "collection_processing_partial") {
+    return `${count("items_found")} found before collection parsing stopped`;
+  }
+  if (action === "queue_input_accepted") {
+    return appId ? `Workshop scan started for AppID ${appId}` : "Workshop scan started";
+  }
+  if (action === "queue_input_failed") {
+    const reason = String(context.reason || "").trim().toLowerCase();
+    if (reason === "missing_input" || reason === "invalid_input") {
+      return "Invalid input";
+    }
+    if (reason === "no_workshop") {
+      return appId ? `Workshop unavailable for AppID ${appId}` : "Workshop unavailable";
+    }
+    if (reason === "feature_disabled") {
+      return "Queue Entire Workshop is disabled";
+    }
+    if (reason === "collection_empty") {
+      return "No collection items found";
+    }
+    if (reason === "item_fetch_failed") {
+      return "Workshop item could not be fetched";
+    }
+    return "Items could not be added";
+  }
+  if (action === "queue_updated" || action === "collection_processed" || action === "game_queued") {
+    return `${count("added")} added, ${count("skipped")} skipped`;
+  }
+  if (action === "queue_build_started") {
+    const gameName = String(context.game_name || "").trim();
+    if (gameName && appId) {
+      return `${gameName} (AppID ${appId})`;
+    }
+    return appId ? `Scanning AppID ${appId}…` : "Scanning Workshop…";
+  }
+  if (action === "pages_fetched" || action === "queue_build_progress") {
+    const fetched = count("pages_fetched");
+    const total = count("total_pages");
+    const failed = Math.max(0, Number.parseInt(String(context.pages_failed ?? 0), 10) || 0);
+    return `${fetched}/${total} pages fetched${failed ? `, ${failed.toLocaleString()} failed` : ""}`;
+  }
+  if (action === "queue_build_completed") {
+    return `${count("added")} added, ${count("skipped")} skipped`;
+  }
+  if (action === "queue_build_failed") {
+    return appId ? `Failed for AppID ${appId}` : "Workshop scan failed";
+  }
+  if (action === "download_run_started") {
+    return `${count("queued_total")} queued`;
+  }
+  if (action === "download_progress") {
+    return `${count("finished")}/${count("total")} processed · ${count("completed")} downloaded · ${count("failed")} failed`;
+  }
+  if (action === "download_run_completed" || action === "download_run_canceled") {
+    const duration = String(context.duration_text || "").trim();
+    return `${count("completed")}/${count("total")} downloaded, ${count("failed")} failed${duration ? ` in ${duration}` : ""}`;
+  }
+  if (action === "worker_crashed") {
+    return "Download worker crashed";
+  }
+
+  return String(entry?.message || "Running…");
 }
 
 function deriveOperationState(currentState, entry) {
@@ -740,7 +829,8 @@ function createLogEntryLineElement(entry, extraClass = "", keyPrefix = "s") {
 function createLogGroupLineElement(group, view = null) {
   const effectiveState = String(view?.state || group.state || "run");
   const effectiveUpdatedAt = Number(view?.updatedAt || group.updatedAt || Date.now());
-  const effectiveMessage = String(view?.lastMessage || group.lastMessage || "Running...");
+  const effectiveEntry = view?.lastEntry || group.entries[group.entries.length - 1] || null;
+  const effectiveMessage = formatOperationSummary(effectiveEntry);
   const visibleCount = Number(view?.visibleCount || group.entries.length || 0);
   const totalCount = Number(view?.totalCount || group.entries.length || 0);
 
@@ -840,7 +930,7 @@ function renderLogTimeline(options = {}) {
     fragment.appendChild(createLogGroupLineElement(group, {
       state: filteredState || group.state,
       updatedAt: Number(lastVisibleEntry?.timestampMs || group.updatedAt || Date.now()),
-      lastMessage: String(lastVisibleEntry?.message || group.lastMessage || ""),
+      lastEntry: lastVisibleEntry,
       visibleCount: filteredEntries.length,
       totalCount: group.entries.length,
     }));
