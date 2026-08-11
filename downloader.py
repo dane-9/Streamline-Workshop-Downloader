@@ -367,9 +367,6 @@ class WebMainGuiApi:
     def update_appids(self, selected_types, headless=True):
         return self.backend.update_appids(selected_types, headless)
 
-    def clear_logs(self):
-        return self.backend.clear_logs()
-
     def launch_documentation(self):
         return self.backend.launch_documentation()
 

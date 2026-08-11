@@ -90,11 +90,14 @@ let commandPaletteVisibleFilters = [];
 let commandPaletteAllTypeFilters = [];
 let lastShiftTapAt = 0;
 const animatedSelectControllers = new Map();
-let suppressNextBackendClearEvent = false;
 let logTopItems = [];
 let logGroupsByOperation = new Map();
+let logOperationParents = new Map();
+let logEntrySeq = 0;
+let logTimelineEntryCount = 0;
 let logRenderQueued = false;
 let logRenderPreserveScroll = false;
+const MAX_LOG_TIMELINE_ENTRIES = 2000;
 const SEARCH_RENDER_DEBOUNCE_MS = 180;
 const DOUBLE_SHIFT_WINDOW_MS = 360;
 const EVENT_POLL_INTERVAL_MS = 250;
@@ -166,8 +169,6 @@ const state = {
   selectionAnchorIndex: null,
   selectionAnchorModId: "",
   rowCache: new Map(),
-  logEntries: [],
-  logEntrySeq: 0,
   sort: {
     key: "",
     direction: "asc",
@@ -427,19 +428,13 @@ function deriveOperationState(currentState, entry) {
   if (/cancel/.test(action)) {
     return "canceled";
   }
-  if (tone === "bad" || /(fail|error|crash|exception)/.test(action)) {
+  if (tone === "bad") {
     return "error";
   }
-  if (/(start|progress|process|building|running|downloading|worker|detect)/.test(action)) {
-    return current === "queued" ? "run" : (current || "run");
-  }
-  if (/(finish|complete|queued|processed|updated|done)/.test(action)) {
+  if (tone === "good") {
     return "done";
   }
-  if (!current) {
-    return "run";
-  }
-  return current;
+  return current || "run";
 }
 
 function getOperationToneByState(stateName) {
@@ -481,27 +476,94 @@ function moveGroupTopItemToFront(operationId) {
   if (!opId) {
     return;
   }
-  const exists = logTopItems.some((item) => item?.kind === "group" && item.operationId === opId);
-  if (!exists) {
+  const existingIndex = logTopItems.findIndex((item) => item?.kind === "group" && item.operationId === opId);
+  if (existingIndex >= 0) {
+    const [existing] = logTopItems.splice(existingIndex, 1);
+    logTopItems.unshift(existing);
+  } else {
     logTopItems.unshift({ kind: "group", operationId: opId });
   }
 }
 
-function shouldUpsertProgressEntry(group, entry) {
-  const prefix = String(group?.prefix || "").toLowerCase();
+function getProgressEntryKey(entry) {
   const action = String(entry?.action || "").toLowerCase();
-  if (prefix !== "queue-build") {
-    return prefix === "download" && action === "download_progress";
+  let kind = "";
+  if (action === "download_progress") {
+    kind = "download";
+  } else if (action === "queue_build_progress" || action === "pages_fetched") {
+    kind = "queue-build";
   }
-  return action === "queue_build_progress" || action === "pages_fetched";
+  if (!kind) {
+    return "";
+  }
+  return `progress:${String(entry?.operationId || "operation")}:${kind}`;
+}
+
+function recomputeLogGroup(group) {
+  if (!group || !Array.isArray(group.entries) || !group.entries.length) {
+    return;
+  }
+  let nextState = "";
+  for (const entry of group.entries) {
+    nextState = deriveOperationState(nextState, entry);
+  }
+  const lastEntry = group.entries[group.entries.length - 1];
+  group.state = nextState || "run";
+  group.source = String(lastEntry?.source || group.source || "system");
+  group.lastMessage = String(lastEntry?.message || "");
+  group.updatedAt = Number(lastEntry?.timestampMs || Date.now());
+}
+
+function deleteLogGroup(groupId) {
+  const normalizedGroupId = String(groupId || "");
+  logGroupsByOperation.delete(normalizedGroupId);
+  for (const [childId, parentId] of logOperationParents.entries()) {
+    if (childId === normalizedGroupId || parentId === normalizedGroupId) {
+      logOperationParents.delete(childId);
+    }
+  }
+}
+
+function pruneLogTimeline() {
+  while (logTimelineEntryCount > MAX_LOG_TIMELINE_ENTRIES && logTopItems.length) {
+    const oldestTopItem = logTopItems[logTopItems.length - 1];
+    if (oldestTopItem?.kind === "single") {
+      logTopItems.pop();
+      logTimelineEntryCount = Math.max(0, logTimelineEntryCount - 1);
+      continue;
+    }
+    const groupId = String(oldestTopItem?.operationId || "");
+    const group = logGroupsByOperation.get(groupId);
+    if (!group?.entries?.length) {
+      logTopItems.pop();
+      deleteLogGroup(groupId);
+      continue;
+    }
+    group.entries.shift();
+    logTimelineEntryCount = Math.max(0, logTimelineEntryCount - 1);
+    if (!group.entries.length) {
+      logTopItems.pop();
+      deleteLogGroup(groupId);
+    } else {
+      recomputeLogGroup(group);
+    }
+  }
 }
 
 function addEntryToGroupedTimeline(entry) {
-  const opId = String(entry?.operationId || "").trim();
-  if (!opId) {
+  const rawOperationId = String(entry?.operationId || "").trim();
+  if (!rawOperationId) {
     logTopItems.unshift({ kind: "single", entry });
-    return;
+    return true;
   }
+
+  const rawContext = entry?.context;
+  const context = rawContext && typeof rawContext === "object" && !Array.isArray(rawContext) ? rawContext : null;
+  const parentOperationId = String(context?.parent_operation_id || context?.parentOperationId || "").trim();
+  if (parentOperationId) {
+    logOperationParents.set(rawOperationId, parentOperationId);
+  }
+  const opId = logOperationParents.get(rawOperationId) || rawOperationId;
 
   let group = logGroupsByOperation.get(opId);
   if (!group) {
@@ -515,20 +577,20 @@ function addEntryToGroupedTimeline(entry) {
       expanded: false,
       state: "run",
       lastMessage: "",
-      updatedAt: 0,
-      progressEntryId: ""
+      updatedAt: 0
     };
     logGroupsByOperation.set(opId, group);
   }
 
-  if (shouldUpsertProgressEntry(group, entry)) {
-    const progressId = String(group.progressEntryId || `progress:${opId}:queue-build`);
-    group.progressEntryId = progressId;
+  let entryAdded = true;
+  const progressId = getProgressEntryKey(entry);
+  if (progressId) {
     let progressEntry = group.entries.find((item) => String(item?.id) === progressId);
     if (!progressEntry) {
       progressEntry = { ...entry, id: progressId };
       group.entries.push(progressEntry);
     } else {
+      entryAdded = false;
       Object.assign(progressEntry, entry, { id: progressId });
       const existingIndex = group.entries.indexOf(progressEntry);
       if (existingIndex >= 0) {
@@ -544,6 +606,7 @@ function addEntryToGroupedTimeline(entry) {
   group.updatedAt = Number(entry.timestampMs || Date.now());
   group.state = deriveOperationState(group.state, entry);
   moveGroupTopItemToFront(opId);
+  return entryAdded;
 }
 
 function captureLogScrollAnchor() {
@@ -684,7 +747,7 @@ function updateLogHeaderUi() {
     logCopyBtn.disabled = visibleRows <= 0;
   }
   if (logClearBtn) {
-    logClearBtn.disabled = state.logEntries.length === 0;
+    logClearBtn.disabled = logTimelineEntryCount === 0;
   }
 }
 
@@ -765,10 +828,11 @@ function renderLogTimeline(options = {}) {
 }
 
 function clearLogTimeline() {
-  state.logEntries = [];
-  state.logEntrySeq = 0;
+  logEntrySeq = 0;
+  logTimelineEntryCount = 0;
   logTopItems = [];
   logGroupsByOperation = new Map();
+  logOperationParents = new Map();
   scheduleLogTimelineRender();
 }
 
@@ -780,7 +844,7 @@ function addLog(text, tone = "", meta = {}) {
 
   const wasAtTop = !eventLog || eventLog.scrollTop <= 2;
   const entry = {
-    id: ++state.logEntrySeq,
+    id: ++logEntrySeq,
     message,
     tone: normalizeLogTone(tone),
     timestampMs: normalizeLogTimestampMs(meta?.timestamp),
@@ -790,8 +854,10 @@ function addLog(text, tone = "", meta = {}) {
     context: meta?.context
   };
 
-  state.logEntries.push(entry);
-  addEntryToGroupedTimeline(entry);
+  if (addEntryToGroupedTimeline(entry)) {
+    logTimelineEntryCount += 1;
+  }
+  pruneLogTimeline();
   scheduleLogTimelineRender({ preserveScroll: !wasAtTop });
 }
 
@@ -3404,8 +3470,6 @@ function scheduleSearchRender(delay = SEARCH_RENDER_DEBOUNCE_MS) {
 function createQueueRow(modId) {
   const row = document.createElement("tr");
   row.dataset.modId = modId;
-  bindQueueRowHandlers(row);
-
   return row;
 }
 
@@ -3441,70 +3505,6 @@ function getQueueStatusTone(item, displayText) {
     return "muted";
   }
   return "neutral";
-}
-
-function bindQueueRowHandlers(row) {
-  if (!row || row._interactionsBound) {
-    return;
-  }
-  row._interactionsBound = true;
-
-  row.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    hideHeaderContextMenu();
-    hideQueueContextMenu();
-    void handleRowClick(event, row).catch((error) => {
-      addLog(error?.message || "Failed to select queue item.", "bad");
-    });
-  });
-
-  row.addEventListener("dblclick", (event) => {
-    event.stopPropagation();
-    const modId = String(row.dataset.modId || "");
-    if (!modId) {
-      return;
-    }
-    event.preventDefault();
-    void callApi("open_downloads_folder", modId)
-      .then((result) => {
-        if (result?.success) {
-          addLog(`Opened Downloads folder for ${modId}.`, "good");
-        } else {
-          addLog(result?.error || "Failed to open Downloads folder.", "bad");
-        }
-      })
-      .catch(() => {
-        addLog("Open Downloads Folder is only available from desktop app.", "bad");
-      });
-  });
-
-  row.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const modId = String(row.dataset.modId || "");
-    const rowIndex = Number.parseInt(String(row.dataset.listIndex || "-1"), 10);
-    if (!modId) {
-      return;
-    }
-
-    if (!state.selectedModIds.has(modId)) {
-      state.selectedModIds.clear();
-      state.selectedModIds.add(modId);
-    }
-
-    if (Number.isInteger(rowIndex) && rowIndex >= 0) {
-      state.selectionAnchorIndex = rowIndex;
-      state.selectionAnchorModId = modId;
-    }
-
-    renderQueueViewport(true);
-    showQueueContextMenu(event.clientX, event.clientY);
-  });
 }
 
 function createSpacerRow(className, colSpan) {
@@ -4648,16 +4648,6 @@ async function handleLogsContextAction(action, logCategory = "") {
     return;
   }
   if (action === "clear_logs") {
-    try {
-      const result = await callApi("clear_logs");
-      if (!result?.success) {
-        addLog(result?.error || "Failed to clear log view.", "bad");
-        return;
-      }
-      suppressNextBackendClearEvent = true;
-    } catch {
-      // In non-desktop preview mode, still clear local log view.
-    }
     clearLogTimeline();
   }
 }
@@ -7326,7 +7316,6 @@ async function handleAddToQueue(event) {
     const result = await request;
     void pollEvents();
     if (!result?.success) {
-      addLog(result?.error || "Failed to add to queue.", "bad");
       return;
     }
   } catch {
@@ -7487,11 +7476,6 @@ async function handleEvent(event) {
     } else if (status === "error") {
       state.isDownloading = false;
       state.cancelPending = false;
-      addLog(payload.error || "Download error.", "bad", {
-        source: "download",
-        action: "error",
-        operationId: payload.operation_id || ""
-      });
     }
     syncStartButton();
     return;
@@ -7513,15 +7497,6 @@ async function handleEvent(event) {
       renderCommandPaletteList();
     }
     renderQueue();
-    return;
-  }
-
-  if (type === "clear_logs") {
-    if (suppressNextBackendClearEvent) {
-      suppressNextBackendClearEvent = false;
-      return;
-    }
-    clearLogTimeline();
     return;
   }
 

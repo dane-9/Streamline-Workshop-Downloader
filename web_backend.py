@@ -322,7 +322,6 @@ class StreamlineWebBackend:
         self.events_lock = threading.Lock()
         self.events = []
         self.event_id = 0
-        self.runtime_logs = []
         self._config_save_lock = threading.Lock()
         self._config_save_timer = None
         self._config_dirty = False
@@ -475,19 +474,6 @@ class StreamlineWebBackend:
         safe_context = context
         if safe_context is not None and not isinstance(safe_context, (dict, list, str, int, float, bool)):
             safe_context = str(safe_context)
-        entry = {
-            "timestamp": time.time(),
-            "tone": level,
-            "message": text,
-            "source": src,
-            "action": act,
-            "operation_id": op_id,
-            "context": safe_context,
-        }
-        with self.state_lock:
-            self.runtime_logs.append(entry)
-            if len(self.runtime_logs) > 5000:
-                self.runtime_logs = self.runtime_logs[-2500:]
         payload = {
             "message": text,
             "tone": level,
@@ -1359,7 +1345,7 @@ class StreamlineWebBackend:
                 }
             return {"mod_id": str(mod_id), "mod_name": "Unknown Title", "app_id": None, "game_name": "Unknown Game"}
 
-    def _scrape_collection_mods(self, collection_id: str, tree=None):
+    def _scrape_collection_mods(self, collection_id: str, tree=None, operation_id: str = ""):
         mods_info = []
         try:
             if tree is None:
@@ -1416,38 +1402,77 @@ class StreamlineWebBackend:
                     "game_name": game_name,
                 })
         except Exception as e:
+            if not mods_info:
+                raise
             self.log(
-                f"Error processing collection {collection_id}: {e}",
-                tone="bad",
+                f"Collection parsing stopped early for {collection_id}: {e}",
                 source="queue",
-                action="collection_processing_failed",
-                context={"collection_id": str(collection_id), "error": str(e)},
+                action="collection_processing_partial",
+                context={
+                    "collection_id": str(collection_id),
+                    "error": str(e),
+                    "items_found": len(mods_info),
+                    "operation_state": "run",
+                },
+                operation_id=operation_id,
             )
         return mods_info
 
-    def _resolve_workshop_item(self, item_id: str, hinted_type: str = None):
-        try:
-            url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}"
-            response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-            response.raise_for_status()
-            tree = html.fromstring(response.text)
-        except Exception as e:
-            self.log(
-                f"Error processing workshop item {item_id}: {e}",
-                tone="bad",
-                source="queue",
-                action="item_processing_failed",
-                context={"item_id": str(item_id), "error": str(e)},
-            )
+    def _resolve_workshop_item(self, item_id: str, hinted_type: str = None, operation_id: str = ""):
+        url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}"
+        tree = None
+        last_error = None
+        for attempt in range(3):
+            response = None
+            try:
+                response = requests.get(url, timeout=(8, 30), headers={"User-Agent": "Mozilla/5.0"})
+                response.raise_for_status()
+                tree = html.fromstring(response.text)
+                break
+            except Exception as error:
+                last_error = error
+                status_code = int(getattr(response, "status_code", 0) or 0)
+                retryable = status_code in {429, 500, 502, 503, 504} or isinstance(
+                    error,
+                    (requests.Timeout, requests.ConnectionError),
+                )
+                if not retryable or attempt >= 2:
+                    break
+                retry_after = 0.0
+                try:
+                    retry_after = float(response.headers.get("Retry-After", 0) or 0) if response is not None else 0.0
+                except (TypeError, ValueError):
+                    retry_after = 0.0
+                time.sleep(min(5.0, max(retry_after, 0.5 * (attempt + 1))))
+
+        if tree is None:
             if hinted_type == "collection":
-                return "collection", self._scrape_collection_mods(item_id)
-            return "workshop_item", [self._get_mod_info(item_id)]
+                raise last_error or RuntimeError(f"Failed to fetch workshop collection {item_id}")
+            cached = self._get_cached_mod_metadata(item_id)
+            fallback = cached or {
+                "mod_id": str(item_id),
+                "mod_name": f"Mod {item_id}",
+                "app_id": None,
+                "game_name": "Unknown Game",
+            }
+            self.log(
+                f"Workshop metadata for {item_id} will be refreshed in the background.",
+                source="queue",
+                action="item_metadata_deferred",
+                context={
+                    "item_id": str(item_id),
+                    "error": str(last_error or "request failed"),
+                    "operation_state": "run",
+                },
+                operation_id=operation_id,
+            )
+            return "workshop_item", [fallback]
 
         collection_items = tree.xpath('//div[contains(@class,"collectionChildren")]//div[contains(@class,"collectionItem")]')
         if collection_items:
-            return "collection", self._scrape_collection_mods(item_id, tree=tree)
+            return "collection", self._scrape_collection_mods(item_id, tree=tree, operation_id=operation_id)
         if hinted_type == "collection":
-            return "collection", self._scrape_collection_mods(item_id, tree=tree)
+            return "collection", self._scrape_collection_mods(item_id, tree=tree, operation_id=operation_id)
         return "workshop_item", [self._get_mod_info(item_id, tree=tree)]
 
     def _parse_workshop_page(self, page_content: str, app_id: str, game_name: str):
@@ -1622,7 +1647,8 @@ class StreamlineWebBackend:
                         tone="bad",
                         source="queue",
                         action="queue_batch_callback_failed",
-                        context={"error": str(callback_error)},
+                        context={"error": str(callback_error), "operation_state": "error"},
+                        operation_id=operation_id,
                     )
 
         first_page_mods = self._parse_workshop_page(response.text, app_id=str(app_id), game_name=game_name)
@@ -1683,6 +1709,7 @@ class StreamlineWebBackend:
                     "total_pages": total_pages,
                     "pages_failed": pages_failed,
                     "app_id": str(app_id),
+                    "operation_state": "run",
                 },
                 operation_id=operation_id,
             )
@@ -1952,7 +1979,12 @@ class StreamlineWebBackend:
         parent_operation_id = str(parent_operation_id or "").strip()
         with self._queue_build_lock:
             game_name = self.app_ids.get(app_id, f"AppID {app_id}")
-            start_context = {"app_id": app_id, "game_name": game_name, "provider": provider}
+            start_context = {
+                "app_id": app_id,
+                "game_name": game_name,
+                "provider": provider,
+                "operation_state": "run",
+            }
             if parent_operation_id:
                 start_context["parent_operation_id"] = parent_operation_id
             self.log(
@@ -1989,6 +2021,7 @@ class StreamlineWebBackend:
                         "added": total_added,
                         "skipped": total_skipped,
                         "queue_size": queue_size,
+                        "operation_state": "done",
                     },
                     operation_id=operation_id,
                 )
@@ -1998,7 +2031,7 @@ class StreamlineWebBackend:
                     tone="bad",
                     source="queue",
                     action="queue_build_failed",
-                    context={"app_id": app_id, "error": str(e)},
+                    context={"app_id": app_id, "error": str(e), "operation_state": "error"},
                     operation_id=operation_id,
                 )
                 self._emit_queue_refresh_throttled(force=True)
@@ -2110,7 +2143,11 @@ class StreamlineWebBackend:
                         context={"item_id": str(item_id), "operation_state": "run"},
                         operation_id=operation_id,
                     )
-                resolved_type, mods = self._resolve_workshop_item(str(item_id), hinted_type=input_type)
+                resolved_type, mods = self._resolve_workshop_item(
+                    str(item_id),
+                    hinted_type=input_type,
+                    operation_id=operation_id,
+                )
                 if resolved_type == "collection" and input_type != "collection":
                     self.log(
                         "Collection detected. Adding to queue...",
@@ -4645,10 +4682,4 @@ class StreamlineWebBackend:
 
     def launch_repository(self):
         webbrowser.open("https://github.com/dane-9/Streamline-Workshop-Downloader")
-        return {"success": True}
-
-    def clear_logs(self):
-        with self.state_lock:
-            self.runtime_logs = []
-        self._emit_event("clear_logs", {})
         return {"success": True}
