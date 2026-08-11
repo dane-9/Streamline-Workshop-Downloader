@@ -2822,7 +2822,7 @@ select.form-control:hover {
 }
 
 #queue-table {
-  width: var(--queue-table-width, 630px);
+  width: var(--queue-table-width);
   min-width: 0;
   border-collapse: collapse;
   table-layout: fixed;
@@ -2959,27 +2959,27 @@ body.column-resizing {
 
 #queue-table th[data-col-key="game_name"],
 #queue-table td[data-col-key="game_name"] {
-  width: var(--queue-col-width-game, 115px);
+  width: var(--queue-col-width-game);
 }
 
 #queue-table th[data-col-key="mod_id"],
 #queue-table td[data-col-key="mod_id"] {
-  width: var(--queue-col-width-mod-id, 90px);
+  width: var(--queue-col-width-mod-id);
 }
 
 #queue-table th[data-col-key="mod_name"],
 #queue-table td[data-col-key="mod_name"] {
-  width: var(--queue-col-width-mod-name, 230px);
+  width: var(--queue-col-width-mod-name);
 }
 
 #queue-table th[data-col-key="status"],
 #queue-table td[data-col-key="status"] {
-  width: var(--queue-col-width-status, 100px);
+  width: var(--queue-col-width-status);
 }
 
 #queue-table th[data-col-key="provider"],
 #queue-table td[data-col-key="provider"] {
-  width: var(--queue-col-width-provider, 95px);
+  width: var(--queue-col-width-provider);
 }
 
 .footer-btn {

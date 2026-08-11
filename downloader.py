@@ -52,7 +52,6 @@ DEFAULT_SETTINGS = {
     "header_locked": True,
     "steam_accounts": [],
     "active_account": "Anonymous",
-    "queue_tree_default_widths": [115, 90, 230, 100, 95],
     "queue_tree_column_widths": None,
     "queue_tree_column_hidden": None,
     "reset_provider_on_startup": False,

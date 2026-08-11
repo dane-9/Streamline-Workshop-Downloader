@@ -185,7 +185,6 @@ const SETTINGS_DEFAULTS = {
   show_sort_indicator: true,
   show_row_numbers: false,
   header_locked: true,
-  queue_tree_default_widths: [115, 90, 230, 100, 95],
   queue_tree_column_widths: null,
   queue_tree_column_hidden: null,
   reset_provider_on_startup: false,
@@ -199,10 +198,10 @@ const SETTINGS_DEFAULTS = {
 const LOG_CATEGORY_FILTER_OPTIONS = ["all", "ui", "system", "queue", "download", "clipboard", "debug"];
 
 const QUEUE_COLUMNS = [
-  { key: "game_name", label: "Game", defaultWidth: 115 },
-  { key: "mod_id", label: "Mod ID", defaultWidth: 90 },
-  { key: "mod_name", label: "Mod Name", defaultWidth: 230 },
-  { key: "status", label: "Status", defaultWidth: 100 },
+  { key: "game_name", label: "Game", defaultWidth: 125 },
+  { key: "mod_id", label: "Mod ID", defaultWidth: 95 },
+  { key: "mod_name", label: "Mod Name", defaultWidth: 240 },
+  { key: "status", label: "Status", defaultWidth: 95 },
   { key: "provider", label: "Provider", defaultWidth: 95 }
 ];
 
@@ -2712,11 +2711,7 @@ function applyWorkshopHelpTooltip() {
 }
 
 function getDefaultQueueColumnWidths() {
-  const configured = Array.isArray(state.config?.queue_tree_default_widths) ? state.config.queue_tree_default_widths : null;
-  return QUEUE_COLUMNS.map((column, index) => {
-    const value = Number(configured?.[index]);
-    return Number.isFinite(value) && value >= 48 ? Math.round(value) : column.defaultWidth;
-  });
+  return QUEUE_COLUMNS.map((column) => column.defaultWidth);
 }
 
 function getQueueColumnWidths() {
