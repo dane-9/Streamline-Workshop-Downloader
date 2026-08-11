@@ -33,6 +33,11 @@ const commandsSplitMenu = document.getElementById("commands-split-menu");
 const openCommandPaletteMenuBtn = document.getElementById("open-command-palette-btn");
 const importBtn = document.getElementById("import-btn");
 const exportBtn = document.getElementById("export-btn");
+const queueSelectionBar = document.getElementById("queue-selection-bar");
+const queueSelectionCount = document.getElementById("queue-selection-count");
+const queueSelectionActions = document.getElementById("queue-selection-actions");
+const queueSelectionRemove = document.getElementById("queue-selection-remove");
+const queueSelectionClear = document.getElementById("queue-selection-clear");
 const queueContextMenu = document.getElementById("queue-context-menu");
 const logsContextMenu = document.getElementById("logs-context-menu");
 const headerContextMenu = document.getElementById("header-context-menu");
@@ -46,6 +51,8 @@ const commandPaletteList = document.getElementById("command-palette-list");
 const queueTable = document.getElementById("queue-table");
 const queueHeadRow = document.getElementById("queue-head-row");
 const queueTableWrap = document.querySelector(".queue-table-wrap");
+const queueEmptyState = document.getElementById("queue-empty-state");
+const queueEmptyTitle = document.getElementById("queue-empty-title");
 const modalOverlay = document.getElementById("modal-overlay");
 const modalTitle = document.getElementById("modal-title");
 const modalMessage = document.getElementById("modal-message");
@@ -90,7 +97,7 @@ let logRenderPreserveScroll = false;
 const SEARCH_RENDER_DEBOUNCE_MS = 180;
 const DOUBLE_SHIFT_WINDOW_MS = 360;
 const EVENT_POLL_INTERVAL_MS = 250;
-const VIRTUAL_ROW_HEIGHT_FALLBACK = 18;
+const QUEUE_ROW_HEIGHT = 20;
 const VIRTUAL_OVERSCAN_ROWS = 14;
 const VIRTUAL_FETCH_BUFFER_ROWS = 80;
 const VIRTUAL_FETCH_MAX_LIMIT = 1200;
@@ -109,7 +116,7 @@ const COMMAND_PALETTE_SECTION_LABELS = {
 };
 const COMMAND_PALETTE_SECTION_ORDER = ["all", "controls", "appearance", "tools", "help"];
 
-let virtualRowHeight = VIRTUAL_ROW_HEIGHT_FALLBACK;
+document.documentElement.style.setProperty("--queue-row-height", `${QUEUE_ROW_HEIGHT}px`);
 let virtualItems = [];
 let virtualLayoutKey = "";
 let virtualHiddenColumns = [];
@@ -126,6 +133,7 @@ let virtualBackendQueryKey = "";
 let virtualBackendFetchId = 0;
 let virtualBackendLoading = false;
 let virtualBackendRegexErrorShownFor = "";
+let queueReorderDrag = null;
 
 const state = {
   queue: [],
@@ -2732,6 +2740,16 @@ function isHeaderLocked() {
   return state.config?.header_locked !== false;
 }
 
+function syncQueueHeaderBackdropHeight() {
+  if (!queueTableWrap || !queueHeadRow) {
+    return;
+  }
+  const height = Math.ceil(queueHeadRow.getBoundingClientRect().height || 0);
+  if (height > 0) {
+    queueTableWrap.style.setProperty("--queue-header-height", `${height}px`);
+  }
+}
+
 function applyQueueColumnWidths() {
   if (!queueTable) {
     return;
@@ -2739,11 +2757,6 @@ function applyQueueColumnWidths() {
   const widths = getQueueColumnWidths();
   const hiddenColumns = getQueueColumnHidden();
   const showRowNumbers = !!state.config?.show_row_numbers;
-  queueTable.style.setProperty("--queue-col-width-game", `${widths[0]}px`);
-  queueTable.style.setProperty("--queue-col-width-mod-id", `${widths[1]}px`);
-  queueTable.style.setProperty("--queue-col-width-mod-name", `${widths[2]}px`);
-  queueTable.style.setProperty("--queue-col-width-status", `${widths[3]}px`);
-  queueTable.style.setProperty("--queue-col-width-provider", `${widths[4]}px`);
 
   let totalWidth = showRowNumbers ? 42 : 0;
   QUEUE_COLUMNS.forEach((_, index) => {
@@ -2751,6 +2764,13 @@ function applyQueueColumnWidths() {
       totalWidth += widths[index];
     }
   });
+
+  queueTable.style.setProperty("--queue-col-width-game", `${widths[0]}px`);
+  queueTable.style.setProperty("--queue-col-width-mod-id", `${widths[1]}px`);
+  queueTable.style.setProperty("--queue-col-width-mod-name", `${widths[2]}px`);
+  queueTable.style.setProperty("--queue-col-width-status", `${widths[3]}px`);
+  queueTable.style.setProperty("--queue-col-width-provider", `${widths[4]}px`);
+
   totalWidth = Math.max(160, totalWidth);
   queueTable.style.setProperty("--queue-table-width", `${totalWidth}px`);
 }
@@ -2762,6 +2782,7 @@ function renderQueueHeader() {
 
   const hiddenColumns = getQueueColumnHidden();
   const showRowNumbers = !!state.config?.show_row_numbers;
+  const firstVisibleColumnIndex = hiddenColumns.findIndex((hidden) => !hidden);
 
   queueHeadRow.innerHTML = "";
 
@@ -2777,6 +2798,9 @@ function renderQueueHeader() {
     th.dataset.colKey = column.key;
     th.dataset.colIndex = String(index);
     th.classList.add("sortable");
+    if (index === firstVisibleColumnIndex) {
+      th.classList.add("queue-drag-header");
+    }
     th.textContent = column.label;
     if (hiddenColumns[index]) {
       th.classList.add("col-hidden");
@@ -2792,6 +2816,7 @@ function renderQueueHeader() {
     }
     queueHeadRow.appendChild(th);
   });
+  syncQueueHeaderBackdropHeight();
 }
 
 function compareQueueValues(left, right, key) {
@@ -2840,13 +2865,19 @@ function applyQueueSort(columnKey) {
     return;
   }
 
-  if (state.sort.key === columnKey) {
-    state.sort.direction = state.sort.direction === "asc" ? "desc" : "asc";
+  if (state.sort.key === columnKey && state.sort.clicked) {
+    if (state.sort.direction === "asc") {
+      state.sort.direction = "desc";
+    } else {
+      state.sort.key = "";
+      state.sort.direction = "asc";
+      state.sort.clicked = false;
+    }
   } else {
     state.sort.key = columnKey;
     state.sort.direction = "asc";
+    state.sort.clicked = true;
   }
-  state.sort.clicked = true;
   renderQueue();
 }
 
@@ -3048,6 +3079,10 @@ function setupQueueMarqueeSelection(container) {
 
   let dragState = null;
   let scrollUpdateFrame = 0;
+  let autoScrollFrame = 0;
+  const autoScrollEdgeSize = 24;
+  const autoScrollBaseSpeed = 4;
+  const autoScrollMaxSpeed = 36;
 
   const updateSelection = (clientX, clientY, refreshRows = false) => {
     if (!dragState) {
@@ -3057,8 +3092,8 @@ function setupQueueMarqueeSelection(container) {
     const rect = dragState.containerRect;
     const x = clampQueueMarqueePoint(clientX, rect.left, rect.left + container.clientWidth);
     const y = clampQueueMarqueePoint(clientY, rect.top + dragState.headerHeight, rect.top + container.clientHeight);
-    dragState.lastClientX = x;
-    dragState.lastClientY = y;
+    dragState.lastClientX = clientX;
+    dragState.lastClientY = clientY;
 
     const dx = x - dragState.startClientX;
     const dy = y - dragState.startClientY;
@@ -3070,6 +3105,7 @@ function setupQueueMarqueeSelection(container) {
 
     if (!dragState.moved) {
       dragState.moved = true;
+      container.classList.add("marquee-selecting");
       dragState.box.classList.remove("hidden");
     }
 
@@ -3127,13 +3163,55 @@ function setupQueueMarqueeSelection(container) {
       : new Set();
     dragState.dynamicIds.forEach((modId) => nextSelection.add(modId));
     state.selectedModIds = nextSelection;
+    syncQueueSelectionBar();
     dragState.rows.forEach((row) => {
       row.element.classList.toggle("selected", nextSelection.has(row.modId));
     });
   };
 
+  const getAutoScrollDelta = (clientY) => {
+    if (!dragState?.moved) {
+      return 0;
+    }
+    const top = dragState.containerRect.top + dragState.headerHeight;
+    const bottom = dragState.containerRect.top + container.clientHeight;
+    if (clientY < top + autoScrollEdgeSize) {
+      const strength = Math.max(0, (top + autoScrollEdgeSize - clientY) / autoScrollEdgeSize);
+      return -Math.min(autoScrollMaxSpeed, autoScrollBaseSpeed * Math.pow(strength, 1.5));
+    }
+    if (clientY > bottom - autoScrollEdgeSize) {
+      const strength = Math.max(0, (clientY - (bottom - autoScrollEdgeSize)) / autoScrollEdgeSize);
+      return Math.min(autoScrollMaxSpeed, autoScrollBaseSpeed * Math.pow(strength, 1.5));
+    }
+    return 0;
+  };
+
+  const runAutoScroll = () => {
+    autoScrollFrame = 0;
+    if (!dragState) {
+      return;
+    }
+    const delta = getAutoScrollDelta(dragState.lastClientY);
+    if (!delta) {
+      return;
+    }
+    const previousScrollTop = container.scrollTop;
+    const maximumScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    container.scrollTop = Math.max(0, Math.min(maximumScrollTop, previousScrollTop + delta));
+    if (container.scrollTop !== previousScrollTop) {
+      autoScrollFrame = window.requestAnimationFrame(runAutoScroll);
+    }
+  };
+
+  const ensureAutoScroll = () => {
+    if (dragState?.moved && !autoScrollFrame) {
+      autoScrollFrame = window.requestAnimationFrame(runAutoScroll);
+    }
+  };
+
   const onMouseMove = (event) => {
     updateSelection(event.clientX, event.clientY);
+    ensureAutoScroll();
   };
 
   const onScroll = () => {
@@ -3155,12 +3233,17 @@ function setupQueueMarqueeSelection(container) {
 
     const finishedDrag = dragState;
     dragState = null;
+    container.classList.remove("marquee-selecting");
     window.removeEventListener("mousemove", onMouseMove, true);
     window.removeEventListener("mouseup", onMouseUp, true);
     container.removeEventListener("scroll", onScroll, true);
     if (scrollUpdateFrame) {
       window.cancelAnimationFrame(scrollUpdateFrame);
       scrollUpdateFrame = 0;
+    }
+    if (autoScrollFrame) {
+      window.cancelAnimationFrame(autoScrollFrame);
+      autoScrollFrame = 0;
     }
     finishedDrag.box.remove();
 
@@ -3367,6 +3450,27 @@ function getQueueStatusDisplayText(item) {
   return `Queued (Retry ${Math.min(retryCount, maxRetries)}/${maxRetries})`;
 }
 
+function getQueueStatusTone(item, displayText) {
+  const status = String(item?.status || displayText || "").trim().toLowerCase();
+  const retryCount = Math.max(0, Number(item?.retry_count || 0));
+  if (status.includes("fail") || status.includes("error")) {
+    return "danger";
+  }
+  if (status.includes("downloaded") || status.includes("complete") || status === "done") {
+    return "success";
+  }
+  if (status.includes("downloading") || status.includes("processing")) {
+    return "active";
+  }
+  if (status.includes("retry") || retryCount > 0) {
+    return "warning";
+  }
+  if (status.includes("cancel") || status.includes("skip")) {
+    return "muted";
+  }
+  return "neutral";
+}
+
 function bindQueueRowHandlers(row) {
   if (!row || row._interactionsBound) {
     return;
@@ -3446,13 +3550,43 @@ function buildQueueLayoutKey(showRowNumbers, hiddenColumns) {
   return `${showRowNumbers ? "1" : "0"}|${hiddenKey}`;
 }
 
+function syncQueueCellTooltip(cell) {
+  const value = String(cell?.dataset?.fullValue || "");
+  const content = cell?._content || cell?.querySelector(":scope > .queue-cell-content");
+  const overflowTarget = content?.querySelector(":scope > .queue-status-badge, :scope > .queue-cell-text") || content;
+  const isTruncated = !!overflowTarget && overflowTarget.scrollWidth > overflowTarget.clientWidth + 1;
+  if (value && isTruncated) {
+    cell.title = value;
+  } else {
+    cell?.removeAttribute("title");
+  }
+}
+
+function getQueueReorderDisabledReason() {
+  if (!state.apiAvailable) {
+    return "Queue reordering is only available in the desktop app.";
+  }
+  if (state.isDownloading) {
+    return "The queue cannot be reordered during a download.";
+  }
+  if (state.filter !== "All" || searchInput.value.trim()) {
+    return "Clear the queue filter and search to reorder.";
+  }
+  if (state.sort?.key) {
+    return "Click the sorted header until its arrow clears to reorder the queue.";
+  }
+  return "";
+}
+
 function ensureQueueRowStructure(row, layoutKey, showRowNumbers, hiddenColumns) {
   if (row.dataset.layoutKey === layoutKey && row._cells) {
     return row._cells;
   }
 
   row.innerHTML = "";
+  row._dragHandle = null;
   const cells = {};
+  const firstVisibleColumnIndex = hiddenColumns.findIndex((hidden) => !hidden);
 
   if (showRowNumbers) {
     const numberCell = document.createElement("td");
@@ -3464,6 +3598,26 @@ function ensureQueueRowStructure(row, layoutKey, showRowNumbers, hiddenColumns) 
   QUEUE_COLUMNS.forEach((column, columnIndex) => {
     const cell = document.createElement("td");
     cell.dataset.colKey = column.key;
+    const content = document.createElement("span");
+    content.className = "queue-cell-content";
+    if (columnIndex === firstVisibleColumnIndex) {
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = "queue-row-drag-handle";
+      handle.innerHTML = "&#8942;&#8942;";
+      handle.setAttribute("aria-label", "Drag to reorder queue item");
+      handle.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      cell.classList.add("queue-drag-cell");
+      cell.appendChild(handle);
+      row._dragHandle = handle;
+    }
+    cell.appendChild(content);
+    cell._content = content;
+    cell.addEventListener("mouseenter", () => syncQueueCellTooltip(cell));
+    cell.addEventListener("mouseleave", () => cell.removeAttribute("title"));
     if (hiddenColumns[columnIndex]) {
       cell.classList.add("col-hidden");
     }
@@ -3483,6 +3637,12 @@ function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, 
   const signature = `${item.game_name}\x1f${item.mod_id}\x1f${item.mod_name}\x1f${item.status}\x1f${item.retry_count}\x1f${item.max_retries}\x1f${item.provider}`;
   row.dataset.listIndex = String(visibleIndex);
 
+  if (row._dragHandle) {
+    const disabledReason = getQueueReorderDisabledReason();
+    row._dragHandle.disabled = !!disabledReason;
+    row._dragHandle.title = disabledReason || "Drag to reorder";
+  }
+
   if (showRowNumbers && cells.row_number) {
     const rowNumber = String(visibleIndex + 1);
     if (cells.row_number.textContent !== rowNumber) {
@@ -3499,11 +3659,41 @@ function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, 
       const value = column.key === "status"
         ? statusDisplay
         : String(item[column.key] ?? "");
-      if (cell.textContent !== value) {
-        cell.textContent = value;
+      cell.dataset.fullValue = value;
+      cell.removeAttribute("title");
+      let content = cell._content || cell.querySelector(":scope > .queue-cell-content");
+      if (!content) {
+        content = document.createElement("span");
+        content.className = "queue-cell-content";
+        cell.replaceChildren(content);
+        cell._content = content;
       }
-      if (cell.title !== value) {
-        cell.title = value;
+      if (column.key === "status") {
+        let badge = content.querySelector(":scope > .queue-status-badge");
+        if (!badge) {
+          badge = document.createElement("span");
+          content.replaceChildren(badge);
+        }
+        badge.className = `queue-status-badge is-${getQueueStatusTone(item, value)}`;
+        let badgeText = badge.querySelector(":scope > .queue-status-text");
+        if (!badgeText) {
+          badgeText = document.createElement("span");
+          badgeText.className = "queue-status-text";
+          badge.replaceChildren(badgeText);
+        }
+        if (badgeText.textContent !== value) {
+          badgeText.textContent = value;
+        }
+      } else {
+        let text = content.querySelector(":scope > .queue-cell-text");
+        if (!text) {
+          text = document.createElement("span");
+          text.className = "queue-cell-text";
+          content.replaceChildren(text);
+        }
+        if (text.textContent !== value) {
+          text.textContent = value;
+        }
       }
       cell.classList.toggle("col-hidden", !!hiddenColumns[columnIndex]);
     });
@@ -3518,6 +3708,33 @@ function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, 
   }
 
   row.classList.toggle("selected", state.selectedModIds.has(String(item.mod_id)));
+  const isReorderSource = !!queueReorderDrag?.modIds?.has(String(item.mod_id));
+  row.classList.toggle("queue-reorder-source", isReorderSource);
+  if (!isReorderSource) {
+    row.style.removeProperty("transform");
+  }
+}
+
+function syncQueueSelectionBar() {
+  if (!queueSelectionBar || !queueSelectionCount) {
+    return;
+  }
+  const count = state.selectedModIds.size;
+  queueSelectionCount.textContent = `${count} selected`;
+  queueSelectionBar.classList.toggle("hidden", count < 2);
+}
+
+function syncQueueEmptyState(total) {
+  if (!queueEmptyState || !queueEmptyTitle) {
+    return;
+  }
+  const isEmpty = Math.max(0, Number(total || 0)) === 0;
+  queueEmptyState.classList.toggle("hidden", !isEmpty);
+  if (!isEmpty) {
+    return;
+  }
+  const isFiltered = state.filter !== "All" || Boolean(searchInput.value.trim());
+  queueEmptyTitle.textContent = isFiltered ? "No matching mods" : "No mods in queue";
 }
 
 function pruneRowCacheToVisible(visibleIds) {
@@ -3656,24 +3873,83 @@ async function ensureBackendWindowLoaded(startIndex, endIndex, options = {}) {
   }
 }
 
+function patchStableQueueViewport(startIndex, endIndex, total, rowHeight) {
+  if (startIndex !== lastVirtualStart || endIndex !== lastVirtualEnd) {
+    return false;
+  }
+
+  const expectedRows = [];
+  for (let index = startIndex; index < endIndex; index += 1) {
+    const item = getVirtualItemAt(index);
+    if (item) {
+      expectedRows.push({ item, index, modId: String(item.mod_id) });
+    }
+  }
+
+  const renderedRows = Array.from(queueBody.querySelectorAll("tr[data-mod-id]"));
+  const sameRows = renderedRows.length === expectedRows.length
+    && expectedRows.every((entry, index) => String(renderedRows[index]?.dataset?.modId || "") === entry.modId);
+  if (!sameRows) {
+    return false;
+  }
+
+  expectedRows.forEach((entry, index) => {
+    updateQueueRow(
+      renderedRows[index],
+      entry.item,
+      entry.index,
+      virtualShowRowNumbers,
+      virtualHiddenColumns,
+      virtualLayoutKey
+    );
+  });
+
+  const colSpan = QUEUE_COLUMNS.length + (virtualShowRowNumbers ? 1 : 0);
+  const topSpacerCell = queueBody.querySelector("tr.virtual-spacer-row.top td");
+  const bottomSpacerCell = queueBody.querySelector("tr.virtual-spacer-row.bottom td");
+  if (topSpacerCell) {
+    topSpacerCell.colSpan = colSpan;
+    topSpacerCell.style.height = `${Math.max(0, startIndex * rowHeight)}px`;
+  }
+  if (bottomSpacerCell) {
+    bottomSpacerCell.colSpan = colSpan;
+    bottomSpacerCell.style.height = `${Math.max(0, (total - endIndex) * rowHeight)}px`;
+  }
+
+  return true;
+}
+
 function renderQueueViewport(force = false) {
   if (!queueTableWrap) {
     return;
   }
 
   const total = virtualBackendEnabled ? virtualBackendTotal : virtualItems.length;
+  syncQueueSelectionBar();
+  syncQueueEmptyState(total);
   const viewportHeight = Math.max(0, queueTableWrap.clientHeight || 0);
   const scrollTop = Math.max(0, queueTableWrap.scrollTop || 0);
-  const rowHeight = Math.max(18, Number(virtualRowHeight) || VIRTUAL_ROW_HEIGHT_FALLBACK);
+  const rowHeight = QUEUE_ROW_HEIGHT;
   const rowsInView = Math.max(1, Math.ceil(viewportHeight / rowHeight));
-  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - VIRTUAL_OVERSCAN_ROWS);
-  const endIndex = Math.min(total, startIndex + rowsInView + (VIRTUAL_OVERSCAN_ROWS * 2));
+  let startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - VIRTUAL_OVERSCAN_ROWS);
+  let endIndex = Math.min(total, startIndex + rowsInView + (VIRTUAL_OVERSCAN_ROWS * 2));
+
+  // Keep every row encountered during a reorder gesture mounted. Shrinking the
+  // virtual window while autoscrolling would otherwise prune the dragged block
+  // as its original indices leave the viewport.
+  if (queueReorderDrag && lastVirtualStart >= 0 && lastVirtualEnd >= 0) {
+    startIndex = Math.min(startIndex, lastVirtualStart);
+    endIndex = Math.max(endIndex, lastVirtualEnd);
+  }
 
   if (virtualBackendEnabled) {
     void ensureBackendWindowLoaded(startIndex, endIndex);
   }
 
   if (!force && startIndex === lastVirtualStart && endIndex === lastVirtualEnd) {
+    return;
+  }
+  if (force && patchStableQueueViewport(startIndex, endIndex, total, rowHeight)) {
     return;
   }
   lastVirtualStart = startIndex;
@@ -3710,17 +3986,7 @@ function renderQueueViewport(force = false) {
   fragment.appendChild(bottomSpacer);
   queueBody.replaceChildren(fragment);
   pruneRowCacheToVisible(visibleIds);
-
-  const sampleRow = queueBody.querySelector("tr[data-mod-id]");
-  if (sampleRow) {
-    const measured = Math.ceil(sampleRow.getBoundingClientRect().height || 0);
-    if (measured >= 16 && Math.abs(measured - virtualRowHeight) >= 1) {
-      virtualRowHeight = measured;
-      lastVirtualStart = -1;
-      lastVirtualEnd = -1;
-      renderQueueViewport(true);
-    }
-  }
+  queueReorderDrag?.refreshPreview?.();
 }
 
 function renderQueue() {
@@ -3740,6 +4006,7 @@ function renderQueue() {
   lastVirtualStart = -1;
   lastVirtualEnd = -1;
   renderQueueViewport(true);
+  applyQueueColumnWidths();
   updateSearchPlaceholder();
 }
 
@@ -3755,18 +4022,306 @@ function wireQueueVirtualization() {
     window.requestAnimationFrame(() => {
       virtualScrollQueued = false;
       renderQueueViewport(false);
+      queueReorderDrag?.refreshPreview?.();
     });
   });
   window.addEventListener("resize", () => {
+    applyQueueColumnWidths();
+    syncQueueHeaderBackdropHeight();
     renderQueueViewport(true);
   });
   setupQueueMarqueeSelection(queueTableWrap);
+}
+
+function wireQueueSelectionBar() {
+  if (!queueSelectionBar) {
+    return;
+  }
+
+  queueSelectionActions?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = queueSelectionActions.getBoundingClientRect();
+    showQueueContextMenu(rect.left, rect.bottom + 4);
+  });
+
+  queueSelectionRemove?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await handleQueueContextAction("remove");
+    } catch (error) {
+      addLog(error?.message || "Failed to remove selected mods.", "bad");
+    }
+  });
+
+  queueSelectionClear?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    state.selectedModIds.clear();
+    state.selectionAnchorIndex = null;
+    state.selectionAnchorModId = "";
+    renderQueueViewport(true);
+  });
+}
+
+function setupQueueRowReordering() {
+  if (!queueBody || !queueTableWrap) {
+    return;
+  }
+
+  queueBody.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest(".queue-row-drag-handle");
+    if (!handle || !queueBody.contains(handle) || event.button !== 0 || queueReorderDrag) {
+      return;
+    }
+
+    const disabledReason = getQueueReorderDisabledReason();
+    if (disabledReason) {
+      return;
+    }
+
+    const row = handle.closest("tr[data-mod-id]");
+    const draggedModId = String(row?.dataset?.modId || "");
+    if (!row || !draggedModId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    hideHeaderContextMenu();
+    hideQueueContextMenu();
+
+    if (!state.selectedModIds.has(draggedModId)) {
+      state.selectedModIds.clear();
+      state.selectedModIds.add(draggedModId);
+      state.selectionAnchorIndex = Number.parseInt(String(row.dataset.listIndex || "-1"), 10);
+      state.selectionAnchorModId = draggedModId;
+      renderQueueViewport(true);
+    }
+
+    const modIds = new Set(Array.from(state.selectedModIds, (modId) => String(modId)));
+    const visibleSourceRows = Array.from(queueBody.querySelectorAll("tr[data-mod-id]"))
+      .filter((candidate) => modIds.has(String(candidate.dataset.modId || "")));
+    const draggedSourceIndex = Math.max(0, visibleSourceRows.indexOf(row));
+    const dragOriginTop = row.getBoundingClientRect().top;
+    const sourceDragOffsets = new Map();
+    visibleSourceRows.forEach((candidate, index) => {
+      sourceDragOffsets.set(
+        String(candidate.dataset.modId || ""),
+        (index - draggedSourceIndex) * QUEUE_ROW_HEIGHT
+      );
+    });
+    const sourceOffsets = Array.from(sourceDragOffsets.values());
+    const dragBlockTopOffset = sourceOffsets.length ? Math.min(...sourceOffsets) : 0;
+    const dragBlockBottomOffset = (sourceOffsets.length ? Math.max(...sourceOffsets) : 0) + QUEUE_ROW_HEIGHT;
+
+    queueTableWrap.classList.add("is-queue-reordering");
+
+    const drag = {
+      handle,
+      row,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      lastClientY: event.clientY,
+      moved: false,
+      modIds,
+      dragOriginTop,
+      sourceDragOffsets,
+      dragBlockTopOffset,
+      dragBlockBottomOffset,
+      targetModId: "",
+      placement: "before",
+      autoScrollFrame: 0,
+      refreshPreview: null,
+      onMove: null,
+      onUp: null
+    };
+    queueReorderDrag = drag;
+    renderQueueViewport(true);
+
+    const syncDraggedRowPositions = () => {
+      if (queueReorderDrag !== drag) {
+        return;
+      }
+      queueBody.querySelectorAll("tr[data-mod-id]").forEach((candidate) => {
+        const modId = String(candidate.dataset.modId || "");
+        const dragOffset = drag.sourceDragOffsets.get(modId);
+        if (drag.modIds.has(modId) && Number.isFinite(dragOffset)) {
+          candidate.style.removeProperty("transform");
+          const naturalTop = candidate.getBoundingClientRect().top;
+          const desiredTop = drag.dragOriginTop
+            + (drag.lastClientY - drag.startClientY)
+            + dragOffset;
+          candidate.style.transform = `translateY(${desiredTop - naturalTop}px)`;
+        }
+      });
+    };
+
+    const updateDropTarget = (clientY) => {
+      if (queueReorderDrag !== drag) {
+        return;
+      }
+      drag.lastClientY = clientY;
+      queueBody.querySelectorAll(".queue-reorder-drop-before, .queue-reorder-drop-after").forEach((candidate) => {
+        candidate.classList.remove("queue-reorder-drop-before", "queue-reorder-drop-after");
+      });
+      const rows = Array.from(queueBody.querySelectorAll("tr[data-mod-id]"))
+        .filter((candidate) => !drag.modIds.has(String(candidate.dataset.modId || "")));
+      if (!rows.length) {
+        drag.targetModId = "";
+        return;
+      }
+
+      let target = rows[rows.length - 1];
+      let placement = "after";
+      const dragDelta = clientY - drag.startClientY;
+      const blockEdgeY = drag.dragOriginTop
+        + dragDelta
+        + (dragDelta < 0 ? drag.dragBlockTopOffset : drag.dragBlockBottomOffset);
+      for (const candidate of rows) {
+        const candidateRect = candidate.getBoundingClientRect();
+        if (blockEdgeY < candidateRect.top + (candidateRect.height / 2)) {
+          target = candidate;
+          placement = "before";
+          break;
+        }
+      }
+
+      drag.targetModId = String(target.dataset.modId || "");
+      drag.placement = placement;
+      const sourceRows = Array.from(queueBody.querySelectorAll("tr[data-mod-id]"))
+        .filter((candidate) => drag.modIds.has(String(candidate.dataset.modId || "")));
+      sourceRows.forEach((sourceRow) => sourceRow.style.removeProperty("transform"));
+      const sourceFragment = document.createDocumentFragment();
+      sourceRows.forEach((sourceRow) => sourceFragment.appendChild(sourceRow));
+      const referenceNode = placement === "after" ? target.nextSibling : target;
+      queueBody.insertBefore(sourceFragment, referenceNode);
+      target.classList.add(placement === "after" ? "queue-reorder-drop-after" : "queue-reorder-drop-before");
+      syncDraggedRowPositions();
+    };
+    drag.refreshPreview = () => updateDropTarget(drag.lastClientY);
+
+    const runAutoScroll = () => {
+      drag.autoScrollFrame = 0;
+      if (queueReorderDrag !== drag) {
+        return;
+      }
+      const currentRect = queueTableWrap.getBoundingClientRect();
+      const headerHeight = Math.max(0, Number.parseFloat(getComputedStyle(queueTableWrap).getPropertyValue("--queue-header-height")) || 0);
+      const edge = 24;
+      const top = currentRect.top + headerHeight;
+      const bottom = currentRect.top + queueTableWrap.clientHeight;
+      let delta = 0;
+      if (drag.lastClientY < top + edge) {
+        const strength = Math.max(0, (top + edge - drag.lastClientY) / edge);
+        delta = -Math.min(36, 4 * Math.pow(strength, 1.5));
+      } else if (drag.lastClientY > bottom - edge) {
+        const strength = Math.max(0, (drag.lastClientY - (bottom - edge)) / edge);
+        delta = Math.min(36, 4 * Math.pow(strength, 1.5));
+      }
+      if (!delta) {
+        return;
+      }
+      const previous = queueTableWrap.scrollTop;
+      const maximum = Math.max(0, queueTableWrap.scrollHeight - queueTableWrap.clientHeight);
+      queueTableWrap.scrollTop = Math.max(0, Math.min(maximum, previous + delta));
+      if (queueTableWrap.scrollTop !== previous) {
+        drag.autoScrollFrame = window.requestAnimationFrame(runAutoScroll);
+      }
+    };
+
+    const ensureAutoScroll = () => {
+      if (!drag.autoScrollFrame) {
+        drag.autoScrollFrame = window.requestAnimationFrame(runAutoScroll);
+      }
+    };
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", drag.onMove);
+      window.removeEventListener("pointerup", drag.onUp);
+      window.removeEventListener("pointercancel", drag.onUp);
+      if (drag.autoScrollFrame) {
+        window.cancelAnimationFrame(drag.autoScrollFrame);
+      }
+      try {
+        if (drag.handle.hasPointerCapture(drag.pointerId)) {
+          drag.handle.releasePointerCapture(drag.pointerId);
+        }
+      } catch {
+        // ignore pointer-capture release failures
+      }
+      queueTableWrap.classList.remove("is-queue-reordering");
+      queueBody.querySelectorAll(".queue-reorder-drop-before, .queue-reorder-drop-after").forEach((candidate) => {
+        candidate.classList.remove("queue-reorder-drop-before", "queue-reorder-drop-after");
+      });
+      queueReorderDrag = null;
+      renderQueueViewport(true);
+    };
+
+    drag.onMove = (moveEvent) => {
+      if (queueReorderDrag !== drag) {
+        return;
+      }
+      moveEvent.preventDefault();
+      if (!drag.moved) {
+        const distance = Math.abs(moveEvent.clientX - drag.startClientX) + Math.abs(moveEvent.clientY - drag.startClientY);
+        if (distance < 3) {
+          return;
+        }
+        drag.moved = true;
+      }
+      drag.lastClientY = moveEvent.clientY;
+      syncDraggedRowPositions();
+      updateDropTarget(moveEvent.clientY);
+      ensureAutoScroll();
+    };
+
+    drag.onUp = async (upEvent) => {
+      if (queueReorderDrag !== drag) {
+        return;
+      }
+      if (upEvent.cancelable) {
+        upEvent.preventDefault();
+      }
+      const shouldCommit = upEvent.type === "pointerup" && drag.moved && drag.targetModId;
+      const targetModId = drag.targetModId;
+      const placement = drag.placement;
+      const movingIds = Array.from(drag.modIds);
+      cleanup();
+      if (!shouldCommit) {
+        return;
+      }
+      try {
+        const result = await callApi("reorder_mods", movingIds, targetModId, placement);
+        if (!result?.success) {
+          addLog(result?.error || "Failed to reorder queue items.", "bad");
+          return;
+        }
+        await refreshQueue({ forceReload: true });
+      } catch (error) {
+        addLog(error?.message || "Failed to reorder queue items.", "bad");
+      }
+    };
+
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      // ignore pointer-capture failures
+    }
+    window.addEventListener("pointermove", drag.onMove);
+    window.addEventListener("pointerup", drag.onUp);
+    window.addEventListener("pointercancel", drag.onUp);
+  });
 }
 
 function wireQueueRowInteractions() {
   if (!queueBody) {
     return;
   }
+
+  setupQueueRowReordering();
 
   queueBody.addEventListener("mousedown", (event) => {
     if (event.button !== 0) {
@@ -4249,7 +4804,7 @@ function scheduleQueueRefresh(forceReload = false) {
 async function refreshQueue(options = {}) {
   if (state.apiAvailable) {
     const forceReload = !!options.forceReload;
-    const rowHeight = Math.max(18, Number(virtualRowHeight) || VIRTUAL_ROW_HEIGHT_FALLBACK);
+    const rowHeight = QUEUE_ROW_HEIGHT;
     const viewportHeight = Math.max(0, queueTableWrap?.clientHeight || 0);
     const scrollTop = Math.max(0, queueTableWrap?.scrollTop || 0);
     const rowsInView = Math.max(1, Math.ceil(viewportHeight / rowHeight));
@@ -7112,6 +7667,7 @@ async function initializeApp() {
   wireLogsContextMenu();
   wireLogToolbar();
   wireHeaderContextMenu();
+  wireQueueSelectionBar();
   wireQueueVirtualization();
   wireQueueRowInteractions();
   wireGlobalShortcuts();

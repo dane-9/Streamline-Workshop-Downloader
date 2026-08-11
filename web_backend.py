@@ -1033,6 +1033,49 @@ class StreamlineWebBackend:
         self._emit_event("queue", {"action": "refresh"})
         return {"success": True}
 
+    def reorder_mods(self, mod_ids, target_mod_id, placement="before"):
+        ordered_ids = []
+        seen_ids = set()
+        for raw_mod_id in mod_ids or []:
+            mod_id = str(raw_mod_id or "").strip()
+            if mod_id and mod_id not in seen_ids:
+                seen_ids.add(mod_id)
+                ordered_ids.append(mod_id)
+
+        target_id = str(target_mod_id or "").strip()
+        placement = str(placement or "before").strip().lower()
+        if placement not in {"before", "after"}:
+            return {"success": False, "error": "Invalid queue reorder placement."}
+        if not ordered_ids or not target_id:
+            return {"success": False, "error": "Queue reorder requires source and target mods."}
+        if target_id in seen_ids:
+            return {"success": True, "moved": 0}
+
+        with self.state_lock:
+            if self.is_downloading:
+                return {"success": False, "error": "The queue cannot be reordered during a download."}
+
+            current_ids = {str(mod.get("mod_id", "")).strip() for mod in self.download_queue}
+            source_ids = [mod_id for mod_id in ordered_ids if mod_id in current_ids]
+            if not source_ids or target_id not in current_ids:
+                return {"success": False, "error": "Queue items changed before the reorder completed."}
+
+            source_set = set(source_ids)
+            moving = [mod for mod in self.download_queue if str(mod.get("mod_id", "")).strip() in source_set]
+            remaining = [mod for mod in self.download_queue if str(mod.get("mod_id", "")).strip() not in source_set]
+            target_index = next(
+                (index for index, mod in enumerate(remaining) if str(mod.get("mod_id", "")).strip() == target_id),
+                -1,
+            )
+            if target_index < 0:
+                return {"success": False, "error": "Queue reorder target is no longer available."}
+            insert_index = target_index + (1 if placement == "after" else 0)
+            self.download_queue = remaining[:insert_index] + moving + remaining[insert_index:]
+            self._rebuild_queue_indexes_locked()
+
+        self._emit_event("queue", {"action": "refresh"})
+        return {"success": True, "moved": len(moving)}
+
     def _extract_id(self, input_str: str):
         input_str = (input_str or "").strip()
         match = re.search(r"[?&]id=(\d+)", input_str)

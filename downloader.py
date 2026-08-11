@@ -262,6 +262,9 @@ class WebMainGuiApi:
     def move_mods(self, mod_ids, direction):
         return self.backend.move_mods(mod_ids, direction)
 
+    def reorder_mods(self, mod_ids, target_mod_id, placement="before"):
+        return self.backend.reorder_mods(mod_ids, target_mod_id, placement)
+
     def change_provider_for_mods(self, mod_ids, provider):
         return self.backend.change_provider_for_mods(mod_ids, provider)
 

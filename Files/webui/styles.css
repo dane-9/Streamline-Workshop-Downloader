@@ -16,6 +16,7 @@ body {
   --motion-fast: 120ms;
   --motion-base: 160ms;
   --motion-slow: 180ms;
+  --scrollbar-size: 9px;
 }
 
 body.theme-dark {
@@ -312,6 +313,11 @@ body.window-resizing-ns {
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+.search-row {
+  position: relative;
+  min-height: 28px;
 }
 
 .toolbar-spacer {
@@ -2812,19 +2818,97 @@ select.form-control:hover {
 }
 
 .queue-table-wrap {
+  --queue-header-bg: color-mix(in srgb, var(--tree-header) 90%, var(--window-bg) 10%);
+  --queue-header-height: 20px;
   position: relative;
   border-radius: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
   flex: 1 1 auto;
   min-height: 220px;
-  background: var(--tree-bg);
+  background: linear-gradient(
+    to bottom,
+    var(--queue-header-bg) 0,
+    var(--queue-header-bg) var(--queue-header-height),
+    var(--tree-bg) var(--queue-header-height),
+    var(--tree-bg) 100%
+  );
   border: none;
   box-shadow: var(--elev-panel);
 }
 
+.queue-table-wrap::before {
+  content: "";
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 29;
+  display: block;
+  width: 100%;
+  height: var(--queue-header-height);
+  margin-bottom: calc(0px - var(--queue-header-height));
+  background: var(--queue-header-bg);
+  pointer-events: none;
+}
+
+.queue-selection-bar {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0 4px 0 9px;
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  background: var(--input-bg);
+  box-shadow: var(--elev-panel);
+}
+
+.queue-selection-bar.hidden,
+.queue-selection-marquee.hidden,
+.queue-empty-state.hidden {
+  display: none;
+}
+
+.queue-selection-count {
+  color: var(--fg-hover);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.queue-selection-spacer {
+  flex: 1 1 auto;
+}
+
+.queue-selection-action {
+  height: 22px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 0 7px;
+  background: color-mix(in srgb, var(--control-bg) 84%, transparent);
+  color: var(--fg);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.queue-selection-action:hover {
+  border-color: var(--control-border-hover);
+  background: var(--control-hover);
+  color: var(--fg-hover);
+}
+
+.queue-selection-action.danger:hover {
+  border-color: color-mix(in srgb, var(--danger-hover) 70%, transparent);
+  background: var(--danger-bg);
+  color: #ffffff;
+}
+
 .queue-selection-marquee {
   position: absolute;
-  z-index: 3;
+  z-index: 20;
   border: 1px solid #0078d4;
   background: rgba(0, 120, 215, 0.22);
   pointer-events: none;
@@ -2838,15 +2922,23 @@ select.form-control:hover {
 }
 
 #queue-table thead th {
-  background: var(--tree-header);
-  border-right: 1px solid var(--tree-divider);
-  color: var(--fg);
-  font-weight: 400;
+  background: var(--queue-header-bg);
+  border-right: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--tree-divider) 76%, var(--panel-border) 24%);
+  color: var(--menu-text);
+  font-weight: 600;
   text-align: left;
   padding: 2px 4px;
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 30;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--window-bg) 38%, transparent);
+  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+
+body:not(.column-resizing) #queue-table thead th:hover {
+  background: var(--control-hover);
+  color: var(--fg-hover);
 }
 
 body.column-resizing {
@@ -2859,11 +2951,17 @@ body.column-resizing {
   cursor: pointer;
 }
 
+#queue-table thead th.sortable.sort-asc,
+#queue-table thead th.sortable.sort-desc {
+  padding-right: 22px;
+}
+
 #queue-table thead th.sortable.sort-asc::after,
 #queue-table thead th.sortable.sort-desc::after {
   content: "";
-  float: right;
-  margin-left: 4px;
+  position: absolute;
+  top: 50%;
+  right: 7px;
   width: 12px;
   height: 12px;
   background-color: var(--fg);
@@ -2878,11 +2976,11 @@ body.column-resizing {
 }
 
 #queue-table thead th.sortable.sort-asc::after {
-  transform: rotate(180deg);
+  transform: translateY(-50%) rotate(180deg);
 }
 
 #queue-table thead th.sortable.sort-desc::after {
-  transform: rotate(0deg);
+  transform: translateY(-50%) rotate(0deg);
 }
 
 #queue-table thead th.sortable:hover.sort-asc::after,
@@ -2923,12 +3021,110 @@ body.column-resizing {
 }
 
 #queue-table tbody td {
-  padding: 1px 4px;
-  line-height: 15px;
-  border-bottom: 1px solid var(--tree-divider);
+  height: var(--queue-row-height);
+  padding: 0 6px;
+  vertical-align: middle;
+  border-bottom: 1px solid color-mix(in srgb, var(--tree-divider) 72%, transparent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+#queue-table thead th.queue-drag-header {
+  padding-left: 20px;
+}
+
+#queue-table tbody td.queue-drag-cell {
+  position: relative;
+  padding-left: 20px;
+}
+
+.queue-row-drag-handle {
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  z-index: 1;
+  width: 14px;
+  height: 16px;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--menu-text);
+  opacity: 0.7;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: -1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, opacity var(--motion-fast) ease;
+}
+
+#queue-table tbody tr:hover .queue-row-drag-handle,
+#queue-table tbody tr.selected .queue-row-drag-handle {
+  opacity: 1;
+}
+
+.queue-row-drag-handle:hover:not(:disabled) {
+  background: var(--menu-hover);
+}
+
+.queue-row-drag-handle:active:not(:disabled) {
+  cursor: grabbing;
+}
+
+.queue-row-drag-handle:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.queue-table-wrap.is-queue-reordering {
+  user-select: none;
+  cursor: grabbing;
+}
+
+.queue-table-wrap.is-queue-reordering #queue-table tbody tr[data-mod-id] {
+  transition: opacity var(--motion-base) ease, background-color var(--motion-base) ease, box-shadow var(--motion-base) ease;
+}
+
+#queue-table tbody tr.queue-reorder-source {
+  position: relative;
+  z-index: 27;
+  opacity: 1;
+}
+
+#queue-table tbody tr.queue-reorder-source td {
+  background: var(--selection);
+}
+
+#queue-table tbody tr.queue-reorder-drop-before,
+#queue-table tbody tr.queue-reorder-drop-after {
+  background: color-mix(in srgb, var(--selection) 14%, var(--tree-hover));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--selection) 48%, transparent);
+}
+
+.queue-cell-content {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: calc(var(--queue-row-height) - 1px);
+  min-width: 0;
+  overflow: hidden;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.queue-cell-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #queue-table tbody tr:hover {
@@ -2941,6 +3137,127 @@ body.column-resizing {
 
 #queue-table tbody tr {
   cursor: default;
+}
+
+.queue-table-wrap.marquee-selecting #queue-table tbody tr {
+  transition: background-color var(--motion-fast) ease;
+}
+
+#queue-table td[data-col-key="game_name"],
+#queue-table td[data-col-key="provider"] {
+  color: var(--menu-text);
+}
+
+#queue-table td[data-col-key="mod_id"] {
+  color: var(--menu-text);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+#queue-table td[data-col-key="mod_id"] .queue-cell-text {
+  transform: translateY(1px);
+}
+
+#queue-table td[data-col-key="mod_name"] {
+  color: var(--fg-hover);
+  font-weight: 600;
+}
+
+.queue-status-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 15px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 10px;
+  line-height: 13px;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.queue-status-badge.is-neutral,
+.queue-status-badge.is-muted {
+  border-color: color-mix(in srgb, var(--menu-text) 25%, transparent);
+  background: color-mix(in srgb, var(--menu-text) 10%, transparent);
+}
+
+.queue-status-badge.is-active {
+  border-color: rgba(0, 120, 212, 0.52);
+  background: rgba(0, 120, 212, 0.18);
+  color: color-mix(in srgb, #5eb8ff 82%, var(--fg-hover));
+}
+
+.queue-status-badge.is-active::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: #4da8f5;
+  animation: queue-status-pulse 1.15s ease-in-out infinite;
+}
+
+.queue-status-badge.is-success {
+  border-color: rgba(70, 160, 95, 0.5);
+  background: rgba(70, 160, 95, 0.16);
+  color: color-mix(in srgb, #65c980 80%, var(--fg-hover));
+}
+
+.queue-status-badge.is-warning {
+  border-color: rgba(210, 150, 45, 0.52);
+  background: rgba(210, 150, 45, 0.16);
+  color: color-mix(in srgb, #e5b55b 82%, var(--fg-hover));
+}
+
+.queue-status-badge.is-danger {
+  border-color: rgba(210, 75, 75, 0.55);
+  background: rgba(210, 75, 75, 0.16);
+  color: color-mix(in srgb, #ee7777 82%, var(--fg-hover));
+}
+
+@keyframes queue-status-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.86); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.queue-empty-state {
+  position: absolute;
+  inset: 28px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 20px;
+  color: var(--menu-text);
+  text-align: center;
+  pointer-events: none;
+}
+
+.queue-empty-state strong {
+  color: var(--fg-hover);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.queue-empty-icon {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 5px;
+  background-color: currentColor;
+  -webkit-mask-image: url("../queue-empty.svg");
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-image: url("../queue-empty.svg");
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  opacity: 0.7;
 }
 
 #queue-table tbody tr.virtual-spacer-row,
@@ -3368,8 +3685,8 @@ body.theme-light .log-tone.stop {
 }
 
 ::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
 }
 
 ::-webkit-scrollbar-thumb {
