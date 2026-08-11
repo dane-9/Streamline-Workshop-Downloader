@@ -3126,6 +3126,9 @@ body.column-resizing {
 }
 
 .queue-row-drag-handle:disabled {
+  background: transparent;
+  border-color: transparent;
+  color: var(--menu-text);
   opacity: 0.25;
   cursor: default;
 }
