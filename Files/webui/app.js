@@ -3001,6 +3001,251 @@ async function handleRowClick(event, row) {
   renderQueueViewport(true);
 }
 
+function clampQueueMarqueePoint(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function queueMarqueeRectsIntersect(left, right) {
+  return left.left < right.right
+    && left.right > right.left
+    && left.top < right.bottom
+    && left.bottom > right.top;
+}
+
+function collectQueueMarqueeRows(container, containerRect = null) {
+  const hostRect = containerRect || container.getBoundingClientRect();
+  const scrollLeft = container.scrollLeft;
+  const scrollTop = container.scrollTop;
+  const rows = [];
+
+  container.querySelectorAll("#queue-body tr[data-mod-id]").forEach((row) => {
+    const modId = String(row.dataset.modId || "");
+    const rowIndex = Number.parseInt(String(row.dataset.listIndex || "-1"), 10);
+    if (!modId) {
+      return;
+    }
+    const rect = row.getBoundingClientRect();
+    rows.push({
+      modId,
+      rowIndex,
+      element: row,
+      rect: {
+        left: rect.left - hostRect.left + scrollLeft,
+        top: rect.top - hostRect.top + scrollTop,
+        right: rect.right - hostRect.left + scrollLeft,
+        bottom: rect.bottom - hostRect.top + scrollTop
+      }
+    });
+  });
+
+  return rows;
+}
+
+function setupQueueMarqueeSelection(container) {
+  if (!container) {
+    return;
+  }
+
+  let dragState = null;
+  let scrollUpdateFrame = 0;
+
+  const updateSelection = (clientX, clientY, refreshRows = false) => {
+    if (!dragState) {
+      return;
+    }
+
+    const rect = dragState.containerRect;
+    const x = clampQueueMarqueePoint(clientX, rect.left, rect.left + container.clientWidth);
+    const y = clampQueueMarqueePoint(clientY, rect.top + dragState.headerHeight, rect.top + container.clientHeight);
+    dragState.lastClientX = x;
+    dragState.lastClientY = y;
+
+    const dx = x - dragState.startClientX;
+    const dy = y - dragState.startClientY;
+    const scrollDelta = Math.abs(container.scrollTop - dragState.startScrollTop)
+      + Math.abs(container.scrollLeft - dragState.startScrollLeft);
+    if (!dragState.moved && (Math.abs(dx) + Math.abs(dy) < 3) && scrollDelta < 1) {
+      return;
+    }
+
+    if (!dragState.moved) {
+      dragState.moved = true;
+      dragState.box.classList.remove("hidden");
+    }
+
+    const contentX = x - rect.left + container.scrollLeft;
+    const contentY = y - rect.top + container.scrollTop;
+    const selectionRect = {
+      left: Math.min(dragState.startContentX, contentX),
+      top: Math.min(dragState.startContentY, contentY),
+      right: Math.max(dragState.startContentX, contentX),
+      bottom: Math.max(dragState.startContentY, contentY)
+    };
+
+    dragState.box.style.left = `${selectionRect.left}px`;
+    dragState.box.style.top = `${selectionRect.top}px`;
+    dragState.box.style.width = `${Math.max(1, selectionRect.right - selectionRect.left)}px`;
+    dragState.box.style.height = `${Math.max(1, selectionRect.bottom - selectionRect.top)}px`;
+
+    if (
+      refreshRows
+      || container.scrollLeft !== dragState.lastScrollLeft
+      || container.scrollTop !== dragState.lastScrollTop
+    ) {
+      dragState.rows = collectQueueMarqueeRows(container, rect);
+      dragState.lastScrollLeft = container.scrollLeft;
+      dragState.lastScrollTop = container.scrollTop;
+    }
+
+    const visibleIds = new Set();
+    const hitIds = new Set();
+    let lastHit = null;
+    dragState.rows.forEach((row) => {
+      visibleIds.add(row.modId);
+      if (queueMarqueeRectsIntersect(selectionRect, row.rect)) {
+        hitIds.add(row.modId);
+        if (!lastHit || row.rowIndex > lastHit.rowIndex) {
+          lastHit = row;
+        }
+      }
+    });
+
+    const nextDynamicIds = new Set();
+    dragState.dynamicIds.forEach((modId) => {
+      if (!visibleIds.has(modId)) {
+        nextDynamicIds.add(modId);
+      }
+    });
+    hitIds.forEach((modId) => nextDynamicIds.add(modId));
+    dragState.dynamicIds = nextDynamicIds;
+    if (lastHit) {
+      dragState.lastHit = lastHit;
+    }
+
+    const nextSelection = dragState.keepExisting
+      ? new Set(dragState.baseSelection)
+      : new Set();
+    dragState.dynamicIds.forEach((modId) => nextSelection.add(modId));
+    state.selectedModIds = nextSelection;
+    dragState.rows.forEach((row) => {
+      row.element.classList.toggle("selected", nextSelection.has(row.modId));
+    });
+  };
+
+  const onMouseMove = (event) => {
+    updateSelection(event.clientX, event.clientY);
+  };
+
+  const onScroll = () => {
+    if (!dragState || scrollUpdateFrame) {
+      return;
+    }
+    scrollUpdateFrame = window.requestAnimationFrame(() => {
+      scrollUpdateFrame = 0;
+      if (dragState) {
+        updateSelection(dragState.lastClientX, dragState.lastClientY, true);
+      }
+    });
+  };
+
+  const onMouseUp = (event) => {
+    if (!dragState) {
+      return;
+    }
+
+    const finishedDrag = dragState;
+    dragState = null;
+    window.removeEventListener("mousemove", onMouseMove, true);
+    window.removeEventListener("mouseup", onMouseUp, true);
+    container.removeEventListener("scroll", onScroll, true);
+    if (scrollUpdateFrame) {
+      window.cancelAnimationFrame(scrollUpdateFrame);
+      scrollUpdateFrame = 0;
+    }
+    finishedDrag.box.remove();
+
+    if (!finishedDrag.moved) {
+      if (!finishedDrag.keepExisting) {
+        state.selectedModIds.clear();
+        state.selectionAnchorIndex = null;
+        state.selectionAnchorModId = "";
+        renderQueueViewport(true);
+      }
+      return;
+    }
+
+    if (finishedDrag.lastHit && Number.isInteger(finishedDrag.lastHit.rowIndex)) {
+      state.selectionAnchorIndex = finishedDrag.lastHit.rowIndex;
+      state.selectionAnchorModId = finishedDrag.lastHit.modId;
+    } else if (!finishedDrag.keepExisting) {
+      state.selectionAnchorIndex = null;
+      state.selectionAnchorModId = "";
+    }
+    renderQueueViewport(true);
+    event.preventDefault();
+  };
+
+  container.addEventListener("mousedown", (event) => {
+    if (event.button !== 0 || dragState) {
+      return;
+    }
+    if (event.target.closest("tr[data-mod-id], thead, input, button, select, textarea, a, .menu")) {
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    if (
+      event.clientX >= rect.left + container.clientWidth
+      || event.clientY >= rect.top + container.clientHeight
+    ) {
+      return;
+    }
+
+    const header = container.querySelector("thead");
+    const headerHeight = header instanceof HTMLElement
+      ? Math.max(0, Math.round(header.getBoundingClientRect().height))
+      : 0;
+    if (event.clientY < rect.top + headerHeight) {
+      return;
+    }
+
+    hideHeaderContextMenu();
+    hideQueueContextMenu();
+    const x = clampQueueMarqueePoint(event.clientX, rect.left, rect.left + container.clientWidth);
+    const y = clampQueueMarqueePoint(event.clientY, rect.top + headerHeight, rect.top + container.clientHeight);
+    const box = document.createElement("div");
+    box.className = "queue-selection-marquee hidden";
+    container.appendChild(box);
+
+    dragState = {
+      startClientX: x,
+      startClientY: y,
+      startContentX: x - rect.left + container.scrollLeft,
+      startContentY: y - rect.top + container.scrollTop,
+      startScrollLeft: container.scrollLeft,
+      startScrollTop: container.scrollTop,
+      lastScrollLeft: container.scrollLeft,
+      lastScrollTop: container.scrollTop,
+      lastClientX: x,
+      lastClientY: y,
+      containerRect: rect,
+      headerHeight,
+      rows: collectQueueMarqueeRows(container, rect),
+      keepExisting: !!(event.ctrlKey || event.metaKey),
+      baseSelection: new Set(state.selectedModIds),
+      dynamicIds: new Set(),
+      lastHit: null,
+      moved: false,
+      box
+    };
+
+    window.addEventListener("mousemove", onMouseMove, true);
+    window.addEventListener("mouseup", onMouseUp, true);
+    container.addEventListener("scroll", onScroll, true);
+    event.preventDefault();
+  });
+}
+
 function isTextEditingTarget(target) {
   if (!(target instanceof Element)) {
     return false;
@@ -3502,21 +3747,6 @@ function wireQueueVirtualization() {
   if (!queueTableWrap) {
     return;
   }
-  queueTableWrap.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-    if (event.target.closest("tr[data-mod-id]")) {
-      return;
-    }
-    if (!state.selectedModIds.size) {
-      return;
-    }
-    state.selectedModIds.clear();
-    state.selectionAnchorIndex = null;
-    state.selectionAnchorModId = "";
-    renderQueueViewport(true);
-  });
   queueTableWrap.addEventListener("scroll", () => {
     if (virtualScrollQueued) {
       return;
@@ -3530,6 +3760,7 @@ function wireQueueVirtualization() {
   window.addEventListener("resize", () => {
     renderQueueViewport(true);
   });
+  setupQueueMarqueeSelection(queueTableWrap);
 }
 
 function wireQueueRowInteractions() {

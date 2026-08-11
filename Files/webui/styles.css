@@ -2812,6 +2812,7 @@ select.form-control:hover {
 }
 
 .queue-table-wrap {
+  position: relative;
   border-radius: 0;
   overflow: auto;
   flex: 1 1 auto;
@@ -2819,6 +2820,14 @@ select.form-control:hover {
   background: var(--tree-bg);
   border: none;
   box-shadow: var(--elev-panel);
+}
+
+.queue-selection-marquee {
+  position: absolute;
+  z-index: 3;
+  border: 1px solid #0078d4;
+  background: rgba(0, 120, 215, 0.22);
+  pointer-events: none;
 }
 
 #queue-table {
