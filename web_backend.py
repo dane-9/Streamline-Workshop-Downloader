@@ -3637,9 +3637,12 @@ class StreamlineWebBackend:
         if thread is not None and thread.is_alive():
             return
         self._clipboard_stop_event = threading.Event()
-        self._clipboard_last_seq = self._get_clipboard_sequence_windows()
+        self._clipboard_last_seq = 0
         try:
-            self.last_clipboard_text = (self._read_clipboard_text() or "").strip()
+            initial_text = self._read_clipboard_text()
+            if initial_text is not None:
+                self.last_clipboard_text = initial_text.strip()
+                self._clipboard_last_seq = self._get_clipboard_sequence_windows()
         except Exception:
             self.last_clipboard_text = ""
         self._clipboard_monitor_thread = threading.Thread(
@@ -3669,6 +3672,22 @@ class StreamlineWebBackend:
         kernel32_local = ctypes.windll.kernel32
         cf_unicode_text = 13
 
+        user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+        user32.OpenClipboard.restype = ctypes.c_int
+        user32.CloseClipboard.argtypes = []
+        user32.CloseClipboard.restype = ctypes.c_int
+        user32.IsClipboardFormatAvailable.argtypes = [ctypes.c_uint]
+        user32.IsClipboardFormatAvailable.restype = ctypes.c_int
+        user32.GetClipboardData.argtypes = [ctypes.c_uint]
+        user32.GetClipboardData.restype = ctypes.c_void_p
+        kernel32_local.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32_local.GlobalLock.restype = ctypes.c_void_p
+        kernel32_local.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        kernel32_local.GlobalUnlock.restype = ctypes.c_int
+
+        if not user32.IsClipboardFormatAvailable(cf_unicode_text):
+            return ""
+
         for _ in range(3):
             if not user32.OpenClipboard(None):
                 time.sleep(0.03)
@@ -3679,33 +3698,26 @@ class StreamlineWebBackend:
                     return ""
                 locked = kernel32_local.GlobalLock(handle)
                 if not locked:
-                    return ""
+                    return None
                 try:
                     return ctypes.wstring_at(locked) or ""
                 finally:
                     kernel32_local.GlobalUnlock(handle)
             except Exception:
-                return ""
+                return None
             finally:
                 try:
                     user32.CloseClipboard()
                 except Exception:
                     pass
-        return ""
+        return None
 
     def _read_clipboard_text_subprocess(self):
         clipboard_commands = []
         system_name = platform.system().lower()
-        if system_name == "windows":
-            clipboard_commands.append([
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                "Get-Clipboard -Raw",
-            ])
-        elif system_name == "darwin":
+        if system_name == "darwin":
             clipboard_commands.append(["pbpaste"])
-        else:
+        elif system_name != "windows":
             clipboard_commands.extend([
                 ["wl-paste", "--no-newline"],
                 ["xclip", "-selection", "clipboard", "-o"],
@@ -3736,10 +3748,7 @@ class StreamlineWebBackend:
 
     def _read_clipboard_text(self):
         if platform.system().lower() == "windows":
-            text = self._read_clipboard_text_windows()
-            if text:
-                return text
-            return self._read_clipboard_text_subprocess()
+            return self._read_clipboard_text_windows()
         return self._read_clipboard_text_subprocess()
 
     def _is_valid_workshop_clipboard_input(self, text: str):
@@ -3757,23 +3766,26 @@ class StreamlineWebBackend:
 
     def _check_clipboard_for_url(self):
         if not self.config.get("auto_detect_urls", False):
-            return
+            return True
 
-        current_text = (self._read_clipboard_text() or "").strip()
+        clipboard_text = self._read_clipboard_text()
+        if clipboard_text is None:
+            return False
+        current_text = clipboard_text.strip()
         if not current_text:
-            return
+            return True
 
         if current_text == self.last_clipboard_text:
-            return
+            return True
 
         current_time = time.time()
         if current_time - self._last_clipboard_trigger < 0.5:
-            return
+            return False
         self._last_clipboard_trigger = current_time
         self.last_clipboard_text = current_text
 
         if not self._is_valid_workshop_clipboard_input(current_text):
-            return
+            return True
 
         self._emit_event("clipboard", {"url": current_text})
 
@@ -3790,6 +3802,7 @@ class StreamlineWebBackend:
                         action="auto_add_failed",
                         context={"error": str(error_text)},
                     )
+        return True
 
     def _clipboard_monitor_loop(self):
         last_fallback_check = 0.0
@@ -3798,8 +3811,8 @@ class StreamlineWebBackend:
                 seq = self._get_clipboard_sequence_windows()
                 if seq > 0:
                     if seq != self._clipboard_last_seq:
-                        self._clipboard_last_seq = seq
-                        self._check_clipboard_for_url()
+                        if self._check_clipboard_for_url():
+                            self._clipboard_last_seq = seq
                 else:
                     now = time.time()
                     if now - last_fallback_check >= 0.35:
