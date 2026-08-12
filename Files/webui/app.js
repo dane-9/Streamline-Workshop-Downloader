@@ -188,9 +188,14 @@ const QUEUE_COLUMNS = [
   { key: "provider", label: "Provider", defaultWidth: 95 }
 ];
 
+function getProviderDisplayName(value) {
+  const provider = String(value || "").trim();
+  return !provider || provider === "Default" ? "Automatic" : provider;
+}
+
 function syncProviderDisplay() {
   if (providerDisplayName) {
-    providerDisplayName.textContent = providerSelect?.value || "Default";
+    providerDisplayName.textContent = getProviderDisplayName(providerSelect?.value);
   }
   syncAnimatedSelect("provider");
 }
@@ -3880,6 +3885,8 @@ function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, 
       }
       const value = column.key === "status"
         ? statusDisplay
+        : column.key === "provider"
+          ? getProviderDisplayName(item.provider)
         : String(item[column.key] ?? "");
       cell.dataset.fullValue = value;
       cell.removeAttribute("title");
@@ -5652,10 +5659,10 @@ function buildSettingsFormHtml(settings) {
         <section class="settings-page" data-settings-page="download">
           <div class="form-grid">
             <div class="form-block">
-              <label for="st-provider">Default Provider</label>
+              <label for="st-provider">Download Provider</label>
               <div class="select-chevron-wrap">
                 <select id="st-provider" class="form-control">
-                  <option value="Default" ${settings.download_provider === "Default" ? "selected" : ""}>Default</option>
+                  <option value="Default" ${settings.download_provider === "Default" ? "selected" : ""}>Automatic</option>
                   <option value="SteamCMD" ${settings.download_provider === "SteamCMD" ? "selected" : ""}>SteamCMD</option>
                   <option value="SteamWebAPI" ${settings.download_provider === "SteamWebAPI" ? "selected" : ""}>SteamWebAPI</option>
                 </select>
