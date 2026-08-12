@@ -2027,15 +2027,35 @@ button.control:not(:disabled):active,
 
 .modal-input {
   width: 100%;
-  min-height: 120px;
-  resize: vertical;
+  height: 28px;
+  background: var(--input-bg);
   border: 1px solid var(--control-border);
   border-bottom: 1px solid var(--control-border-bottom);
-  background: var(--input-bg);
-  color: var(--fg);
   border-radius: 3px;
-  padding: 8px;
+  color: var(--fg);
+  padding: 0 8px;
+  outline: none;
   font: inherit;
+}
+
+.modal-input::placeholder {
+  color: var(--placeholder-fg);
+  opacity: 0.4;
+}
+
+.modal-input:focus {
+  border-color: var(--control-border);
+  border-bottom-color: var(--control-border-bottom);
+}
+
+.modal-input:hover {
+  border-color: var(--control-border);
+  border-bottom-color: var(--control-border-bottom);
+}
+
+.modal-input:disabled {
+  border-color: var(--control-border);
+  border-bottom-color: var(--control-border-bottom);
 }
 
 .modal-input.hidden {

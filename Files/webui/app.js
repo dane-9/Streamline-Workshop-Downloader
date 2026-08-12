@@ -1036,7 +1036,7 @@ async function copyTextToClipboard(text) {
   }
 }
 
-function showInputModal({ title, message, defaultValue = "", rows = 8, okLabel = "OK" }) {
+function showInputModal({ title, message = "", defaultValue = "", placeholder = "", okLabel = "OK", requireValue = false }) {
   return new Promise((resolve) => {
     modalTitle.textContent = title || "Dialog";
     modalMessage.textContent = message || "";
@@ -1044,8 +1044,9 @@ function showInputModal({ title, message, defaultValue = "", rows = 8, okLabel =
     modalForm.innerHTML = "";
     modalInput.classList.remove("hidden");
     modalInput.value = defaultValue || "";
-    modalInput.rows = rows;
+    modalInput.placeholder = placeholder || "";
     modalOkBtn.textContent = okLabel;
+    modalOkBtn.disabled = requireValue && !modalInput.value.trim();
     modalCancelBtn.style.display = "";
     modalOverlay.classList.remove("hidden");
     modalInput.focus();
@@ -1057,9 +1058,14 @@ function showInputModal({ title, message, defaultValue = "", rows = 8, okLabel =
       modalCancelBtn.removeEventListener("click", onCancel);
       modalOverlay.removeEventListener("click", onBackdrop);
       modalInput.removeEventListener("keydown", onKeyDown);
+      modalInput.removeEventListener("input", onInput);
+      modalOkBtn.disabled = false;
     };
 
     const onOk = () => {
+      if (requireValue && !modalInput.value.trim()) {
+        return;
+      }
       const value = modalInput.value;
       cleanup();
       resolve(value);
@@ -1080,8 +1086,14 @@ function showInputModal({ title, message, defaultValue = "", rows = 8, okLabel =
       if (event.key === "Escape") {
         onCancel();
       }
-      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      if (event.key === "Enter") {
         onOk();
+      }
+    };
+
+    const onInput = () => {
+      if (requireValue) {
+        modalOkBtn.disabled = !modalInput.value.trim();
       }
     };
 
@@ -1089,6 +1101,7 @@ function showInputModal({ title, message, defaultValue = "", rows = 8, okLabel =
     modalCancelBtn.addEventListener("click", onCancel);
     modalOverlay.addEventListener("click", onBackdrop);
     modalInput.addEventListener("keydown", onKeyDown);
+    modalInput.addEventListener("input", onInput);
   });
 }
 
@@ -4966,9 +4979,9 @@ async function handleQueueContextAction(action) {
   if (action === "override_appid") {
     const appIdInput = await showInputModal({
       title: "Override AppID",
-      message: "Enter AppID or app URL to apply to selected mods.",
+      placeholder: "Enter AppID or game URL",
       defaultValue: "",
-      rows: 3,
+      requireValue: true,
       okLabel: "Apply"
     });
     if (!appIdInput) {
