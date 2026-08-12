@@ -48,6 +48,26 @@ function hasApi() {
   return Boolean(window.pywebview && window.pywebview.api);
 }
 
+function applySetupTheme(themeName) {
+  const normalized = String(themeName || "").toLowerCase();
+  document.body.classList.remove("theme-default", "theme-dark", "theme-light");
+  if (normalized.includes("light")) {
+    document.body.classList.add("theme-light");
+  } else if (normalized.includes("dark")) {
+    document.body.classList.add("theme-dark");
+  } else {
+    document.body.classList.add("theme-default");
+  }
+}
+
+async function syncSetupTheme() {
+  try {
+    applySetupTheme(await callSetupApi("setup_get_theme"));
+  } catch {
+    applySetupTheme("Default");
+  }
+}
+
 async function callSetupApi(method, ...args) {
   if (isClosing && method !== "setup_exit") {
     throw new Error("Window is closing.");
@@ -475,6 +495,9 @@ function renderStepper(stageInfo, state) {
 function renderState(state) {
   const progress = Number(state.progress || 0);
   const statusText = state.status || "Preparing setup...";
+  const closeIsPrimary = Boolean(state.done && state.success);
+  closeBtn.classList.toggle("primary", closeIsPrimary);
+  closeBtn.classList.toggle("secondary", !closeIsPrimary);
   statusEl.textContent = statusText;
   progressBarEl.style.width = `${Math.max(0, Math.min(100, progress))}%`;
   const stageInfo = getStageInfo(state);
@@ -620,6 +643,7 @@ function markBridgeReady() {
   }
   setVisible(errorEl, false);
   errorEl.textContent = "";
+  void syncSetupTheme();
   startPolling();
   return true;
 }

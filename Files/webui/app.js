@@ -14,6 +14,7 @@ const accountSelect = document.getElementById("account-select");
 const openDownloadsBtn = document.getElementById("open-downloads-btn");
 const startDownloadBtn = document.getElementById("start-download-btn");
 const downloadNowBtn = document.getElementById("download-now-btn");
+const addToQueueBtn = document.getElementById("add-to-queue-btn");
 const urlHelpBtn = document.getElementById("url-help-btn");
 const minimizeBtn = document.getElementById("minimize-btn");
 const closeBtn = document.getElementById("close-btn");
@@ -1720,7 +1721,7 @@ function getSharedCommands() {
   const showProvider = config.show_provider !== false;
   const autoDetect = !!config.auto_detect_urls;
   const autoAdd = !!config.auto_add_to_queue;
-  const theme = String(config.current_theme || "Dark");
+  const theme = String(config.current_theme || "Default");
   const logoStyle = String(config.logo_style || "Light");
 
   return [
@@ -1828,6 +1829,15 @@ function getSharedCommands() {
       hint: "Queue",
       keywords: "download now immediate",
       run: () => downloadNowBtn?.click()
+    },
+    {
+      id: "theme_default",
+      label: "Theme: Default",
+      hint: theme !== "Dark" && theme !== "Light" ? "Current" : "Appearance",
+      keywords: "theme default",
+      run: async () => {
+        await applySettingsPatch({ current_theme: "Default" }, "Theme changed to Default.");
+      }
     },
     {
       id: "theme_dark",
@@ -2789,6 +2799,10 @@ function normalizeQueueItem(item, index) {
 }
 
 function syncStartButton() {
+  const hasQueueEntries = Number(state.queueStats.total || 0) > 0
+    || Number(virtualBackendTotal || 0) > 0
+    || state.queue.length > 0;
+  startDownloadBtn.classList.toggle("primary-ready", hasQueueEntries);
   if (state.cancelPending) {
     startDownloadBtn.textContent = "Canceling...";
     startDownloadBtn.classList.add("active");
@@ -3620,6 +3634,10 @@ function createQueueRow(modId) {
   return row;
 }
 
+function syncQueueInputActions() {
+  addToQueueBtn?.classList.toggle("primary-ready", Boolean(itemUrlInput?.value.trim()));
+}
+
 function getQueueStatusDisplayText(item) {
   const status = String(item?.status || "");
   if (status !== "Queued") {
@@ -3971,6 +3989,7 @@ async function ensureBackendWindowLoaded(startIndex, endIndex, options = {}) {
         downloading: Number(result.stats.downloading || 0)
       };
     }
+    syncStartButton();
 
     if (result.regex_error) {
       if (virtualBackendRegexErrorShownFor !== queryKey) {
@@ -4109,6 +4128,7 @@ function renderQueueViewport(force = false) {
 }
 
 function renderQueue() {
+  syncStartButton();
   applyQueueColumnWidths();
   renderQueueHeader();
 
@@ -5065,11 +5085,13 @@ async function refreshQueue(options = {}) {
 
 function applyTheme(themeName) {
   const lower = String(themeName || "").toLowerCase();
-  document.body.classList.remove("theme-dark", "theme-light");
+  document.body.classList.remove("theme-default", "theme-dark", "theme-light");
   if (lower.includes("light")) {
     document.body.classList.add("theme-light");
-  } else {
+  } else if (lower.includes("dark")) {
     document.body.classList.add("theme-dark");
+  } else {
+    document.body.classList.add("theme-default");
   }
 }
 
@@ -5187,7 +5209,7 @@ async function useBootstrapData(data) {
   state.cancelPending = false;
   syncStartButton();
 
-  applyTheme(config.current_theme || "Dark");
+  applyTheme(config.current_theme || "Default");
   applyModalTextColor(config.modal_text_color);
   applyVisibilityConfig(config);
   syncLogoStyle();
@@ -5507,6 +5529,7 @@ function buildSettingsFormHtml(settings) {
               <label for="st-theme">Theme</label>
               <div class="select-chevron-wrap">
                 <select id="st-theme" class="form-control">
+                  <option value="Default" ${settings.current_theme !== "Dark" && settings.current_theme !== "Light" ? "selected" : ""}>Default</option>
                   <option value="Dark" ${settings.current_theme === "Dark" ? "selected" : ""}>Dark</option>
                   <option value="Light" ${settings.current_theme === "Light" ? "selected" : ""}>Light</option>
                 </select>
@@ -5761,7 +5784,7 @@ async function openSettingsEditor() {
         return false;
       }
       state.config = result.config || state.config;
-      applyTheme(state.config.current_theme || "Dark");
+      applyTheme(state.config.current_theme || "Default");
       applyModalTextColor(state.config.modal_text_color);
       applyVisibilityConfig(state.config);
       syncLogoStyle();
@@ -5784,7 +5807,7 @@ async function applySettingsPatch(patch, successMessage = "Settings updated.") {
     return false;
   }
   state.config = result.config || state.config;
-  applyTheme(state.config.current_theme || "Dark");
+  applyTheme(state.config.current_theme || "Default");
   applyModalTextColor(state.config.modal_text_color);
   applyVisibilityConfig(state.config);
   syncLogoStyle();
@@ -7471,6 +7494,7 @@ async function handleAddToQueue(event) {
   }
 
   queueForm.reset();
+  syncQueueInputActions();
   setProviderValue(provider);
   await refreshQueue({ forceReload: true });
 }
@@ -7630,7 +7654,7 @@ async function handleEvent(event) {
 
   if (type === "settings") {
     state.config = payload.config || state.config;
-    applyTheme(state.config.current_theme || "Dark");
+    applyTheme(state.config.current_theme || "Default");
     applyModalTextColor(state.config.modal_text_color);
     applyVisibilityConfig(state.config);
     syncLogoStyle();
@@ -7650,12 +7674,14 @@ async function handleEvent(event) {
   if (type === "clipboard" && payload.url) {
     const provider = providerSelect.value || "Default";
     itemUrlInput.value = payload.url;
+    syncQueueInputActions();
     addLog("Detected workshop URL from clipboard.", "info", {
       source: "clipboard",
       action: "detected_url"
     });
     if (state.config.auto_add_to_queue) {
       queueForm.reset();
+      syncQueueInputActions();
       setProviderValue(provider);
     }
   }
@@ -7893,6 +7919,8 @@ async function initializeApp() {
   emitStartupLogToneTests();
 
   queueForm.addEventListener("submit", handleAddToQueue);
+  itemUrlInput.addEventListener("input", syncQueueInputActions);
+  syncQueueInputActions();
 
   downloadNowBtn.addEventListener("click", async () => {
     const itemUrl = itemUrlInput.value.trim();
@@ -7914,6 +7942,7 @@ async function initializeApp() {
       syncStartButton();
       addLog("Queued for immediate download.", "good");
       queueForm.reset();
+      syncQueueInputActions();
       await refreshQueue({ forceReload: true });
     } catch {
       addLog("Download-now is only available from desktop app.", "bad");

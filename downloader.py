@@ -30,7 +30,7 @@ MIN_WINDOW_WIDTH = DEFAULT_WINDOW_WIDTH
 MIN_WINDOW_HEIGHT = DEFAULT_WINDOW_HEIGHT
 
 DEFAULT_SETTINGS = {
-    "current_theme": "Dark",
+    "current_theme": "Default",
     "modal_text_color": "",
     "logo_style": "Light",
     "batch_size": 20,
@@ -589,6 +589,10 @@ class WebMainGuiApi:
     def setup_get_state(self):
         return self.setup_manager.get_state()
 
+    def setup_get_theme(self):
+        settings = self.backend.get_settings()
+        return str(settings.get("current_theme") or "Default")
+
     def setup_cancel(self):
         return self.setup_manager.cancel_setup()
 
@@ -1016,6 +1020,14 @@ def run_pywebview_main_gui():
     except Exception:
         settings = {}
 
+    startup_theme = str(settings.get("current_theme") or "Default").lower()
+    if "light" in startup_theme:
+        window_background = "#f3f3f3"
+    elif "dark" in startup_theme:
+        window_background = "#121212"
+    else:
+        window_background = "#171d25"
+
     if not settings.get("reset_window_size_on_startup", True):
         saved_size = settings.get("window_size") or {}
         try:
@@ -1053,7 +1065,7 @@ def run_pywebview_main_gui():
         "height": window_height,
         "min_size": (min_window_width, min_window_height),
         "resizable": True,
-        "background_color": "#121212",
+        "background_color": window_background,
         "frameless": True,
         "easy_drag": False,
     }

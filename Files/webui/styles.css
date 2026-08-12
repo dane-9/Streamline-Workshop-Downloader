@@ -121,6 +121,332 @@ body.theme-light {
   --elev-modal: 0 1px 0 rgba(255, 255, 255, 0.95), 0 14px 34px rgba(15, 23, 42, 0.16), 0 3px 12px rgba(15, 23, 42, 0.10);
 }
 
+body.theme-default {
+  --default-icon-color: #acb2b8;
+  --default-content-bg: #2c323b;
+  --window-bg: #24282f;
+  --titlebar-bg: transparent;
+  --titlebar-border: #171a21;
+  --titlebar-btn-hover: #2c2d34;
+  --titlebar-close-hover: #c42b1c;
+  --menu-bg: #24282f;
+  --menu-popup-bg: #3d4450;
+  --menu-border: #3d4450;
+  --menu-hover: #dcdedf;
+  --menu-text: #acb2b8;
+  --menu-text-hover: var(--menu-popup-bg);
+  --menu-item-hover-text: var(--menu-popup-bg);
+  --fg: #acb2b8;
+  --fg-hover: #dcdedf;
+  --placeholder-fg: #8f98a0;
+  --control-bg: #272d37;
+  --control-hover: #3d4450;
+  --control-pressed: #2c3038;
+  --primary-bg: #417a9b;
+  --primary-hover: #67c1f5;
+  --primary-pressed: #366682;
+  --primary-text: #ffffff;
+  --control-border: transparent;
+  --control-border-hover: transparent;
+  --control-border-bottom: transparent;
+  --control-border-bottom-hover: transparent;
+  --control-disabled-bg: rgba(0, 0, 0, 0.4);
+  --control-disabled-fg: #626a72;
+  --input-bg: #24282f;
+  --input-selection-bg: #67c1f5;
+  --input-selection-fg: #171d25;
+  --tree-bg: #24282f;
+  --tree-hover: #323a4b;
+  --tree-header: #272d36;
+  --tree-divider: #343a43;
+  --scroll-track: #20242b;
+  --scroll-thumb: #4e4c4e;
+  --scroll-thumb-hover: #6a696d;
+  --selection: #3e4e69;
+  --appids-chip-selected-bg: #67c1f5;
+  --danger-bg: #8b3333;
+  --danger-hover: #aa4141;
+  --dialog-bg: radial-gradient(circle at top left, rgba(74, 81, 92, 0.4) 0%, rgba(75, 81, 92, 0) 60%), #25282e;
+  --panel-border: #3d4450;
+  --settings-nav-bg: #25282e;
+  --settings-nav-hover: #3d4450;
+  --settings-nav-active: #3d4450;
+  --modal-text-color: var(--fg);
+  --overlay-scrim: rgba(0, 0, 0, 0.68);
+  --elev-panel: 0 0 8px rgba(0, 0, 0, 0.34);
+  --elev-floating: 0 0 12px #000000;
+  --elev-modal: 0 0 18px rgba(0, 0, 0, 0.72);
+}
+
+body.theme-default .window-root {
+  background-color: var(--window-bg);
+  background-image: linear-gradient(180deg, #171d25 0%, #24282f 42%, #20242a 100%);
+  background-repeat: no-repeat;
+}
+
+body.theme-default .queue-table-wrap {
+  --queue-header-bg: #272d36;
+  background: linear-gradient(
+    to bottom,
+    var(--queue-header-bg) 0,
+    var(--queue-header-bg) var(--queue-header-height),
+    var(--default-content-bg) var(--queue-header-height),
+    var(--default-content-bg) 100%
+  );
+}
+
+body.theme-default .log-area {
+  background: var(--default-content-bg);
+}
+
+body.theme-default .input-row-zone-right {
+  background: var(--control-bg);
+  color: #dcdedf;
+  border-color: transparent;
+  border-bottom-color: transparent;
+}
+
+body.theme-default .input-row-zone-right .action-btn {
+  color: #dcdedf;
+}
+
+body.theme-default .footer-row #open-downloads-btn,
+body.theme-default .footer-row #start-download-btn:not(.active),
+body.theme-default .footer-row .provider-select,
+body.theme-default .footer-row .provider-select-wrap.custom-select-enabled .animated-select-trigger {
+  background: #323a46;
+}
+
+body.theme-default .footer-row #open-downloads-btn:not(:disabled):hover,
+body.theme-default .footer-row #start-download-btn:not(.active):not(.primary-ready):not(:disabled):hover,
+body.theme-default .footer-row .provider-select:not(:disabled):hover,
+body.theme-default .footer-row .provider-select-wrap.custom-select-enabled .animated-select-trigger:hover {
+  background: var(--control-hover);
+}
+
+body.theme-default .settings-shell select.form-control,
+body.theme-default .settings-shell .custom-select-enabled .animated-select-trigger {
+  background: #3d4450;
+}
+
+body.theme-default .settings-shell .form-checkbox-row:hover,
+body.theme-default .settings-shell .form-checkbox-row:focus-within {
+  color: var(--menu-text-hover);
+}
+
+body.theme-default .tutorial-startup-switch > input[type="checkbox"]:checked + .form-switch-track,
+body.theme-default .settings-shell .form-switch-row > input[type="checkbox"]:checked + .form-switch-track,
+body.theme-default .appids-footer-headless-switch > input[type="checkbox"]:checked + .form-switch-track {
+  background: var(--primary-bg);
+  border-color: var(--primary-bg);
+}
+
+body.theme-default .tutorial-startup-switch:hover > input[type="checkbox"]:checked + .form-switch-track,
+body.theme-default .tutorial-startup-switch:focus-within > input[type="checkbox"]:checked + .form-switch-track,
+body.theme-default .settings-shell .form-switch-row:hover > input[type="checkbox"]:checked + .form-switch-track,
+body.theme-default .settings-shell .form-switch-row:focus-within > input[type="checkbox"]:checked + .form-switch-track,
+body.theme-default .appids-footer-headless-switch:hover > input[type="checkbox"]:checked + .form-switch-track,
+body.theme-default .appids-footer-headless-switch:focus-within > input[type="checkbox"]:checked + .form-switch-track {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+body.theme-default button.control:not(:disabled),
+body.theme-default select.control:not(:disabled),
+body.theme-default select.form-control:not(:disabled),
+body.theme-default .icon-btn:not(:disabled),
+body.theme-default .text-icon-btn:not(:disabled) {
+  color: #dcdedf;
+}
+
+body.theme-default button.control:not(:disabled):hover,
+body.theme-default select.control:not(:disabled):hover,
+body.theme-default select.form-control:not(:disabled):hover,
+body.theme-default .icon-btn:not(:disabled):hover,
+body.theme-default .text-icon-btn:not(:disabled):hover,
+body.theme-default .tiny-icon-btn:not(:disabled):hover,
+body.theme-default .queue-selection-action:not(.danger):hover,
+body.theme-default .input-row-zone-right .action-btn:hover {
+  background: var(--control-hover);
+  color: #ffffff;
+  border-color: transparent;
+  border-bottom-color: transparent;
+}
+
+body.theme-default .input-row-zone-right .action-btn:active {
+  background: #2c3038;
+  color: #ffffff;
+}
+
+body.theme-default #add-to-queue-btn.primary-ready:not(:disabled),
+body.theme-default .footer-row #start-download-btn.primary-ready:not(.active):not(:disabled),
+body.theme-default .modal-btn.primary:not(:disabled) {
+  background: var(--primary-bg);
+  color: var(--primary-text);
+}
+
+body.theme-default #add-to-queue-btn.primary-ready:not(:disabled),
+body.theme-default .footer-row #start-download-btn.primary-ready:not(.active):not(:disabled) {
+  position: relative;
+  overflow: hidden;
+}
+
+body.theme-default #add-to-queue-btn.primary-ready:not(:disabled)::after,
+body.theme-default .footer-row #start-download-btn.primary-ready:not(.active):not(:disabled)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.34), transparent);
+  pointer-events: none;
+  transform: translateX(-170%) skewX(-18deg);
+}
+
+body.theme-default #add-to-queue-btn.primary-ready:not(:disabled)::after {
+  animation: primary-action-light-sweep 520ms ease-out forwards;
+}
+
+body.theme-default .footer-row #start-download-btn.primary-ready:not(.active):not(:disabled)::after {
+  animation: primary-action-light-sweep 780ms ease-out forwards;
+}
+
+body.theme-default #add-to-queue-btn.primary-ready:not(:disabled):hover,
+body.theme-default .footer-row #start-download-btn.primary-ready:not(.active):not(:disabled):hover,
+body.theme-default .modal-btn.primary:not(:disabled):hover {
+  background: var(--primary-hover);
+  color: var(--primary-text);
+}
+
+body.theme-default #add-to-queue-btn.primary-ready:not(:disabled):active,
+body.theme-default .footer-row #start-download-btn.primary-ready:not(.active):not(:disabled):active,
+body.theme-default .modal-btn.primary:not(:disabled):active {
+  background: var(--primary-pressed);
+  color: var(--primary-text);
+}
+
+@keyframes primary-action-light-sweep {
+  from {
+    transform: translateX(-170%) skewX(-18deg);
+  }
+  to {
+    transform: translateX(340%) skewX(-18deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.theme-default #add-to-queue-btn.primary-ready:not(:disabled)::after,
+  body.theme-default .footer-row #start-download-btn.primary-ready:not(.active):not(:disabled)::after {
+    animation: none;
+  }
+}
+
+body.theme-default input.control,
+body.theme-default input.form-control,
+body.theme-default textarea.form-control,
+body.theme-default input.form-control:hover,
+body.theme-default textarea.form-control:hover,
+body.theme-default .import-export-wrap,
+body.theme-default .log-message-dialog-body {
+  border-color: #414a52;
+  border-bottom-color: #414a52;
+}
+
+body.theme-default .log-message-dialog-body {
+  background: var(--input-bg);
+}
+
+body.theme-default #start-download-btn.active {
+  background: var(--danger-bg);
+  color: #ffffff;
+}
+
+body.theme-default #start-download-btn.active:hover {
+  background: var(--danger-hover);
+  color: #ffffff;
+}
+
+body.theme-default .input-row-zone-right .action-btn:disabled,
+body.theme-default #start-download-btn:disabled,
+body.theme-default .modal-btn.primary:disabled {
+  background: var(--control-disabled-bg);
+  color: var(--control-disabled-fg);
+  border-color: var(--control-border);
+  border-bottom-color: var(--control-border-bottom);
+}
+
+body.theme-default #queue-table tbody tr:not(.selected) {
+  color: #a8b2ba;
+  background-color: transparent;
+  background-image: linear-gradient(135deg, rgba(97, 100, 101, 0.3) 0%, rgba(226, 244, 255, 0.3) 100%);
+}
+
+body.theme-default #queue-table tbody tr:not(.selected) td,
+body.theme-default #queue-table tbody tr:not(.selected) .queue-status-badge.is-neutral,
+body.theme-default #queue-table tbody tr:not(.selected) .queue-status-badge.is-muted,
+body.theme-default #queue-table tbody tr:not(.selected) .queue-row-drag-handle {
+  color: #a8b2ba;
+}
+
+body.theme-default #queue-table tbody tr:not(.selected):hover {
+  color: #ffffff;
+  background: #417a9b;
+}
+
+body.theme-default #queue-table tbody tr:not(.selected):hover td,
+body.theme-default #queue-table tbody tr:not(.selected):hover .queue-status-badge,
+body.theme-default #queue-table tbody tr:not(.selected):hover .queue-row-drag-handle {
+  color: #ffffff;
+}
+
+body.theme-default #queue-table tbody tr.selected,
+body.theme-default #queue-table tbody tr.selected td {
+  color: #ffffff;
+}
+
+body.theme-default #queue-table tbody tr.selected:hover {
+  background: #586f96;
+}
+
+body.theme-default #queue-table tbody tr.selected:hover .queue-status-badge {
+  color: #ffffff;
+}
+
+body.theme-default img[src$=".svg"] {
+  filter: brightness(0) saturate(100%) invert(74%) sepia(7%) saturate(306%) hue-rotate(169deg) brightness(96%) contrast(89%);
+}
+
+body.theme-default img[src$="anonymous.svg"] {
+  filter: none;
+}
+
+body.theme-default #minimize-btn::before,
+body.theme-default #close-btn::before,
+body.theme-default .commands-split-label::before,
+body.theme-default .select-chevron-wrap::after,
+body.theme-default .custom-select-enabled .animated-select-trigger::after,
+body.theme-default #settings-btn::before,
+body.theme-default #appids-btn::before,
+body.theme-default #command-palette-btn::before,
+body.theme-default #command-palette-filter-menu-btn::before,
+body.theme-default #accounts-btn::before,
+body.theme-default #url-help-btn::before,
+body.theme-default #filter-btn::before,
+body.theme-default #import-btn::before,
+body.theme-default #export-btn::before,
+body.theme-default #case-btn::before,
+body.theme-default #regex-btn::before,
+body.theme-default .queue-context-parent::after,
+body.theme-default #queue-table thead th.sortable.sort-asc::after,
+body.theme-default #queue-table thead th.sortable.sort-desc::after,
+body.theme-default .settings-nav-icon,
+body.theme-default .queue-empty-icon {
+  background-color: var(--default-icon-color);
+}
+
+body.theme-default .import-export-spacer {
+  border-left-color: #414a52;
+}
+
 body.theme-light #minimize-btn::before,
 body.theme-light #close-btn::before,
 body.theme-light .commands-split-label::before,
@@ -1149,7 +1475,9 @@ button.control:not(:disabled):active,
   flex: 0 0 auto;
   min-width: 0;
   gap: 2px;
-  padding: 2px;
+  padding: 1px;
+  border: 1px solid var(--control-border);
+  border-bottom-color: var(--control-border-bottom);
   border-radius: 3px;
   background: var(--input-bg);
 }
@@ -1882,7 +2210,9 @@ button.control:not(:disabled):active,
   pointer-events: none;
 }
 
-.tutorial-startup-switch .form-switch-track {
+.tutorial-startup-switch .form-switch-track,
+.settings-shell .form-switch-track,
+.appids-footer-headless-switch .form-switch-track {
   position: relative;
   width: 30px;
   height: 18px;
@@ -1893,17 +2223,21 @@ button.control:not(:disabled):active,
   flex: 0 0 auto;
 }
 
-.tutorial-startup-switch .form-switch-track::after {
+.tutorial-startup-switch .form-switch-track::after,
+.settings-shell .form-switch-track::after,
+.appids-footer-headless-switch .form-switch-track::after {
   content: "";
   position: absolute;
-  top: 50%;
+  top: 0;
+  bottom: 0;
   left: 2px;
+  margin-block: auto;
   width: 12px;
   height: 12px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--fg) 88%, var(--input-bg) 12%);
-  transform: translateY(-50%);
-  transition: transform var(--motion-fast) ease, background-color var(--motion-fast) ease;
+  transform: none;
+  transition: left var(--motion-fast) ease, background-color var(--motion-fast) ease;
 }
 
 .tutorial-startup-switch > input[type="checkbox"]:focus-visible + .form-switch-track {
@@ -1915,9 +2249,17 @@ button.control:not(:disabled):active,
   border-color: var(--appids-chip-selected-bg);
 }
 
-.tutorial-startup-switch > input[type="checkbox"]:checked + .form-switch-track::after {
-  transform: translate(14px, -50%);
+.tutorial-startup-switch > input[type="checkbox"]:checked + .form-switch-track::after,
+.settings-shell .form-switch-row > input[type="checkbox"]:checked + .form-switch-track::after,
+.appids-footer-headless-switch > input[type="checkbox"]:checked + .form-switch-track::after {
+  left: 16px;
+  transform: none;
   background: #ffffff;
+}
+
+.settings-shell [data-settings-page="appearance"] .form-switch-track::after {
+  top: -0.5px;
+  bottom: 0.5px;
 }
 
 .tutorial-startup-switch .form-switch-label {
@@ -2458,30 +2800,6 @@ select.form-control:hover {
   pointer-events: none;
 }
 
-.settings-shell .form-switch-track {
-  position: relative;
-  width: 30px;
-  height: 18px;
-  border-radius: 999px;
-  border: 1px solid var(--control-border);
-  background: color-mix(in srgb, var(--menu-border) 28%, var(--input-bg) 72%);
-  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
-  flex: 0 0 auto;
-}
-
-.settings-shell .form-switch-track::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 2px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--fg) 88%, var(--input-bg) 12%);
-  transform: translateY(-50%);
-  transition: transform var(--motion-fast) ease, background-color var(--motion-fast) ease;
-}
-
 .settings-shell .form-switch-row > input[type="checkbox"]:focus-visible + .form-switch-track {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--selection) 35%, transparent);
 }
@@ -2489,11 +2807,6 @@ select.form-control:hover {
 .settings-shell .form-switch-row > input[type="checkbox"]:checked + .form-switch-track {
   background: var(--appids-chip-selected-bg);
   border-color: var(--appids-chip-selected-bg);
-}
-
-.settings-shell .form-switch-row > input[type="checkbox"]:checked + .form-switch-track::after {
-  transform: translate(14px, -50%);
-  background: #ffffff;
 }
 
 .settings-shell .form-switch-row > input[type="checkbox"]:disabled + .form-switch-track {
@@ -2759,6 +3072,7 @@ select.form-control:hover {
 .appids-footer-headless-switch:hover,
 .appids-footer-headless-switch:focus-within {
   background: var(--menu-hover);
+  color: var(--menu-text-hover);
 }
 
 .appids-footer-headless-switch > input[type="checkbox"] {
@@ -2769,30 +3083,6 @@ select.form-control:hover {
   pointer-events: none;
 }
 
-.appids-footer-headless-switch .form-switch-track {
-  position: relative;
-  width: 30px;
-  height: 18px;
-  border-radius: 999px;
-  border: 1px solid var(--control-border);
-  background: color-mix(in srgb, var(--menu-border) 28%, var(--input-bg) 72%);
-  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
-  flex: 0 0 auto;
-}
-
-.appids-footer-headless-switch .form-switch-track::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 2px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--fg) 88%, var(--input-bg) 12%);
-  transform: translateY(-50%);
-  transition: transform var(--motion-fast) ease, background-color var(--motion-fast) ease;
-}
-
 .appids-footer-headless-switch > input[type="checkbox"]:focus-visible + .form-switch-track {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--selection) 35%, transparent);
 }
@@ -2800,11 +3090,6 @@ select.form-control:hover {
 .appids-footer-headless-switch > input[type="checkbox"]:checked + .form-switch-track {
   background: var(--appids-chip-selected-bg);
   border-color: var(--appids-chip-selected-bg);
-}
-
-.appids-footer-headless-switch > input[type="checkbox"]:checked + .form-switch-track::after {
-  transform: translate(14px, -50%);
-  background: #ffffff;
 }
 
 .appids-footer-headless-switch > input[type="checkbox"]:disabled + .form-switch-track {

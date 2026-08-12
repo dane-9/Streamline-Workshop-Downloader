@@ -1,4 +1,44 @@
-:root {
+:root,
+body.theme-default {
+  --page-bg: linear-gradient(180deg, #171d25 0%, #24282f 42%, #20242a 100%);
+  --card-bg: radial-gradient(circle at top left, rgba(74, 81, 92, 0.4) 0%, rgba(75, 81, 92, 0) 60%), #25282e;
+  --bg-0: #20242a;
+  --bg-1: #25282e;
+  --bg-2: #2c323b;
+  --line: #3d4450;
+  --text-0: #dcdedf;
+  --text-1: #acb2b8;
+  --text-2: #8f98a0;
+  --accent: #417a9b;
+  --accent-hover: #67c1f5;
+  --accent-pressed: #366682;
+  --good: #67bf8a;
+  --bad: #d97878;
+  --chip-bg: #272d37;
+  --chip-border: #3d4450;
+  --secondary-bg: #272d37;
+  --secondary-hover: #3d4450;
+  --secondary-pressed: #20242a;
+  --secondary-hover-text: #ffffff;
+  --button-border: transparent;
+  --error-bg: #321d1d;
+  --error-border: #8b3333;
+  --error-text: #ffbcbc;
+  --active-text: #dcecff;
+  --complete-text: #dcecff;
+  --step-error-text: #ffdede;
+  --running-chip-text: #d9e8ff;
+  --success-chip-text: #c8f2d6;
+  --error-chip-text: #ffd8d8;
+  --scroll-track: #20242b;
+  --scroll-thumb: #4e4c4e;
+  --scroll-thumb-hover: #6a696d;
+  --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.42);
+}
+
+body.theme-dark {
+  --page-bg: radial-gradient(circle at 20% 10%, #22252c 0%, #121212 58%);
+  --card-bg: color-mix(in srgb, #1e1e1e 90%, #252526 10%);
   --bg-0: #121212;
   --bg-1: #1e1e1e;
   --bg-2: #252526;
@@ -13,9 +53,61 @@
   --bad: #d97878;
   --chip-bg: #2c2c32;
   --chip-border: #4b4b55;
+  --secondary-bg: #333333;
+  --secondary-hover: #555555;
+  --secondary-pressed: #444444;
+  --secondary-hover-text: #ffffff;
+  --button-border: transparent;
+  --error-bg: #2e1b1b;
+  --error-border: #6b2d2d;
+  --error-text: #ffbcbc;
+  --active-text: #e6f1ff;
+  --complete-text: #dcecff;
+  --step-error-text: #ffdede;
+  --running-chip-text: #d9e8ff;
+  --success-chip-text: #c8f2d6;
+  --error-chip-text: #ffd8d8;
   --scroll-track: #2c2c2c;
   --scroll-thumb: #6c6c6c;
   --scroll-thumb-hover: #888888;
+  --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.42);
+}
+
+body.theme-light {
+  --page-bg: radial-gradient(circle at 20% 10%, #ffffff 0%, #e7e7e7 68%);
+  --card-bg: #f3f3f3;
+  --bg-0: #f3f3f3;
+  --bg-1: #f3f3f3;
+  --bg-2: #fbfbfb;
+  --line: #d8d8d8;
+  --text-0: #000000;
+  --text-1: #282828;
+  --text-2: #5f5f5f;
+  --accent: #0078d4;
+  --accent-hover: #1685d8;
+  --accent-pressed: #0067b8;
+  --good: #2e7d4f;
+  --bad: #b23b3b;
+  --chip-bg: #f5f5f5;
+  --chip-border: #c9c9c9;
+  --secondary-bg: #fbfbfb;
+  --secondary-hover: #e8e8e8;
+  --secondary-pressed: #dddddd;
+  --secondary-hover-text: #000000;
+  --button-border: #d2d2d2;
+  --error-bg: #fff1f1;
+  --error-border: #ca4e4e;
+  --error-text: #8a2424;
+  --active-text: #174d73;
+  --complete-text: #174d73;
+  --step-error-text: #8a2424;
+  --running-chip-text: #174d73;
+  --success-chip-text: #205f3a;
+  --error-chip-text: #8a2424;
+  --scroll-track: #fbfbfb;
+  --scroll-thumb: #c2c2c5;
+  --scroll-thumb-hover: #aaaaaa;
+  --card-shadow: 0 10px 30px rgba(15, 23, 42, 0.16);
 }
 
 * {
@@ -28,7 +120,7 @@ body {
   height: 100%;
   margin: 0;
   font-family: "Segoe UI", Tahoma, sans-serif;
-  background: radial-gradient(circle at 20% 10%, #22252c 0%, var(--bg-0) 58%);
+  background: var(--page-bg);
   color: var(--text-1);
   opacity: 1;
   transition: opacity 260ms ease;
@@ -52,11 +144,11 @@ body.fade-out {
   width: min(600px, 100%);
   height: min(350px, calc(100vh - 32px));
   min-height: 350px;
-  background: color-mix(in srgb, var(--bg-1) 90%, var(--bg-2) 10%);
+  background: var(--card-bg);
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
   border-radius: 8px;
   padding: 20px 20px 16px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.42);
+  box-shadow: var(--card-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -146,7 +238,7 @@ body.fade-out {
 }
 
 .setup-step.is-active {
-  color: #e6f1ff;
+  color: var(--active-text);
 }
 
 .setup-step.is-active .setup-step-dot {
@@ -156,7 +248,7 @@ body.fade-out {
 }
 
 .setup-step.is-complete {
-  color: #dcecff;
+  color: var(--complete-text);
 }
 
 .setup-step.is-complete .setup-step-dot {
@@ -165,7 +257,7 @@ body.fade-out {
 }
 
 .setup-step.is-error {
-  color: #ffdede;
+  color: var(--step-error-text);
 }
 
 .setup-step.is-error .setup-step-dot {
@@ -247,21 +339,21 @@ body.fade-out {
 .setup-appids-progress-badge.state-running {
   border-color: rgba(94, 149, 255, 0.62);
   background: rgba(94, 149, 255, 0.2);
-  color: #d9e8ff;
+  color: var(--running-chip-text);
 }
 
 .setup-steamcmd-progress-badge.state-success,
 .setup-appids-progress-badge.state-success {
   border-color: rgba(102, 203, 139, 0.58);
   background: rgba(102, 203, 139, 0.2);
-  color: #c8f2d6;
+  color: var(--success-chip-text);
 }
 
 .setup-steamcmd-progress-badge.state-error,
 .setup-appids-progress-badge.state-error {
   border-color: rgba(213, 115, 115, 0.62);
   background: rgba(213, 115, 115, 0.2);
-  color: #ffd8d8;
+  color: var(--error-chip-text);
 }
 
 .setup-steamcmd-progress-bar-track,
@@ -406,9 +498,9 @@ body.fade-out {
 
 .setup-error {
   margin: 12px 0 0;
-  border: 1px solid #6b2d2d;
-  background: #2e1b1b;
-  color: #ffbcbc;
+  border: 1px solid var(--error-border);
+  background: var(--error-bg);
+  color: var(--error-text);
   padding: 10px;
   border-radius: 6px;
   white-space: pre-wrap;
@@ -452,7 +544,7 @@ body.fade-out {
 }
 
 .setup-btn {
-  border: none;
+  border: 1px solid var(--button-border);
   border-radius: 4px;
   padding: 8px 14px;
   font-size: 13px;
@@ -474,17 +566,17 @@ body.fade-out {
 }
 
 .setup-btn.secondary {
-  background: #333;
+  background: var(--secondary-bg);
   color: var(--text-1);
 }
 
 .setup-btn.secondary:hover {
-  background: #555;
-  color: #fff;
+  background: var(--secondary-hover);
+  color: var(--secondary-hover-text);
 }
 
 .setup-btn.secondary:active {
-  background: #444;
+  background: var(--secondary-pressed);
 }
 
 .hidden {
