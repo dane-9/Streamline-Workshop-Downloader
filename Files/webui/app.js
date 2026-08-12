@@ -5841,7 +5841,16 @@ async function openSettingsEditor() {
           addLog(error?.message || "Failed to check clipboard support.", "bad");
         }
       });
-      resetDefaultsBtn.addEventListener("click", () => {
+      resetDefaultsBtn.addEventListener("click", async () => {
+        const confirmed = await showConfirmDialog({
+          title: "Reset Settings",
+          message: "Reset all settings in this dialog to their defaults?",
+          okLabel: "Reset",
+          cancelLabel: "Cancel"
+        });
+        if (!confirmed) {
+          return;
+        }
         resetFormToDefaults();
         addLog("Settings reset to defaults in the dialog. Click Apply to save.", "good");
       });
