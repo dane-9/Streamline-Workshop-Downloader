@@ -1418,6 +1418,26 @@ button.control:not(:disabled):active,
   mask-image: url("../settings.svg");
 }
 
+#settings-btn:hover::before {
+  animation: settings-cog-spin 700ms ease-out;
+  transform-origin: center;
+}
+
+@keyframes settings-cog-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #settings-btn:hover::before {
+    animation: none;
+  }
+}
+
 #appids-btn::before {
   -webkit-mask-image: url("../update-appids.svg");
   mask-image: url("../update-appids.svg");
