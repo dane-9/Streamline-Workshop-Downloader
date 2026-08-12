@@ -77,6 +77,7 @@ let eventPollRequested = false;
 let queueRefreshTimer = null;
 let queueRefreshForceReload = false;
 let browserQueue = [];
+const pendingQueueEntryAnimations = new Map();
 let activeColumnResize = null;
 let searchRenderTimer = null;
 let appShuttingDown = false;
@@ -1781,6 +1782,7 @@ function getSharedCommands() {
         const result = await callApi("import_queue", filePath);
         if (result?.success) {
           addLog(`Queue imported (${result.added} added, ${result.skipped} skipped).`, "good");
+          queueNewEntryAnimations(result.added_mod_ids);
           await refreshQueue({ forceReload: true });
         } else {
           addLog(result?.error || "Import failed.", "bad");
@@ -3634,6 +3636,76 @@ function createQueueRow(modId) {
   return row;
 }
 
+function animateNewQueueRow(row, delayMs = 0) {
+  if (!(row instanceof HTMLElement)) {
+    return;
+  }
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    row.classList.remove("queue-entry-added");
+    row.style.removeProperty("--queue-entry-add-delay");
+    return;
+  }
+  const safeDelay = Math.max(0, Number(delayMs) || 0);
+  const durationMs = 240;
+  const cleanup = () => {
+    if (row._queueEntryAnimationTimer) {
+      window.clearTimeout(row._queueEntryAnimationTimer);
+      row._queueEntryAnimationTimer = null;
+    }
+    row.classList.remove("queue-entry-added");
+    row.style.removeProperty("--queue-entry-add-delay");
+    row._queueEntryAnimationStartAt = 0;
+    row._queueEntryAnimationEndAt = 0;
+  };
+  row._queueEntryAnimationStartAt = performance.now() + safeDelay;
+  row._queueEntryAnimationEndAt = row._queueEntryAnimationStartAt + durationMs;
+  row.style.setProperty("--queue-entry-add-delay", `${safeDelay}ms`);
+  row.classList.remove("queue-entry-added");
+  row.classList.add("queue-entry-added");
+  const finishAnimation = (event) => {
+    if (event.target !== row || event.animationName !== "queue-entry-added") {
+      return;
+    }
+    row.removeEventListener("animationend", finishAnimation);
+    cleanup();
+  };
+  row.addEventListener("animationend", finishAnimation);
+  row._queueEntryAnimationTimer = window.setTimeout(cleanup, safeDelay + durationMs + 80);
+}
+
+function syncQueueEntryAnimationTimeline(row) {
+  if (!row?.classList?.contains("queue-entry-added")) {
+    return;
+  }
+  const now = performance.now();
+  const startAt = Number(row._queueEntryAnimationStartAt || 0);
+  const endAt = Number(row._queueEntryAnimationEndAt || 0);
+  if (!startAt || !endAt || now >= endAt) {
+    row.classList.remove("queue-entry-added");
+    row.style.removeProperty("--queue-entry-add-delay");
+    return;
+  }
+  row.style.setProperty("--queue-entry-add-delay", `${startAt - now}ms`);
+}
+
+function queueNewEntryAnimations(modIds) {
+  const ids = Array.from(new Set((Array.isArray(modIds) ? modIds : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)));
+  ids.forEach((modId, index) => {
+    const delayMs = Math.min(index, 24) * 32;
+    pendingQueueEntryAnimations.set(modId, delayMs);
+    const existingRow = state.rowCache.get(modId);
+    if (existingRow?.isConnected) {
+      pendingQueueEntryAnimations.delete(modId);
+      animateNewQueueRow(existingRow, delayMs);
+    }
+  });
+  window.setTimeout(() => {
+    ids.forEach((modId) => pendingQueueEntryAnimations.delete(modId));
+  }, 2000);
+}
+
 function syncQueueInputActions() {
   addToQueueBtn?.classList.toggle("primary-ready", Boolean(itemUrlInput?.value.trim()));
 }
@@ -3845,6 +3917,11 @@ function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, 
   }
 
   row.classList.toggle("selected", state.selectedModIds.has(String(item.mod_id)));
+  const pendingAnimationDelay = pendingQueueEntryAnimations.get(String(item.mod_id));
+  if (pendingAnimationDelay !== undefined) {
+    pendingQueueEntryAnimations.delete(String(item.mod_id));
+    animateNewQueueRow(row, pendingAnimationDelay);
+  }
   const isReorderSource = !!queueReorderDrag?.modIds?.has(String(item.mod_id));
   row.classList.toggle("queue-reorder-source", isReorderSource);
   if (!isReorderSource) {
@@ -4118,6 +4195,7 @@ function renderQueueViewport(force = false) {
       state.rowCache.set(modId, row);
     }
     updateQueueRow(row, item, i, virtualShowRowNumbers, virtualHiddenColumns, virtualLayoutKey);
+    syncQueueEntryAnimationTimeline(row);
     fragment.appendChild(row);
   }
 
@@ -5003,6 +5081,7 @@ function wireQueueFileDrop() {
         return;
       }
       addLog(`Queue imported from ${file.name} (${result.added} added, ${result.skipped} skipped).`, "good");
+      queueNewEntryAnimations(result.added_mod_ids);
       await refreshQueue({ forceReload: true });
     } catch (error) {
       addLog(error?.message || "Unable to read the dropped queue file.", "bad");
@@ -7626,6 +7705,10 @@ async function handleEvent(event) {
 
   if (type === "queue") {
     scheduleQueueRefresh(true);
+    return;
+  }
+  if (type === "queue_entries_added") {
+    queueNewEntryAnimations(payload.mod_ids);
     return;
   }
   if (type === "queue_status") {

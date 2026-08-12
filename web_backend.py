@@ -1794,6 +1794,7 @@ class StreamlineWebBackend:
     def _import_queue_rows(self, reader):
         added = 0
         skipped = 0
+        added_mod_ids = []
         with self.state_lock:
             for parts in reader:
                 if len(parts) not in (4, 5):
@@ -1817,8 +1818,14 @@ class StreamlineWebBackend:
                 self._queue_mod_ids.add(mod_id)
                 self._queue_mod_map[mod_id] = queue_mod
                 added += 1
+                added_mod_ids.append(mod_id)
         self._emit_event("queue", {"action": "refresh"})
-        return {"success": True, "added": added, "skipped": skipped}
+        return {
+            "success": True,
+            "added": added,
+            "skipped": skipped,
+            "added_mod_ids": added_mod_ids,
+        }
 
     def import_queue(self, file_path):
         if not file_path or not os.path.isfile(file_path):
@@ -1961,6 +1968,9 @@ class StreamlineWebBackend:
                 hydration_candidates,
                 collection_game_info=collection_game_info,
             )
+
+        if added_mod_ids:
+            self._emit_event("queue_entries_added", {"mod_ids": added_mod_ids})
 
         return {
             "added": added,
