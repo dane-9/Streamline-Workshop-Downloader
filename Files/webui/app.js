@@ -1287,7 +1287,7 @@ function showKeywordConfirmDialog({
     overlay.innerHTML = `
       <div class="confirm-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
         <h3 class="confirm-title">${escapeHtml(title)}</h3>
-        <p class="confirm-message">${escapeHtml(message)}</p>
+        <p class="confirm-message"></p>
         <input class="form-control confirm-keyword-input" type="text" placeholder="${escapeHtml(expected)}">
         <div class="confirm-actions" style="margin-top:10px;">
           <button type="button" class="control modal-btn" data-confirm-action="cancel">${escapeHtml(cancelLabel)}</button>
@@ -1300,9 +1300,44 @@ function showKeywordConfirmDialog({
     const okBtn = overlay.querySelector("[data-confirm-action='ok']");
     const cancelBtn = overlay.querySelector("[data-confirm-action='cancel']");
     const input = overlay.querySelector(".confirm-keyword-input");
+    const messageEl = overlay.querySelector(".confirm-message");
+    let copyFeedbackTimer = null;
+
+    if (messageEl) {
+      const messageText = String(message || "");
+      const keywordIndex = expected ? messageText.indexOf(expected) : -1;
+      if (keywordIndex < 0) {
+        messageEl.textContent = messageText;
+      } else {
+        messageEl.append(document.createTextNode(messageText.slice(0, keywordIndex)));
+        const copyKeywordBtn = document.createElement("button");
+        copyKeywordBtn.type = "button";
+        copyKeywordBtn.className = "confirm-keyword-copy";
+        copyKeywordBtn.textContent = expected;
+        copyKeywordBtn.title = `Copy ${expected}`;
+        copyKeywordBtn.setAttribute("aria-label", `Copy ${expected}`);
+        copyKeywordBtn.addEventListener("click", async () => {
+          const copied = await copyTextToClipboard(expected);
+          copyKeywordBtn.classList.toggle("copied", copied);
+          copyKeywordBtn.title = copied ? `Copied ${expected}` : `Failed to copy ${expected}`;
+          if (copyFeedbackTimer) {
+            window.clearTimeout(copyFeedbackTimer);
+          }
+          copyFeedbackTimer = window.setTimeout(() => {
+            copyKeywordBtn.classList.remove("copied");
+            copyKeywordBtn.title = `Copy ${expected}`;
+          }, 1200);
+        });
+        messageEl.append(copyKeywordBtn);
+        messageEl.append(document.createTextNode(messageText.slice(keywordIndex + expected.length)));
+      }
+    }
 
     const cleanup = (value) => {
       document.removeEventListener("keydown", onKeyDown, true);
+      if (copyFeedbackTimer) {
+        window.clearTimeout(copyFeedbackTimer);
+      }
       overlay.remove();
       resolve(!!value);
     };

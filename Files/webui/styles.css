@@ -2102,6 +2102,35 @@ button.control:not(:disabled):active,
   line-height: 1.4;
 }
 
+.confirm-keyword-copy {
+  margin: 0 2px;
+  padding: 1px 5px;
+  border: 1px solid var(--control-border);
+  border-bottom-color: var(--control-border-bottom);
+  border-radius: 3px;
+  background: var(--input-bg);
+  color: var(--fg-hover);
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.confirm-keyword-copy:hover {
+  border-color: var(--control-border-hover);
+  border-bottom-color: var(--control-border-bottom-hover);
+  background: var(--control-hover);
+  color: var(--fg-hover);
+}
+
+.confirm-keyword-copy.copied {
+  border-color: var(--primary-bg);
+  border-bottom-color: var(--primary-bg);
+  background: var(--primary-bg);
+  color: var(--primary-text);
+}
+
 .confirm-keyword-input {
   width: 100%;
 }
