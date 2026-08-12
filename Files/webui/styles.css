@@ -643,6 +643,7 @@ body.window-resizing-ns {
 
 .search-row {
   position: relative;
+  z-index: 31;
   min-height: 28px;
 }
 
