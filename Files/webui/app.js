@@ -7048,9 +7048,9 @@ async function openTutorialDialog(options = {}) {
     },
     {
       title: "Command Palette",
-      message: "The Command Palette gives you easy access to all actions in Streamline. It can be accessed via the 'Additional Actions' chevron, or via shortcuts: Ctrl+K or double-tap Shift.",
-      selectors: ["#open-command-palette-btn", "#commands-split-menu"],
-      ensureCommandSplitMenuOpen: true,
+      message: "The Command Palette gives you easy access to all actions in Streamline. Open it from the Additional Actions chevron, or use Ctrl+K or double-tap Shift.",
+      selectors: [".command-palette-card"],
+      ensureCommandPaletteOpen: true,
       disableAutoScroll: true
     },
     {
@@ -7111,6 +7111,7 @@ async function openTutorialDialog(options = {}) {
       </section>
     `;
     document.body.appendChild(overlay);
+    document.body.classList.add("tutorial-active");
 
     const spotlight = overlay.querySelector(".tutorial-spotlight");
     const card = overlay.querySelector(".tutorial-card");
@@ -7152,16 +7153,10 @@ async function openTutorialDialog(options = {}) {
     };
 
     const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
-    const ensureCommandSplitMenuOpen = () => {
-      if (!commandPaletteBtn || !commandsSplitMenu) {
-        return;
+    const ensureCommandPaletteOpen = () => {
+      if (!isCommandPaletteOpen()) {
+        openCommandPalette();
       }
-      if (commandPaletteBtn.style.display === "none") {
-        return;
-      }
-      hideCommandSplitMenu();
-      commandsSplitMenu.classList.remove("hidden");
-      commandPaletteBtn.classList.add("active");
     };
 
     const placeCard = (targetRect) => {
@@ -7223,12 +7218,18 @@ async function openTutorialDialog(options = {}) {
         width: Math.max(0, right - left),
         height: Math.max(0, bottom - top)
       };
-      const pad = 6;
+      const pad = 3;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const outlineLeft = clamp(rect.left - pad, 0, viewportWidth);
+      const outlineTop = clamp(rect.top - pad, 0, viewportHeight);
+      const outlineRight = clamp(rect.right + pad, 0, viewportWidth);
+      const outlineBottom = clamp(rect.bottom + pad, 0, viewportHeight);
       spotlight.classList.remove("hidden");
-      spotlight.style.left = `${Math.max(0, rect.left - pad)}px`;
-      spotlight.style.top = `${Math.max(0, rect.top - pad)}px`;
-      spotlight.style.width = `${Math.max(12, rect.width + pad * 2)}px`;
-      spotlight.style.height = `${Math.max(12, rect.height + pad * 2)}px`;
+      spotlight.style.left = `${outlineLeft}px`;
+      spotlight.style.top = `${outlineTop}px`;
+      spotlight.style.width = `${Math.max(0, outlineRight - outlineLeft)}px`;
+      spotlight.style.height = `${Math.max(0, outlineBottom - outlineTop)}px`;
       placeCard(rect);
       return true;
     };
@@ -7265,9 +7266,11 @@ async function openTutorialDialog(options = {}) {
         document.removeEventListener("keydown", onKeyDown, true);
       }
       closeMenuPopups();
+      closeCommandPalette({ restoreFocus: false });
       window.removeEventListener("resize", positionStep);
       window.removeEventListener("scroll", positionStep, true);
       overlay.remove();
+      document.body.classList.remove("tutorial-active");
       tutorialSession = null;
       await persistTutorialSettings();
       resolve(true);
@@ -7278,6 +7281,7 @@ async function openTutorialDialog(options = {}) {
       hideHeaderContextMenu();
       hideLogsContextMenu();
       closeMenuPopups();
+      closeCommandPalette({ restoreFocus: false });
 
       index = clamp(index, 0, steps.length - 1);
       const step = steps[index] || steps[0];
@@ -7295,14 +7299,14 @@ async function openTutorialDialog(options = {}) {
         if (!overlay.isConnected || finishing) {
           return;
         }
-        if (step.ensureCommandSplitMenuOpen) {
-          ensureCommandSplitMenuOpen();
+        if (step.ensureCommandPaletteOpen) {
+          ensureCommandPaletteOpen();
         }
         pendingTargets = findStepTargets(step);
         if (!step.disableAutoScroll && pendingTargets[0] && typeof pendingTargets[0].scrollIntoView === "function") {
           pendingTargets[0].scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
         }
-        const highlighted = positionStep({ allowFallback: !step.ensureCommandSplitMenuOpen });
+        const highlighted = positionStep({ allowFallback: true });
         if (!highlighted && attempt < 8) {
           window.setTimeout(() => resolveTargetsAndPosition(attempt + 1), 40);
           return;
@@ -7315,12 +7319,12 @@ async function openTutorialDialog(options = {}) {
         }, 120);
       };
 
-      if (step.ensureCommandSplitMenuOpen) {
+      if (step.ensureCommandPaletteOpen) {
         window.setTimeout(() => {
           if (!overlay.isConnected || finishing) {
             return;
           }
-          ensureCommandSplitMenuOpen();
+          ensureCommandPaletteOpen();
           resolveTargetsAndPosition();
         }, 0);
         return;

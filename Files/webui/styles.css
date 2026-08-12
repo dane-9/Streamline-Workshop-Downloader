@@ -2115,9 +2115,14 @@ button.control:not(:disabled):active,
 .tutorial-overlay {
   position: fixed;
   inset: 0;
-  z-index: 110;
+  z-index: 1000;
+  overflow: hidden;
   pointer-events: auto;
   --tutorial-step-motion: 320ms;
+}
+
+body.tutorial-active #queue-empty-state {
+  visibility: hidden;
 }
 
 .tutorial-spotlight {
@@ -2138,12 +2143,12 @@ button.control:not(:disabled):active,
 .tutorial-card {
   position: fixed;
   width: min(420px, calc(100vw - 24px));
-  background: color-mix(in srgb, var(--dialog-bg) 90%, var(--tree-bg) 10%);
+  background: var(--dialog-bg);
   border: 1px solid color-mix(in srgb, var(--panel-border) 86%, transparent);
   border-radius: 10px;
   padding: 12px 12px 11px;
   box-shadow: var(--elev-modal);
-  z-index: 111;
+  z-index: 1001;
   color: var(--modal-text-color);
   animation: surface-enter var(--motion-base) ease;
   transition: left var(--tutorial-step-motion) ease, top var(--tutorial-step-motion) ease;
