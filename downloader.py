@@ -1084,6 +1084,8 @@ def run_pywebview_main_gui():
     try:
         if platform.system().lower() == "linux":
             webview.start(debug=False, gui="qt", icon=window_icon)
+        elif platform.system().lower() == "windows":
+            webview.start(debug=False)
         else:
             webview.start(debug=False, icon=window_icon)
     finally:
