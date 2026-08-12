@@ -43,7 +43,7 @@ DEFAULT_SETTINGS = {
     "auto_add_to_queue": False,
     "delete_downloads_on_cancel": False,
     "steamcmd_existing_mod_behavior": "Only Redownload if Updated",
-    "download_button": True,
+    "download_button": False,
     "show_searchbar": True,
     "show_commands_button": True,
     "show_export_import_buttons": True,
