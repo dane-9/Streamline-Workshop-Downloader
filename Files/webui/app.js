@@ -65,6 +65,10 @@ const modalOkBtn = document.getElementById("modal-ok-btn");
 const titlebarLogo = document.getElementById("titlebar-logo");
 const windowResizeEast = document.getElementById("window-resize-east");
 const windowResizeSouth = document.getElementById("window-resize-south");
+let activeTooltipTarget = null;
+let tooltipHideTimer = null;
+let tooltipShowTimer = null;
+let tooltipElement = null;
 
 document.body.style.opacity = "0";
 document.body.style.transition = "opacity 220ms ease";
@@ -1314,18 +1318,18 @@ function showKeywordConfirmDialog({
         copyKeywordBtn.type = "button";
         copyKeywordBtn.className = "confirm-keyword-copy";
         copyKeywordBtn.textContent = expected;
-        copyKeywordBtn.title = `Copy ${expected}`;
+        copyKeywordBtn.dataset.tooltip = `Copy ${expected}`;
         copyKeywordBtn.setAttribute("aria-label", `Copy ${expected}`);
         copyKeywordBtn.addEventListener("click", async () => {
           const copied = await copyTextToClipboard(expected);
           copyKeywordBtn.classList.toggle("copied", copied);
-          copyKeywordBtn.title = copied ? `Copied ${expected}` : `Failed to copy ${expected}`;
+          copyKeywordBtn.dataset.tooltip = copied ? `Copied ${expected}` : `Failed to copy ${expected}`;
           if (copyFeedbackTimer) {
             window.clearTimeout(copyFeedbackTimer);
           }
           copyFeedbackTimer = window.setTimeout(() => {
             copyKeywordBtn.classList.remove("copied");
-            copyKeywordBtn.title = `Copy ${expected}`;
+            copyKeywordBtn.dataset.tooltip = `Copy ${expected}`;
           }, 1200);
         });
         messageEl.append(copyKeywordBtn);
@@ -1382,6 +1386,146 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function ensureTooltipElement() {
+  if (tooltipElement?.isConnected) {
+    return tooltipElement;
+  }
+  tooltipElement = document.createElement("div");
+  tooltipElement.className = "app-tooltip hidden";
+  tooltipElement.setAttribute("role", "tooltip");
+  document.body.appendChild(tooltipElement);
+  return tooltipElement;
+}
+
+function getTooltipTarget(node) {
+  if (!(node instanceof Element)) {
+    return null;
+  }
+  const target = node.closest("[data-tooltip], [title]");
+  if (!(target instanceof HTMLElement) || target.closest(".app-tooltip")) {
+    return null;
+  }
+  const text = String(target.dataset.tooltip || target.title || "").trim();
+  return text ? { element: target, text } : null;
+}
+
+function clearTooltipTimers() {
+  if (tooltipShowTimer) {
+    window.clearTimeout(tooltipShowTimer);
+    tooltipShowTimer = null;
+  }
+  if (tooltipHideTimer) {
+    window.clearTimeout(tooltipHideTimer);
+    tooltipHideTimer = null;
+  }
+}
+
+function hideAppTooltip() {
+  clearTooltipTimers();
+  activeTooltipTarget = null;
+  if (tooltipElement) {
+    tooltipElement.classList.add("hidden");
+  }
+}
+
+function positionAppTooltip(target) {
+  if (!tooltipElement || !target) {
+    return;
+  }
+  const rect = target.getBoundingClientRect();
+  const tooltipRect = tooltipElement.getBoundingClientRect();
+  const margin = 8;
+  const gap = 6;
+  let left = rect.left + (rect.width - tooltipRect.width) / 2;
+  let top = rect.bottom + gap;
+  if (top + tooltipRect.height > window.innerHeight - margin && rect.top - tooltipRect.height - gap >= margin) {
+    top = rect.top - tooltipRect.height - gap;
+  }
+  left = Math.max(margin, Math.min(left, window.innerWidth - tooltipRect.width - margin));
+  top = Math.max(margin, Math.min(top, window.innerHeight - tooltipRect.height - margin));
+  tooltipElement.style.left = `${left}px`;
+  tooltipElement.style.top = `${top}px`;
+}
+
+function showAppTooltip(target, text) {
+  if (!target?.isConnected || !text || activeTooltipTarget !== target) {
+    return;
+  }
+  const tooltip = ensureTooltipElement();
+  tooltip.textContent = text;
+  tooltip.classList.toggle("single-line", target.dataset.tooltipSingleLine === "true");
+  tooltip.classList.remove("hidden");
+  positionAppTooltip(target);
+}
+
+function scheduleAppTooltip(target, text = "") {
+  const tooltipText = String(text || target?.dataset?.tooltip || "").trim();
+  if (!(target instanceof HTMLElement) || !tooltipText) {
+    hideAppTooltip();
+    return;
+  }
+  hideAppTooltip();
+  activeTooltipTarget = target;
+  tooltipShowTimer = window.setTimeout(() => {
+    tooltipShowTimer = null;
+    showAppTooltip(target, tooltipText);
+  }, 360);
+}
+
+function wireTooltips() {
+  const migrateTitle = (element) => {
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    const title = element.getAttribute("title");
+    if (!title) {
+      return;
+    }
+    element.dataset.tooltip = title;
+    element.removeAttribute("title");
+  };
+
+  document.querySelectorAll("[title]").forEach(migrateTitle);
+
+  const titleObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.type === "attributes") {
+        migrateTitle(mutation.target);
+        return;
+      }
+      mutation.addedNodes.forEach((node) => {
+        if (!(node instanceof Element)) {
+          return;
+        }
+        if (node instanceof HTMLElement) {
+          migrateTitle(node);
+        }
+        node.querySelectorAll?.("[title]").forEach(migrateTitle);
+      });
+    });
+  });
+  titleObserver.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["title"] });
+
+  document.addEventListener("mouseover", (event) => {
+    const targetInfo = getTooltipTarget(event.target);
+    if (!targetInfo || targetInfo.element === activeTooltipTarget) {
+      return;
+    }
+    scheduleAppTooltip(targetInfo.element, targetInfo.text);
+  });
+
+  document.addEventListener("mouseout", (event) => {
+    const targetInfo = getTooltipTarget(event.target);
+    if (!targetInfo || !event.relatedTarget || !(event.relatedTarget instanceof Node) || !targetInfo.element.contains(event.relatedTarget)) {
+      hideAppTooltip();
+    }
+  });
+
+  document.addEventListener("focusin", hideAppTooltip);
+  window.addEventListener("resize", hideAppTooltip);
+  window.addEventListener("scroll", hideAppTooltip, true);
 }
 
 async function callApi(method, ...args) {
@@ -2956,11 +3100,11 @@ function updateQueueStatisticsTooltip() {
   if (downloading > 0) {
     tooltip += `\nDownloading: ${downloading}`;
   }
-  filterBtn.title = tooltip;
+  filterBtn.dataset.tooltip = tooltip;
 }
 
 function applyWorkshopHelpTooltip() {
-  urlHelpBtn.title = [
+  urlHelpBtn.dataset.tooltip = [
     "Workshop Input Formats",
     "",
     "• Game AppID (e.g., 108600) or Store URL: Queue all mods for a game",
@@ -3818,9 +3962,9 @@ function syncQueueCellTooltip(cell) {
   const overflowTarget = content?.querySelector(":scope > .queue-status-badge, :scope > .queue-cell-text") || content;
   const isTruncated = !!overflowTarget && overflowTarget.scrollWidth > overflowTarget.clientWidth + 1;
   if (value && isTruncated) {
-    cell.title = value;
+    cell.dataset.tooltip = value;
   } else {
-    cell?.removeAttribute("title");
+    cell?.removeAttribute("data-tooltip");
   }
 }
 
@@ -3878,8 +4022,18 @@ function ensureQueueRowStructure(row, layoutKey, showRowNumbers, hiddenColumns) 
     }
     cell.appendChild(content);
     cell._content = content;
-    cell.addEventListener("mouseenter", () => syncQueueCellTooltip(cell));
-    cell.addEventListener("mouseleave", () => cell.removeAttribute("title"));
+    cell.addEventListener("mouseenter", () => {
+      syncQueueCellTooltip(cell);
+      if (cell.dataset.tooltip) {
+        scheduleAppTooltip(cell, cell.dataset.tooltip);
+      }
+    });
+    cell.addEventListener("mouseleave", () => {
+      cell.removeAttribute("data-tooltip");
+      if (activeTooltipTarget === cell) {
+        hideAppTooltip();
+      }
+    });
     if (hiddenColumns[columnIndex]) {
       cell.classList.add("col-hidden");
     }
@@ -3902,7 +4056,7 @@ function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, 
   if (row._dragHandle) {
     const disabledReason = getQueueReorderDisabledReason();
     row._dragHandle.disabled = !!disabledReason;
-    row._dragHandle.title = disabledReason || "Drag to reorder";
+    row._dragHandle.dataset.tooltip = disabledReason || "Drag to reorder";
   }
 
   if (showRowNumbers && cells.row_number) {
@@ -3924,7 +4078,7 @@ function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, 
           ? getProviderDisplayName(item.provider)
         : String(item[column.key] ?? "");
       cell.dataset.fullValue = value;
-      cell.removeAttribute("title");
+      cell.removeAttribute("data-tooltip");
       let content = cell._content || cell.querySelector(":scope > .queue-cell-content");
       if (!content) {
         content = document.createElement("span");
@@ -6942,7 +7096,7 @@ async function openAppIdsManager() {
           const toggleWrap = document.createElement("label");
           toggleWrap.id = "appids-headless-toggle";
           toggleWrap.className = "appids-footer-headless-switch form-checkbox-row form-switch-row";
-          toggleWrap.title = "Disable headless mode to use a visible browser and manually complete Cloudflare checks.";
+          toggleWrap.dataset.tooltip = "Disable headless mode to use a visible browser and manually complete Cloudflare checks.";
           toggleWrap.innerHTML = `
             <input id="appids-headless-input" type="checkbox" ${useHeadlessMode ? "checked" : ""}>
             <span class="form-switch-track" aria-hidden="true"></span>
@@ -8045,6 +8199,7 @@ async function connectToPythonApi() {
 async function initializeApp() {
   renderLogTimeline();
   initAllAnimatedSelects(document);
+  wireTooltips();
   applyWorkshopHelpTooltip();
   updateQueueStatisticsTooltip();
 

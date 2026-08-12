@@ -447,6 +447,13 @@ body.theme-default .import-export-spacer {
   border-left-color: #414a52;
 }
 
+body.theme-default .app-tooltip {
+  border-color: #aeb4ba;
+  background: #d9dcde;
+  color: #1b1d20;
+  box-shadow: none;
+}
+
 body.theme-light #minimize-btn::before,
 body.theme-light #close-btn::before,
 body.theme-light .commands-split-label::before,
@@ -1798,6 +1805,39 @@ button.control:not(:disabled):active,
   height: 1px;
   background: var(--menu-border);
   margin: 4px 6px;
+}
+
+.app-tooltip {
+  position: fixed;
+  z-index: 1200;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 6px 8px;
+  border: 1px solid var(--menu-border);
+  border-radius: 3px;
+  background: var(--menu-popup-bg);
+  color: var(--menu-text);
+  box-shadow: var(--elev-floating);
+  font: inherit;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity var(--motion-fast) ease, transform var(--motion-fast) ease, visibility var(--motion-fast) ease;
+}
+
+.app-tooltip.hidden {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+}
+
+.app-tooltip.single-line {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .command-palette-overlay {
