@@ -7778,7 +7778,6 @@ async function openAboutDialog() {
 
   await showFormModal({
     title: "About",
-    message: "Streamline Workshop Downloader",
     html,
     okLabel: "Close",
     showCancel: false,
