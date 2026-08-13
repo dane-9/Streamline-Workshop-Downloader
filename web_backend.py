@@ -2130,7 +2130,7 @@ class StreamlineWebBackend:
                     context={
                         "app_id": str(item_id),
                         "queue_build_operation_id": build_operation_id,
-                        "operation_state": "done",
+                        "operation_state": "run",
                     },
                     operation_id=operation_id,
                 )
