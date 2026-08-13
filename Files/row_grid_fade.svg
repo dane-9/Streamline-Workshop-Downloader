@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="695" height="20" viewBox="0 0 695 20" preserveAspectRatio="none" aria-hidden="true">
+  <defs>
+    <pattern id="subgrid" width="6" height="6" patternUnits="userSpaceOnUse">
+      <path d="M6 0H0V6" fill="none" stroke="#e2e7eb" stroke-opacity="0.14" stroke-width="0.5"/>
+    </pattern>
+    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="white" stop-opacity="0"/>
+      <stop offset="0.38" stop-color="white" stop-opacity="0.02"/>
+      <stop offset="0.72" stop-color="white" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="white" stop-opacity="0.82"/>
+    </linearGradient>
+    <mask id="rightFade">
+      <rect width="695" height="20" fill="url(#fade)"/>
+    </mask>
+  </defs>
+  <rect width="695" height="20" fill="url(#subgrid)" mask="url(#rightFade)"/>
+</svg>

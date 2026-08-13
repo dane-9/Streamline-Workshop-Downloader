@@ -381,7 +381,12 @@ body.theme-default .modal-btn.primary:disabled {
 body.theme-default #queue-table tbody tr:not(.selected) {
   color: #a8b2ba;
   background-color: transparent;
-  background-image: linear-gradient(135deg, rgba(97, 100, 101, 0.3) 0%, rgba(226, 244, 255, 0.3) 100%);
+  background-image:
+    url("../row_grid_fade.svg"),
+    linear-gradient(135deg, rgba(97, 100, 101, 0.3) 0%, rgba(226, 244, 255, 0.3) 100%);
+  background-position: left center;
+  background-repeat: no-repeat;
+  background-size: 100% 20px, 100% 100%;
 }
 
 body.theme-default #queue-table tbody tr:not(.selected) td,
@@ -393,7 +398,11 @@ body.theme-default #queue-table tbody tr:not(.selected) .queue-row-drag-handle {
 
 body.theme-default #queue-table tbody tr:not(.selected):hover {
   color: #ffffff;
-  background: #417a9b;
+  background-color: #417a9b;
+  background-image: url("../row_grid_fade.svg");
+  background-position: left center;
+  background-repeat: no-repeat;
+  background-size: 100% 20px;
 }
 
 body.theme-default #queue-table tbody tr:not(.selected):hover td,
@@ -407,8 +416,20 @@ body.theme-default #queue-table tbody tr.selected td {
   color: #ffffff;
 }
 
+body.theme-default #queue-table tbody tr.selected {
+  background-color: var(--selection);
+  background-image: url("../row_grid_fade.svg");
+  background-position: left center;
+  background-repeat: no-repeat;
+  background-size: 100% 20px;
+}
+
 body.theme-default #queue-table tbody tr.selected:hover {
-  background: #586f96;
+  background-color: #586f96;
+  background-image: url("../row_grid_fade.svg");
+  background-position: left center;
+  background-repeat: no-repeat;
+  background-size: 100% 20px;
 }
 
 body.theme-default #queue-table tbody tr.selected:hover .queue-status-badge {
