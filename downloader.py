@@ -32,7 +32,6 @@ MIN_WINDOW_HEIGHT = DEFAULT_WINDOW_HEIGHT
 DEFAULT_SETTINGS = {
     "current_theme": "Default",
     "modal_text_color": "",
-    "logo_style": "Light",
     "batch_size": 10,
     "show_logs": True,
     "show_provider": True,

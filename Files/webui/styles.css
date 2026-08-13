@@ -580,21 +580,6 @@ body.window-resizing-ns {
   padding: 0 6px;
 }
 
-.titlebar-logo {
-  width: 16px;
-  height: 16px;
-  margin-right: 6px;
-  user-select: none;
-  pointer-events: none;
-}
-
-.titlebar-text {
-  font-size: 12px;
-  color: var(--fg);
-  user-select: none;
-  pointer-events: none;
-}
-
 .titlebar-actions {
   display: flex;
   align-items: stretch;

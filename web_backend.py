@@ -499,6 +499,7 @@ class StreamlineWebBackend:
                     config.update(loaded)
             except Exception as e:
                 self.log(f"Failed to load config.json: {e}", tone="bad", source="system", action="config_load_failed")
+        config.pop("logo_style", None)
         return config
 
     def _write_config_snapshot(self, snapshot):

@@ -62,7 +62,6 @@ const modalForm = document.getElementById("modal-form");
 const modalInput = document.getElementById("modal-input");
 const modalCancelBtn = document.getElementById("modal-cancel-btn");
 const modalOkBtn = document.getElementById("modal-ok-btn");
-const titlebarLogo = document.getElementById("titlebar-logo");
 const windowResizeEast = document.getElementById("window-resize-east");
 const windowResizeSouth = document.getElementById("window-resize-south");
 let activeTooltipTarget = null;
@@ -1942,7 +1941,6 @@ function getSharedCommands() {
   const autoDetect = !!config.auto_detect_urls;
   const autoAdd = !!config.auto_add_to_queue;
   const theme = String(config.current_theme || "Default");
-  const logoStyle = String(config.logo_style || "Light");
 
   return [
     {
@@ -2076,33 +2074,6 @@ function getSharedCommands() {
       keywords: "theme light",
       run: async () => {
         await applySettingsPatch({ current_theme: "Light" }, "Theme changed to Light.");
-      }
-    },
-    {
-      id: "logo_light",
-      label: "Logo Style: Light",
-      hint: logoStyle === "Light" ? "Current" : "Appearance",
-      keywords: "logo style light",
-      run: async () => {
-        await applySettingsPatch({ logo_style: "Light" }, "Logo style changed to Light.");
-      }
-    },
-    {
-      id: "logo_dark",
-      label: "Logo Style: Dark",
-      hint: logoStyle === "Dark" ? "Current" : "Appearance",
-      keywords: "logo style dark",
-      run: async () => {
-        await applySettingsPatch({ logo_style: "Dark" }, "Logo style changed to Dark.");
-      }
-    },
-    {
-      id: "logo_darker",
-      label: "Logo Style: Darker",
-      hint: logoStyle === "Darker" ? "Current" : "Appearance",
-      keywords: "logo style darker",
-      run: async () => {
-        await applySettingsPatch({ logo_style: "Darker" }, "Logo style changed to Darker.");
       }
     },
     {
@@ -5528,19 +5499,6 @@ function applyModalTextColor(colorValue) {
   }
 }
 
-function syncLogoStyle() {
-  const style = String(state.config.logo_style || "Light");
-  let logoPath = "../logo.png";
-  if (style === "Dark") {
-    logoPath = "../logo_dark.png";
-  } else if (style === "Darker") {
-    logoPath = "../logo_darker.png";
-  }
-  if (titlebarLogo) {
-    titlebarLogo.src = logoPath;
-  }
-}
-
 function applyVisibilityConfig(config) {
   searchRow.style.display = config.show_searchbar === false ? "none" : "";
   logWrap.style.display = config.show_logs === false ? "none" : "";
@@ -5628,7 +5586,6 @@ async function useBootstrapData(data) {
   applyTheme(config.current_theme || "Default");
   applyModalTextColor(config.modal_text_color);
   applyVisibilityConfig(config);
-  syncLogoStyle();
   syncWindowTitle();
   updateLogsContextMenuSelection();
   scheduleLogTimelineRender({ preserveScroll: true });
@@ -5780,7 +5737,6 @@ async function applyHeaderLayoutPatch(patch, successMessage) {
 
   state.config = result.config || state.config;
   applyVisibilityConfig(state.config);
-  syncLogoStyle();
   syncWindowTitle();
   renderQueue();
   if (successMessage) {
@@ -5951,16 +5907,6 @@ function buildSettingsFormHtml(settings) {
                 </select>
               </div>
             </div>
-            <div class="form-block">
-              <label for="st-logo">Logo Style</label>
-              <div class="select-chevron-wrap">
-                <select id="st-logo" class="form-control">
-                  <option value="Light" ${settings.logo_style === "Light" ? "selected" : ""}>Light</option>
-                  <option value="Dark" ${settings.logo_style === "Dark" ? "selected" : ""}>Dark</option>
-                  <option value="Darker" ${settings.logo_style === "Darker" ? "selected" : ""}>Darker</option>
-                </select>
-              </div>
-            </div>
           </div>
           <div class="form-divider"></div>
           <div class="settings-section-subtitle">Show</div>
@@ -6113,7 +6059,6 @@ async function openSettingsEditor() {
       };
       const resetFormToDefaults = () => {
         setSelect("st-theme", state.settingsDefaults.current_theme);
-        setSelect("st-logo", state.settingsDefaults.logo_style);
         setSelect("st-provider", state.settingsDefaults.download_provider);
         setNumber("st-batch", state.settingsDefaults.batch_size);
         setSelect("st-existing", state.settingsDefaults.steamcmd_existing_mod_behavior);
@@ -6177,7 +6122,6 @@ async function openSettingsEditor() {
     onSubmit: async (root) => {
       const patch = {
         current_theme: root.querySelector("#st-theme").value,
-        logo_style: root.querySelector("#st-logo").value,
         download_provider: root.querySelector("#st-provider").value,
         batch_size: Math.max(1, Number(root.querySelector("#st-batch").value || state.settingsDefaults.batch_size)),
         steamcmd_existing_mod_behavior: root.querySelector("#st-existing").value,
@@ -6212,7 +6156,6 @@ async function openSettingsEditor() {
       applyTheme(state.config.current_theme || "Default");
       applyModalTextColor(state.config.modal_text_color);
       applyVisibilityConfig(state.config);
-      syncLogoStyle();
       syncWindowTitle();
       setProviderValue(state.config.download_provider);
       renderQueue();
@@ -6235,7 +6178,6 @@ async function applySettingsPatch(patch, successMessage = "Settings updated.") {
   applyTheme(state.config.current_theme || "Default");
   applyModalTextColor(state.config.modal_text_color);
   applyVisibilityConfig(state.config);
-  syncLogoStyle();
   syncWindowTitle();
   setProviderValue(state.config.download_provider);
   renderQueue();
@@ -7767,11 +7709,9 @@ async function openAboutDialog() {
   const queueCountSource = data?.queue_total ?? data?.queue_stats?.total ?? (data?.queue || []).length;
   const queueCount = Number(queueCountSource || 0);
   const appIdsCount = data?.appids_count ?? 0;
-  const logoStyle = state.config.logo_style || "Light";
-  const logoPath = logoStyle === "Dark" ? "../logo_dark.png" : (logoStyle === "Darker" ? "../logo_darker.png" : "../logo.png");
   const html = `
     <div style="text-align:center; margin-bottom: 10px;">
-      <img src="${logoPath}" alt="Streamline logo" style="width:64px; height:64px;">
+      <img src="../logo.png" alt="Streamline logo" style="width:64px; height:64px;">
     </div>
     <p style="margin: 0 0 8px; text-align:center;"><strong>Streamline - Steam Workshop Downloader</strong></p>
     <p style="margin: 0 0 10px; text-align:center;">Version ${escapeHtml(version)} | Created by dane-9</p>
@@ -8097,7 +8037,6 @@ async function handleEvent(event) {
     applyTheme(state.config.current_theme || "Default");
     applyModalTextColor(state.config.modal_text_color);
     applyVisibilityConfig(state.config);
-    syncLogoStyle();
     syncWindowTitle();
     updateLogsContextMenuSelection();
     scheduleLogTimelineRender({ preserveScroll: true });
