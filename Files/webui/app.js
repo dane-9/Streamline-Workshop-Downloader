@@ -5859,7 +5859,7 @@ function buildSettingsFormHtml(settings) {
             </div>
             <div class="form-block">
               <label for="st-batch" class="settings-inline-note-host">Batch Size <span class="settings-inline-note">&lt;50 Recommended</span></label>
-              <input id="st-batch" class="form-control" type="number" min="1" max="500" value="${Number(settings.batch_size || 20)}">
+              <input id="st-batch" class="form-control" type="number" min="1" max="500" value="${Number(settings.batch_size)}">
             </div>
             <div class="form-block" style="grid-column: 1 / -1;">
               <label for="st-existing">Existing Mods</label>
@@ -6051,7 +6051,7 @@ async function openSettingsEditor() {
         current_theme: root.querySelector("#st-theme").value,
         logo_style: root.querySelector("#st-logo").value,
         download_provider: root.querySelector("#st-provider").value,
-        batch_size: Math.max(1, Number(root.querySelector("#st-batch").value || 20)),
+        batch_size: Math.max(1, Number(root.querySelector("#st-batch").value || state.settingsDefaults.batch_size)),
         steamcmd_existing_mod_behavior: root.querySelector("#st-existing").value,
         folder_naming_format: root.querySelector("#st-folder-format").value,
         download_button: root.querySelector("#st-download-btn").checked,

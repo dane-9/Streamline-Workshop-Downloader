@@ -3386,7 +3386,7 @@ class StreamlineWebBackend:
                 if not queued_mods:
                     break
 
-                batch_size = max(1, int(self.config.get("batch_size", 20)))
+                batch_size = max(1, int(self.config["batch_size"]))
                 selected_batch = list(queued_mods[:batch_size])
 
                 steamcmd_mods = []
@@ -3589,7 +3589,7 @@ class StreamlineWebBackend:
             self._active_download_retry_by_mod = {}
             self._active_download_last_progress_at = 0.0
             self._active_download_last_progress_key = ""
-            batch_size = max(1, int(self.config.get("batch_size", 20)))
+            batch_size = max(1, int(self.config["batch_size"]))
             active_account = str(self.config.get("active_account", "Anonymous") or "Anonymous")
 
         total_targets = len(target_ids)
