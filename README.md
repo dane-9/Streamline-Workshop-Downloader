@@ -1,19 +1,19 @@
 ![STREAMLINE BANNER](https://github.com/user-attachments/assets/bd9cfce7-dde0-469a-8208-7caa8b9fb91a)
 
-**Streamline** is a modern Steam Workshop downloader **built with pywebview**. It lets you queue, manage, and download Workshop mods and collections through an intuitive web-based interface, powered by SteamCMD and SteamWebAPI under the hood.
+**Streamline** is a modern, cross-platform Steam Workshop downloader **built with pywebview**. It lets you queue, manage, and download individual Workshop items, collections, or an entire game's Workshop through an intuitive interface powered by SteamCMD and SteamWebAPI.
 
 [![GitHub Release](https://img.shields.io/github/v/release/dane-9/Streamline-Workshop-Downloader.svg?label=Current%20Release&color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge&logo=github)](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) [![GitHub Release Date](https://img.shields.io/github/release-date/dane-9/Streamline-Workshop-Downloader.svg?label=Version%20Released&color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge)](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) [![GitHub Downloads](https://img.shields.io/github/downloads/dane-9/Streamline-Workshop-Downloader/total.svg?color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge)](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) [![GitHub Stars](https://img.shields.io/github/stars/dane-9/Streamline-Workshop-Downloader.svg?color=e3dcdc&labelColor=555555&logoColor=ffffff&style=for-the-badge)](https://github.com/dane-9/Streamline-Workshop-Downloader)
 
 ## User Interface
-<img src="https://i.imgur.com/cEuE8D6.png" alt="gui" width="600"/>
+<img src="https://i.imgur.com/sn49Zi2.png" alt="gui" width="600"/>
 
 ## Features
 | Feature | Description |
 |---|---|
-| **Virtual-Scrolled Queue** | *<sub>Handles **thousands of mods** with no lag. Only visible rows are rendered, with smart fetch-ahead buffering and backend pagination.</sub>* |
-| **Command Palette** | *<sub>A searchable launcher (`Ctrl+K` or double-tap `Shift`) that gives you fast access to **every action** in the app. Replaces the old menu bar.</sub>* |
+| **Virtual-Scrolled Queue** | *<sub>Handles **thousands of mods** with no lag. Includes marquee selection, bulk actions, drag reordering, drag-and-drop importing, status filtering, and animated status badges.</sub>* |
+| **Command Palette** | *<sub>A searchable launcher (`Ctrl+K` or double-tap `Shift`) that gives you fast access to **every action** in the app.</sub>* |
 | **Interactive SteamCMD Terminal** | *<sub>Authenticate accounts directly inside Streamline. Streams SteamCMD output in real time and lets you enter **Steam Guard codes** without leaving the app. Password input is visible as you type for convenience (unlike SteamCMD's hidden input).<br>**Passwords are NOT saved**; authentication is handled exclusively by SteamCMD.</sub>* |
-| **Realtime Log Overview** | *<sub>Logs are organized into collapsible operation groups with **color-coded state badges** (`RUN` / `DONE` / `ERROR` / `STOP`). Filterable by category.</sub>* |
+| **Realtime Log Overview** | *<sub>Logs are organized into collapsible operation groups with **color-coded state badges** (`RUN` / `DONE` / `WARN` / `ERROR` / `STOP`), in-place progress updates, and category filtering.</sub>* |
 | **Multiple Steam Accounts** | *<sub>Add, remove, re-authenticate, and **drag-reorder** multiple Steam accounts. Avatars are fetched and displayed automatically.</sub>* |
 | **Mod & Collection Downloading** | *<sub>Queue individual mods, entire collections, or an **entire game's Workshop** (up to 50,010 mods per scrape).</sub>* |
 | **Download from Multiple Providers** | *<sub>Simultaneously download mods from **SteamCMD** and **SteamWebAPI** at once and with different AppIDs.</sub>* |
@@ -23,10 +23,8 @@
 | **Clipboard URL Detection** | *<sub>Detects Steam Workshop URLs copied to your clipboard and optionally adds them to the queue automatically.</sub>* |
 | **Import & Export Queue** | *<sub>Save and load download queues for sharing or backup.</sub>* |
 | **Batch Processing** | *<sub>Download mods in configurable batches for optimized performance.</sub>* |
-| **Customizable Settings** | *<sub>Adjust themes, batch sizes, folder naming, provider defaults, visibility toggles, and startup behavior.</sub>* |
-| **Custom Frameless Window** | *<sub>Fully frameless window with a custom title bar, native resize grips, and persistent window size.</sub>* |
-
-*No additional Python dependencies are required when using a packaged release.* ***An alternative is running from source with your existing Python installation.***
+| **Customizable Settings** | *<sub>Adjust themes, batch sizes, folder naming, provider defaults, visibility toggles, and startup behavior. Includes the new grid-backed **Default** theme.</sub>* |
+| **Custom Frameless Window** | *<sub>Fully frameless window with a custom title bar, native resizing, persistent window size, and improved Wayland behavior.</sub>* |
 
 ## Installation
 
@@ -34,20 +32,21 @@
 
 #### Windows
 
-1. Download the latest `Streamline.exe` from the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page
-2. Place it in its own folder and launch it
+1. Download `Streamline-Windows.zip` from the latest entry on the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page
+2. Extract the entire ZIP to a folder
+3. Launch `Streamline.exe` from the extracted folder
 
 #### Linux
 
-1. Download the latest `Streamline-x86_64.AppImage` from the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page
+1. Download `Streamline.AppImage` from the latest entry on the [Releases](https://github.com/dane-9/Streamline-Workshop-Downloader/releases) page
 2. Place it in its own folder
 3. Make it executable:
    ```bash
-   chmod +x Streamline-x86_64.AppImage
+   chmod +x Streamline.AppImage
    ```
 4. Launch it:
    ```bash
-   ./Streamline-x86_64.AppImage
+   ./Streamline.AppImage
    ```
    Or double-click the AppImage after making it executable.
 
@@ -74,6 +73,10 @@ If you prefer to run from source code:
 4. Install dependencies:
    ```bash
    pip install -r Files/requirements.txt
+   ```
+   Linux also requires the Qt backend:
+   ```bash
+   pip install PySide6
    ```
 5. Run Streamline:
    ```bash
