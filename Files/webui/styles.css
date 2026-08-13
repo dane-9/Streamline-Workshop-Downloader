@@ -3640,8 +3640,10 @@ body.column-resizing {
 }
 
 .queue-status-badge {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   max-width: 100%;
   height: 15px;
   padding: 0 6px;
@@ -3653,6 +3655,7 @@ body.column-resizing {
   line-height: 13px;
   text-overflow: ellipsis;
   vertical-align: middle;
+  transition: color 160ms ease, background-color 180ms ease, border-color 180ms ease;
 }
 
 .queue-status-badge.is-neutral,
@@ -3698,6 +3701,12 @@ body.column-resizing {
 @keyframes queue-status-pulse {
   0%, 100% { opacity: 0.45; transform: scale(0.86); }
   50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .queue-status-badge {
+    transition: none;
+  }
 }
 
 .queue-empty-state {

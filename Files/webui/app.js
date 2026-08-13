@@ -82,6 +82,7 @@ let queueRefreshTimer = null;
 let queueRefreshForceReload = false;
 let browserQueue = [];
 const pendingQueueEntryAnimations = new Map();
+const queueStatusAnimationSequences = new Map();
 let activeColumnResize = null;
 let searchRenderTimer = null;
 let appShuttingDown = false;
@@ -3939,6 +3940,62 @@ function getQueueStatusTone(item, displayText) {
     return "muted";
   }
   return "neutral";
+}
+
+function animateQueueStatusChange(modId, status, previousWidth) {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  if (normalizedStatus !== "downloading" && normalizedStatus !== "downloaded") {
+    return;
+  }
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    return;
+  }
+
+  const now = performance.now();
+  const previous = queueStatusAnimationSequences.get(normalizedStatus);
+  const sequenceIndex = previous && now - previous.updatedAt < 500
+    ? previous.index + 1
+    : 0;
+  queueStatusAnimationSequences.set(normalizedStatus, {
+    index: sequenceIndex,
+    updatedAt: now
+  });
+
+  const row = state.rowCache.get(String(modId));
+  const badge = row?.querySelector('.queue-status-badge');
+  if (!badge) {
+    return;
+  }
+
+  if (badge._statusWidthAnimation) {
+    badge._statusWidthAnimation.cancel();
+  }
+  const startWidth = Math.max(0, Number(previousWidth) || 0);
+  const targetWidth = badge.getBoundingClientRect().width;
+  if (!startWidth || !targetWidth || Math.abs(startWidth - targetWidth) < 0.5) {
+    return;
+  }
+
+  const delayMs = Math.min(sequenceIndex, 10) * 24;
+  const animation = badge.animate(
+    [
+      { width: `${startWidth}px` },
+      { width: `${targetWidth}px` }
+    ],
+    {
+      duration: 220,
+      delay: delayMs,
+      easing: "cubic-bezier(0.2, 0.75, 0.25, 1)",
+      fill: "backwards"
+    }
+  );
+  badge._statusWidthAnimation = animation;
+  animation.onfinish = () => {
+    if (badge._statusWidthAnimation === animation) {
+      badge._statusWidthAnimation = null;
+    }
+  };
+  animation.oncancel = animation.onfinish;
 }
 
 function createSpacerRow(className, colSpan) {
@@ -7847,6 +7904,10 @@ function applyQueueStatusEvent(payload) {
   const invalidateQueueView = !!payload?.invalidate_queue_view;
   const retryCount = Math.max(0, Number(payload?.retry_count || 0));
   const maxRetries = Math.max(1, Number(payload?.max_retries || 3));
+  const previousBadgeWidth = state.rowCache
+    .get(modId)
+    ?.querySelector('.queue-status-badge')
+    ?.getBoundingClientRect().width || 0;
   let previousStatus = payload?.previous_status !== undefined && payload?.previous_status !== null
     ? String(payload.previous_status)
     : "";
@@ -7894,12 +7955,14 @@ function applyQueueStatusEvent(payload) {
 
   if (virtualBackendEnabled) {
     renderQueueViewport(true);
+    animateQueueStatusChange(modId, nextStatus, previousBadgeWidth);
     updateSearchPlaceholder();
     return;
   }
 
   if (touched) {
     renderQueue();
+    animateQueueStatusChange(modId, nextStatus, previousBadgeWidth);
   } else {
     updateSearchPlaceholder();
   }
