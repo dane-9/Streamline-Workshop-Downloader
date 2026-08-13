@@ -1,0 +1,552 @@
+name: Build Application
+run-name: Build v${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. 2.0.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare release build
+    runs-on: ubuntu-22.04
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Resolve build metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must be numeric X.Y.Z, for example 2.2.0."
+            exit 1
+          fi
+
+          SHA="$(git rev-parse HEAD)"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+          echo "Building main commit: $SHA"
+          echo "Release tag: v$VERSION"
+
+      - name: Verify vendored pywebview exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f third_party/pywebview-6.2.1/webview/__init__.py || {
+            echo "::error::Missing third_party/pywebview-6.2.1/webview/__init__.py"
+            exit 1
+          }
+
+      - name: Check application version
+        env:
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          source = Path("downloader.py").read_text(encoding="utf-8")
+          match = re.search(
+              r'^\s*current_version\s*=\s*["\']([^"\']+)["\']',
+              source,
+              re.MULTILINE,
+          )
+          if not match:
+              raise SystemExit("Could not find current_version in downloader.py")
+
+          source_version = match.group(1)
+          release_version = os.environ["RELEASE_VERSION"]
+
+          if source_version != release_version:
+              raise SystemExit(
+                  f"Version mismatch: downloader.py has {source_version!r}, "
+                  f"but the workflow was started for {release_version!r}."
+              )
+
+          print(f"Application version matches release: {source_version}")
+          PY
+
+  build-windows:
+    name: Build Windows onedir
+    needs: prepare
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout exact main commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.12"
+          cache: pip
+          cache-dependency-path: Files/requirements.txt
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r Files/requirements.txt "pyinstaller==6.21.0" pillow
+          python -c "import sys,requests,lxml,certifi,urllib3,urllib3.response,backports.zstd; from importlib.metadata import version; assert urllib3.response.HAS_ZSTD; print(sys.version); print('requests', requests.__version__); print('lxml', lxml.__version__); print('certifi', certifi.__version__); print('urllib3', urllib3.__version__); print('backports.zstd', version('backports.zstd'))"
+          pyinstaller --version
+
+      - name: Use vendored pywebview
+        shell: pwsh
+        run: |
+          $fork = Join-Path $env:GITHUB_WORKSPACE "third_party\pywebview-6.2.1"
+          $package = Join-Path $fork "webview"
+
+          if (!(Test-Path (Join-Path $package "__init__.py"))) {
+            throw "Vendored pywebview was not found at $fork"
+          }
+
+          "PYWEBVIEW_FORK_DIR=$fork" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PYTHONPATH=$fork" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          $env:PYTHONPATH = $fork
+          $resolved = (python -c "import pathlib, webview; print(pathlib.Path(webview.__file__).resolve())").Trim()
+          Write-Host "Using pywebview: $resolved"
+
+          $expected = [System.IO.Path]::GetFullPath($package).TrimEnd('\') + '\'
+          $actual = [System.IO.Path]::GetFullPath($resolved)
+
+          if (!$actual.StartsWith($expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Expected vendored pywebview under $package, but Python resolved $resolved"
+          }
+
+      - name: Create Windows icon and version resource
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        shell: pwsh
+        run: |
+          python -c "from PIL import Image; im=Image.open('Files/logo.png').convert('RGBA'); im.save('Streamline.ico', format='ICO', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+
+          $parts = $env:RELEASE_VERSION.Split('.')
+          if ($parts.Count -ne 3) {
+            throw "Expected a three-part release version."
+          }
+
+          $major = [int]$parts[0]
+          $minor = [int]$parts[1]
+          $patch = [int]$parts[2]
+          $displayVersion = "$($env:RELEASE_VERSION).0"
+
+          @"
+          VSVersionInfo(
+            ffi=FixedFileInfo(
+              filevers=($major, $minor, $patch, 0),
+              prodvers=($major, $minor, $patch, 0),
+              mask=0x3f,
+              flags=0x0,
+              OS=0x40004,
+              fileType=0x1,
+              subtype=0x0,
+              date=(0, 0)
+            ),
+            kids=[
+              StringFileInfo([
+                StringTable(
+                  u'040904B0',
+                  [
+                    StringStruct(u'FileDescription', u'Streamline: Steam Workshop Downloader'),
+                    StringStruct(u'FileVersion', u'$displayVersion'),
+                    StringStruct(u'InternalName', u'Streamline'),
+                    StringStruct(u'OriginalFilename', u'Streamline.exe'),
+                    StringStruct(u'ProductName', u'Streamline: Steam Workshop Downloader'),
+                    StringStruct(u'ProductVersion', u'$displayVersion')
+                  ]
+                )
+              ]),
+              VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+            ]
+          )
+          "@ | Set-Content -Path "Streamline-version.txt" -Encoding utf8
+
+      - name: Build Streamline with PyInstaller
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
+          Remove-Item -Force Streamline.spec -ErrorAction SilentlyContinue
+
+          pyinstaller `
+            --noconfirm `
+            --onedir `
+            --windowed `
+            --noupx `
+            --name Streamline `
+            --icon Streamline.ico `
+            --version-file Streamline-version.txt `
+            --paths "$env:PYWEBVIEW_FORK_DIR" `
+            --collect-all backports.zstd `
+            --hidden-import backports.zstd `
+            --hidden-import lxml.etree `
+            --hidden-import lxml.html `
+            --add-data "Files:Files" `
+            downloader.py
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "PyInstaller failed with exit code $LASTEXITCODE."
+          }
+
+          if (!(Test-Path "dist\Streamline\Streamline.exe")) {
+            throw "PyInstaller completed but dist\Streamline\Streamline.exe was not found."
+          }
+
+      - name: Package Windows onedir build
+        shell: pwsh
+        run: |
+          $zip = "Streamline-Windows.zip"
+          Remove-Item -Force $zip -ErrorAction SilentlyContinue
+
+          Compress-Archive `
+            -Path "dist\Streamline" `
+            -DestinationPath $zip `
+            -CompressionLevel Optimal
+
+          if (!(Test-Path $zip)) {
+            throw "Windows ZIP was not created."
+          }
+
+          Write-Host "Created $zip"
+          Get-Item $zip | Format-List Name,Length
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v7
+        with:
+          name: Streamline-Windows
+          path: Streamline-Windows.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  build-linux:
+    name: Build Linux AppImage
+    needs: prepare
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout exact main commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.12"
+          cache: pip
+          cache-dependency-path: Files/requirements.txt
+
+      - name: Install Linux dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1 \
+            libegl1 \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libdbus-1-3
+
+          python -m pip install --upgrade pip
+          python -m pip install -r Files/requirements.txt "pyinstaller==6.21.0" Pillow PySide6
+          python -c "import sys,requests,lxml,certifi,urllib3,urllib3.response,backports.zstd,PySide6; from importlib.metadata import version; assert urllib3.response.HAS_ZSTD; print(sys.version); print('requests', requests.__version__); print('lxml', lxml.__version__); print('certifi', certifi.__version__); print('urllib3', urllib3.__version__); print('backports.zstd', version('backports.zstd')); print('PySide6', PySide6.__version__)"
+          pyinstaller --version
+
+      - name: Install appimagetool
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APPIMAGETOOL_URL="$(
+            curl -fsSL https://api.github.com/repos/AppImage/appimagetool/releases/tags/1.9.1 \
+              | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(a["browser_download_url"] for a in data["assets"] if a["name"] == "appimagetool-x86_64.AppImage"))'
+          )"
+
+          mkdir -p "$HOME/.local/bin"
+          curl -fL "$APPIMAGETOOL_URL" -o "$HOME/.local/bin/appimagetool"
+          chmod +x "$HOME/.local/bin/appimagetool"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+          APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/.local/bin/appimagetool" --version
+
+      - name: Use vendored pywebview
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PYWEBVIEW_FORK_DIR="$GITHUB_WORKSPACE/third_party/pywebview-6.2.1"
+          PYWEBVIEW_PACKAGE_DIR="$PYWEBVIEW_FORK_DIR/webview"
+
+          test -f "$PYWEBVIEW_PACKAGE_DIR/__init__.py"
+          test -f "$PYWEBVIEW_PACKAGE_DIR/platforms/qt.py"
+
+          echo "PYWEBVIEW_FORK_DIR=$PYWEBVIEW_FORK_DIR" >> "$GITHUB_ENV"
+          echo "PYTHONPATH=$PYWEBVIEW_FORK_DIR" >> "$GITHUB_ENV"
+
+          export PYTHONPATH="$PYWEBVIEW_FORK_DIR"
+          resolved="$(python -c 'import pathlib, webview; print(pathlib.Path(webview.__file__).resolve())')"
+          echo "Using pywebview: $resolved"
+
+          case "$resolved" in
+            "$PYWEBVIEW_PACKAGE_DIR"/*) ;;
+            *)
+              echo "::error::Expected vendored pywebview under $PYWEBVIEW_PACKAGE_DIR, but Python resolved $resolved"
+              exit 1
+              ;;
+          esac
+
+      - name: Build Streamline with PyInstaller
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf build dist Streamline.spec Streamline.AppDir
+
+          pyinstaller \
+            --noconfirm \
+            --onedir \
+            --name Streamline \
+            --paths "$PYWEBVIEW_FORK_DIR" \
+            --collect-all backports.zstd \
+            --hidden-import backports.zstd \
+            --hidden-import webview.platforms.qt \
+            --hidden-import PySide6.QtCore \
+            --hidden-import PySide6.QtGui \
+            --hidden-import PySide6.QtWidgets \
+            --hidden-import PySide6.QtNetwork \
+            --hidden-import PySide6.QtWebChannel \
+            --hidden-import PySide6.QtWebEngineCore \
+            --hidden-import PySide6.QtWebEngineWidgets \
+            --hidden-import lxml.etree \
+            --hidden-import lxml.html \
+            --add-data "Files:Files" \
+            downloader.py
+
+          test -x dist/Streamline/Streamline || {
+            echo "::error::PyInstaller completed but dist/Streamline/Streamline was not found."
+            exit 1
+          }
+
+          test -d dist/Streamline/_internal/PySide6 || {
+            echo "::error::PySide6 was not bundled."
+            exit 1
+          }
+
+      - name: Use target system graphics libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          find dist/Streamline \( -type f -o -type l \) \( \
+            -name 'libGL.so*' -o \
+            -name 'libGLX.so*' -o \
+            -name 'libOpenGL.so*' -o \
+            -name 'libEGL.so*' -o \
+            -name 'libGLdispatch.so*' -o \
+            -name 'libgbm.so*' -o \
+            -name 'libdrm.so*' -o \
+            -name 'libglapi.so*' -o \
+            -name 'libstdc++.so*' -o \
+            -name 'libgcc_s.so*' -o \
+            -name 'libglib-2.0.so*' -o \
+            -name 'libgobject-2.0.so*' -o \
+            -name 'libgio-2.0.so*' -o \
+            -name 'libgmodule-2.0.so*' -o \
+            -name 'libgthread-2.0.so*' \
+          \) -print -delete
+
+          find dist/Streamline \( -type f -o -type l \) -name 'libqgtk3.so' -print -delete
+
+          if find dist/Streamline \( -type f -o -type l \) \( \
+            -name 'libGL.so*' -o \
+            -name 'libGLX.so*' -o \
+            -name 'libOpenGL.so*' -o \
+            -name 'libEGL.so*' -o \
+            -name 'libGLdispatch.so*' -o \
+            -name 'libgbm.so*' -o \
+            -name 'libdrm.so*' -o \
+            -name 'libglapi.so*' -o \
+            -name 'libstdc++.so*' -o \
+            -name 'libgcc_s.so*' -o \
+            -name 'libglib-2.0.so*' -o \
+            -name 'libgobject-2.0.so*' -o \
+            -name 'libgio-2.0.so*' -o \
+            -name 'libgmodule-2.0.so*' -o \
+            -name 'libgthread-2.0.so*' -o \
+            -name 'libqgtk3.so' \
+          \) -print -quit | grep -q .; then
+            echo "::error::A host graphics or desktop integration library remains bundled."
+            exit 1
+          fi
+
+      - name: Package AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APPDIR="Streamline.AppDir"
+          APPIMAGE_NAME="Streamline.AppImage"
+
+          rm -rf "$APPDIR"
+          rm -f "$APPIMAGE_NAME"
+
+          mkdir -p \
+            "$APPDIR/usr/bin" \
+            "$APPDIR/usr/share/applications" \
+            "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          cp -a dist/Streamline/. "$APPDIR/usr/bin/"
+
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          export QT_QPA_PLATFORM=xcb
+          exec "$HERE/usr/bin/Streamline" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+
+          cat > "$APPDIR/streamline.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Streamline
+          Comment=Steam Workshop Downloader
+          Exec=Streamline
+          Icon=streamline
+          Categories=Network;Utility;
+          Terminal=false
+          StartupWMClass=Streamline
+          EOF
+
+          cp "$APPDIR/streamline.desktop" "$APPDIR/usr/share/applications/streamline.desktop"
+          python -c "from PIL import Image; im=Image.open('Files/logo.png').convert('RGBA'); im.thumbnail((256, 256), Image.Resampling.LANCZOS); im.save('$APPDIR/streamline.png')"
+          cp "$APPDIR/streamline.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/streamline.png"
+          ln -s streamline.png "$APPDIR/.DirIcon"
+
+          ARCH=x86_64 \
+          APPIMAGE_EXTRACT_AND_RUN=1 \
+          appimagetool "$APPDIR" "$APPIMAGE_NAME"
+
+          test -f "$APPIMAGE_NAME" || {
+            echo "::error::AppImage packaging completed but $APPIMAGE_NAME was not found."
+            exit 1
+          }
+
+      - name: Upload Linux build
+        uses: actions/upload-artifact@v7
+        with:
+          name: Streamline-Linux
+          path: Streamline.AppImage
+          if-no-files-found: error
+          compression-level: 0
+
+  draft-release:
+    name: Create GitHub release
+    needs:
+      - prepare
+      - build-windows
+      - build-linux
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout exact source commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Download Windows build
+        uses: actions/download-artifact@v8
+        with:
+          name: Streamline-Windows
+          path: release-assets
+
+      - name: Download Linux build
+        uses: actions/download-artifact@v8
+        with:
+          name: Streamline-Linux
+          path: release-assets
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ls -lah release-assets
+
+          test -f "release-assets/Streamline-Windows.zip"
+          test -f "release-assets/Streamline.AppImage"
+
+      - name: Refuse to overwrite an existing release or tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::A GitHub release for $TAG already exists."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Git tag $TAG already exists."
+            exit 1
+          fi
+
+      - name: Create draft release with build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SHA: ${{ needs.prepare.outputs.sha }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          cat > release-notes.md <<EOF
+          ---
+
+          *Built automatically with GitHub Actions workflow. [View workflow run](${RUN_URL})*
+          EOF
+
+          gh release create "$TAG" \
+            "release-assets/Streamline-Windows.zip" \
+            "release-assets/Streamline.AppImage" \
+            --draft \
+            --target "$BUILD_SHA" \
+            --title "$TAG" \
+            --notes-file release-notes.md
+
+          echo "Draft release created: $TAG"
+          echo "Build run: $RUN_URL"
