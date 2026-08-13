@@ -419,7 +419,8 @@ body.theme-default img[src$=".svg"] {
   filter: brightness(0) saturate(100%) invert(74%) sepia(7%) saturate(306%) hue-rotate(169deg) brightness(96%) contrast(89%);
 }
 
-body.theme-default img[src$="anonymous.svg"] {
+body.theme-default img[src$="anonymous.svg"],
+body.theme-default img[src$="anonymous_default.svg"] {
   filter: none;
 }
 

@@ -5492,6 +5492,23 @@ function applyTheme(themeName) {
   } else {
     document.body.classList.add("theme-default");
   }
+  syncAnonymousAvatarTheme();
+}
+
+function getAnonymousAvatarUrl() {
+  return document.body.classList.contains("theme-default")
+    ? "../anonymous_default.svg"
+    : "../anonymous.svg";
+}
+
+function syncAnonymousAvatarTheme() {
+  const anonymousOption = Array.from(accountSelect?.options || [])
+    .find((option) => option.value === "Anonymous");
+  if (!anonymousOption) {
+    return;
+  }
+  anonymousOption.dataset.avatarUrl = getAnonymousAvatarUrl();
+  syncAnimatedSelect("account-select");
 }
 
 function normalizeHexColor(value) {
@@ -5556,7 +5573,7 @@ async function refreshAccounts(activeFromConfig = "") {
     const anonymousOption = document.createElement("option");
     anonymousOption.value = "Anonymous";
     anonymousOption.textContent = "Anonymous";
-    anonymousOption.dataset.avatarUrl = "../anonymous.svg";
+    anonymousOption.dataset.avatarUrl = getAnonymousAvatarUrl();
     accountSelect.appendChild(anonymousOption);
     accounts.forEach((acc) => {
       if (!acc?.username) {
@@ -5575,7 +5592,7 @@ async function refreshAccounts(activeFromConfig = "") {
       const option = document.createElement("option");
       option.value = active;
       option.textContent = active;
-      option.dataset.avatarUrl = active === "Anonymous" ? "../anonymous.svg" : "";
+      option.dataset.avatarUrl = active === "Anonymous" ? getAnonymousAvatarUrl() : "";
       accountSelect.appendChild(option);
     }
     accountSelect.value = active;
