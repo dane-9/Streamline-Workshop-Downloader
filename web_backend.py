@@ -2871,15 +2871,15 @@ class StreamlineWebBackend:
         )
 
     def _cleanup_appworkshop_acf_files(self):
-        local_workshop_dir = os.path.join(self.steamcmd_dir, "steamapps", "workshop")
-        if not os.path.isdir(local_workshop_dir):
-            return
-        for file_name in os.listdir(local_workshop_dir):
-            if file_name.lower().startswith("appworkshop_") and file_name.lower().endswith(".acf"):
-                try:
-                    os.remove(os.path.join(local_workshop_dir, file_name))
-                except Exception:
-                    pass
+        for workshop_dir in self._get_steamcmd_workshop_dir_paths():
+            if not os.path.isdir(workshop_dir):
+                continue
+            for file_name in os.listdir(workshop_dir):
+                if file_name.lower().startswith("appworkshop_") and file_name.lower().endswith(".acf"):
+                    try:
+                        os.remove(os.path.join(workshop_dir, file_name))
+                    except Exception:
+                        pass
 
     def _remove_all_workshop_content(self):
         allowed_mod_ids = {str(mod_id).strip() for mod_id in self.session_steamcmd_downloads if str(mod_id).strip()}
@@ -3304,17 +3304,38 @@ class StreamlineWebBackend:
 
         fallback_status = "Downloading" if (cancel_is_immediate and self.canceled) else "Failed No Confirmation"
         confirmed_mod_ids = set()
+        retry_mods = []
         for mod in download_candidates:
             mod_id = str(mod.get("mod_id"))
             final_status = status_map.get(mod_id, fallback_status)
+
+            if final_status.casefold() == "failed: failure":
+                source_path = self._get_steamcmd_content_path(mod)
+                if os.path.isdir(source_path):
+                    final_status = "Downloaded"
+
             if final_status == "Downloaded":
                 self._mark_session_steamcmd_downloaded(mod)
                 confirmed_mod_ids.add(mod_id)
+            elif final_status.casefold() == "failed: failure":
+                retry_mods.append(mod)
             else:
                 self._set_mod_status(mod, final_status)
 
         if confirmed_mod_ids and not (cancel_is_immediate and self.canceled):
             self._move_all_downloaded_mods(mod_ids=confirmed_mod_ids)
+
+        if not (cancel_is_immediate and self.canceled):
+            self._cleanup_appworkshop_acf_files()
+
+        for mod in retry_mods:
+            current_retry = int(mod.get("retry_count", 0) or 0)
+            next_retry = current_retry + 1
+            if next_retry < int(self._download_max_retries):
+                self._set_mod_status(mod, "Queued", retry_count=next_retry)
+            else:
+                self._set_mod_status(mod, "Failed: Failure", retry_count=next_retry)
+
         self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=True)
 
     def _finalize_cancellation(self, delete_downloads):
