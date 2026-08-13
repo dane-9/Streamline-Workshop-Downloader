@@ -23,7 +23,7 @@ from web_backend import (
     is_windows_platform,
 )
 
-current_version = "2.0.0"
+current_version = "2.2.0"
 DEFAULT_WINDOW_WIDTH = 695
 DEFAULT_WINDOW_HEIGHT = 775
 MIN_WINDOW_WIDTH = DEFAULT_WINDOW_WIDTH
