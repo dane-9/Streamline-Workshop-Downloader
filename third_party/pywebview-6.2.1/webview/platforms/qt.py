@@ -11,10 +11,10 @@ from functools import partial
 from threading import Event, Semaphore, Thread
 from uuid import uuid1
 
-from qtpy import PYQT6, PYSIDE6, QtCore
-from qtpy.QtCore import QByteArray, QJsonValue
-from qtpy.QtGui import QColor, QIcon, QScreen
-from qtpy.QtWidgets import QAction, QApplication, QFileDialog, QMainWindow, QMenuBar, QMessageBox
+from PySide6 import QtCore
+from PySide6.QtCore import QByteArray, QJsonValue
+from PySide6.QtGui import QAction, QColor, QIcon, QScreen
+from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMenuBar, QMessageBox
 
 from webview import FileDialog, _state, settings, windows
 from webview.dom import _dnd_state
@@ -30,22 +30,18 @@ from webview.util import (
 )
 from webview.window import FixPoint, Window
 
-try:
-    from qtpy.QtNetwork import QSslCertificate, QSslConfiguration
-    from qtpy.QtWebChannel import QWebChannel
-    from qtpy.QtWebEngineCore import QWebEngineUrlRequestInterceptor
-    from qtpy.QtWebEngineWidgets import QWebEnginePage as QWebPage
-    from qtpy.QtWebEngineWidgets import QWebEngineProfile, QWebEngineSettings
-    from qtpy.QtWebEngineWidgets import QWebEngineView as QWebView
+from PySide6.QtNetwork import QSslCertificate, QSslConfiguration
+from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtWebEngineCore import (
+    QWebEnginePage as QWebPage,
+    QWebEngineProfile,
+    QWebEngineSettings,
+    QWebEngineUrlRequestInterceptor,
+)
+from PySide6.QtWebEngineWidgets import QWebEngineView as QWebView
 
-    renderer = 'qtwebengine'
-    is_webengine = True
-except ImportError:
-    from PyQt5.QtNetwork import QSslCertificate, QSslConfiguration
-    from PyQt5.QtWebKitWidgets import QWebPage, QWebView
-
-    is_webengine = False
-    renderer = 'qtwebkit'
+renderer = 'qtwebengine'
+is_webengine = True
 
 logger = logging.getLogger('pywebview')
 logger.debug(f'Using Qt {QtCore.__version__}')
@@ -67,7 +63,7 @@ _main_window_created.clear()
 
 # suppress invalid style override error message on some Linux distros
 os.environ['QT_STYLE_OVERRIDE'] = ''
-_qt6 = True if PYQT6 or PYSIDE6 else False
+_qt6 = True
 _profile_storage_path = _state['storage_path'] or os.path.join(
     os.path.expanduser('~'), '.pywebview'
 )

@@ -11,7 +11,7 @@ from typing_extensions import Literal, TypeAlias, get_args
 
 from webview import WebViewException
 
-GUIType: TypeAlias = Literal['qt', 'gtk', 'cef', 'mshtml', 'edgechromium', 'android', 'cocoa']
+GUIType: TypeAlias = Literal['qt', 'cef', 'mshtml', 'edgechromium', 'android', 'cocoa']
 GUI_TYPES = list(get_args(GUIType))
 
 logger = logging.getLogger('pywebview')
@@ -30,18 +30,6 @@ def initialize(forced_gui: GUIType | None = None):
             return True
         except (ImportError, ValueError):
             logger.exception('Kivy cannot be loaded')
-            return False
-
-    def import_gtk():
-        global guilib
-
-        try:
-            import webview.platforms.gtk as guilib
-
-            logger.debug('Using GTK')
-            return True
-        except (ImportError, ValueError):
-            logger.exception('GTK cannot be loaded')
             return False
 
     def import_qt():
@@ -115,14 +103,9 @@ def initialize(forced_gui: GUIType | None = None):
         try_import([import_android])
 
     elif platform.system() == 'Linux' or platform.system() == 'OpenBSD':
-        if forced_gui == 'qt':
-            guis = [import_qt, import_gtk]
-        else:
-            guis = [import_gtk, import_qt]
-
-        if not try_import(guis):
+        if not import_qt():
             raise WebViewException(
-                'You must have either QT or GTK with Python extensions installed in order to use pywebview.'
+                'Qt with Python bindings could not be loaded. This build requires the Qt backend.'
             )
 
     elif platform.system() == 'Windows':
