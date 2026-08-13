@@ -364,19 +364,24 @@ function buildLogClipboardText() {
   return lines.join("\n");
 }
 
-function showFullLogMessageDialog(entry) {
+function showFullLogMessageDialog(entry, options = {}) {
   const messageText = String(entry?.message || "");
   const source = String(entry?.source || "ui").trim().toLowerCase() || "ui";
   const tone = normalizeLogTone(entry?.tone || "info");
   const timeText = formatLogClock(normalizeLogTimestampMs(entry?.timestampMs));
+  const title = String(options.title || "Full Log Message");
+  const ariaLabel = String(options.ariaLabel || title);
+  const metaText = options.metaText === undefined
+    ? `${timeText}  ${logToneLabel(tone)}  ${source}`
+    : String(options.metaText || "");
 
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "confirm-overlay";
     overlay.innerHTML = `
-      <div class="log-message-dialog-card" role="dialog" aria-modal="true" aria-label="Full log message">
-        <h3 class="confirm-title">Full Log Message</h3>
-        <p class="log-message-dialog-meta">${escapeHtml(timeText)}  ${escapeHtml(logToneLabel(tone))}  ${escapeHtml(source)}</p>
+      <div class="log-message-dialog-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(ariaLabel)}">
+        <h3 class="confirm-title">${escapeHtml(title)}</h3>
+        <p class="log-message-dialog-meta">${escapeHtml(metaText)}</p>
         <pre class="log-message-dialog-body">${escapeHtml(messageText)}</pre>
         <div class="confirm-actions">
           <button type="button" class="control modal-btn" data-log-message-action="copy">Copy</button>
@@ -416,6 +421,22 @@ function showFullLogMessageDialog(entry) {
     document.addEventListener("keydown", onKeyDown, true);
     closeBtn?.focus();
   });
+}
+
+function showQueueFailureDialog(item) {
+  const modName = String(item?.mod_name || "Unknown mod");
+  const modId = String(item?.mod_id || "Unknown ID");
+  const provider = getProviderDisplayName(item?.provider || "Default");
+  const message = String(item?.failure_detail || "").trim()
+    || `The download failed with status: ${String(item?.status || "Failed")}`;
+  return showFullLogMessageDialog(
+    { message, tone: "bad", source: provider },
+    {
+      title: "Download Failure",
+      ariaLabel: `Download failure for ${modName}`,
+      metaText: `${modName}  •  Workshop item ${modId}  •  ${provider}`
+    }
+  );
 }
 
 function getOperationPrefixFromId(operationId) {
@@ -2982,6 +3003,7 @@ function normalizeQueueItem(item, index) {
   const provider = String(item.provider || "Default");
   const retryCount = Math.max(0, Number(item.retry_count || 0));
   const maxRetries = Math.max(1, Number(item.max_retries || 3));
+  const failureDetail = String(item.failure_detail || "");
   return {
     game_name: gameName,
     mod_id: modId,
@@ -2989,6 +3011,7 @@ function normalizeQueueItem(item, index) {
     status,
     retry_count: retryCount,
     max_retries: maxRetries,
+    failure_detail: failureDetail,
     provider,
     app_id: item.app_id || "",
     _search_mod_id: modId.toLowerCase(),
@@ -4107,7 +4130,7 @@ function ensureQueueRowStructure(row, layoutKey, showRowNumbers, hiddenColumns) 
 function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, layoutKey) {
   const cells = ensureQueueRowStructure(row, layoutKey, showRowNumbers, hiddenColumns);
   const statusDisplay = getQueueStatusDisplayText(item);
-  const signature = `${item.game_name}\x1f${item.mod_id}\x1f${item.mod_name}\x1f${item.status}\x1f${item.retry_count}\x1f${item.max_retries}\x1f${item.provider}`;
+  const signature = `${item.game_name}\x1f${item.mod_id}\x1f${item.mod_name}\x1f${item.status}\x1f${item.retry_count}\x1f${item.max_retries}\x1f${item.provider}\x1f${item.failure_detail || ""}`;
   row.dataset.listIndex = String(visibleIndex);
 
   if (row._dragHandle) {
@@ -4147,9 +4170,40 @@ function updateQueueRow(row, item, visibleIndex, showRowNumbers, hiddenColumns, 
         let badge = content.querySelector(":scope > .queue-status-badge");
         if (!badge) {
           badge = document.createElement("span");
+          badge.addEventListener("click", (event) => {
+            if (!badge.classList.contains("is-danger") || !badge._queueItem) {
+              return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            void showQueueFailureDialog(badge._queueItem);
+          });
+          badge.addEventListener("keydown", (event) => {
+            if ((event.key !== "Enter" && event.key !== " ")
+              || !badge.classList.contains("is-danger")
+              || !badge._queueItem) {
+              return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            void showQueueFailureDialog(badge._queueItem);
+          });
           content.replaceChildren(badge);
         }
         badge.className = `queue-status-badge is-${getQueueStatusTone(item, value)}`;
+        badge._queueItem = item;
+        const isFailure = badge.classList.contains("is-danger");
+        if (isFailure) {
+          badge.setAttribute("role", "button");
+          badge.setAttribute("tabindex", "0");
+          badge.setAttribute("aria-label", `${value}. Show full error`);
+          badge.title = "Click to show full error";
+        } else {
+          badge.removeAttribute("role");
+          badge.removeAttribute("tabindex");
+          badge.removeAttribute("aria-label");
+          badge.removeAttribute("title");
+        }
         let badgeText = badge.querySelector(":scope > .queue-status-text");
         if (!badgeText) {
           badgeText = document.createElement("span");
@@ -7904,6 +7958,7 @@ function applyQueueStatusEvent(payload) {
   const invalidateQueueView = !!payload?.invalidate_queue_view;
   const retryCount = Math.max(0, Number(payload?.retry_count || 0));
   const maxRetries = Math.max(1, Number(payload?.max_retries || 3));
+  const failureDetail = String(payload?.failure_detail || "");
   const previousBadgeWidth = state.rowCache
     .get(modId)
     ?.querySelector('.queue-status-badge')
@@ -7923,6 +7978,7 @@ function applyQueueStatusEvent(payload) {
     item.status = nextStatus;
     item.retry_count = retryCount;
     item.max_retries = maxRetries;
+    item.failure_detail = failureDetail;
     return true;
   };
 

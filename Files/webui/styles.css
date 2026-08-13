@@ -3698,6 +3698,20 @@ body.column-resizing {
   color: color-mix(in srgb, #ee7777 82%, var(--fg-hover));
 }
 
+.queue-status-badge.is-danger[role="button"] {
+  cursor: pointer;
+}
+
+.queue-status-badge.is-danger[role="button"]:hover {
+  border-color: rgba(238, 119, 119, 0.78);
+  background: rgba(210, 75, 75, 0.25);
+}
+
+.queue-status-badge.is-danger[role="button"]:focus-visible {
+  outline: 1px solid color-mix(in srgb, #ee7777 80%, white);
+  outline-offset: 2px;
+}
+
 @keyframes queue-status-pulse {
   0%, 100% { opacity: 0.45; transform: scale(0.86); }
   50% { opacity: 1; transform: scale(1); }

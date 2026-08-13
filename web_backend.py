@@ -2705,7 +2705,7 @@ class StreamlineWebBackend:
             return
         self.session_steamcmd_downloads.add(mod_id)
 
-    def _set_mod_status(self, mod, status, retry_count=None):
+    def _set_mod_status(self, mod, status, retry_count=None, failure_detail=None):
         if not isinstance(mod, dict):
             return False
         mod_id = str(mod.get("mod_id", "")).strip()
@@ -2713,6 +2713,11 @@ class StreamlineWebBackend:
         status_changed = False
         previous_status = ""
         invalidate_queue_view = False
+        normalized_status = str(status or "")
+        is_failure = "fail" in normalized_status.casefold() or "error" in normalized_status.casefold()
+        normalized_failure_detail = str(failure_detail or "").strip()
+        if is_failure and not normalized_failure_detail:
+            normalized_failure_detail = f"Download status: {normalized_status}"
         with self.state_lock:
             if mod.get("status") != status:
                 previous_status = str(mod.get("status", ""))
@@ -2738,6 +2743,14 @@ class StreamlineWebBackend:
                         prev_retry = int(self._active_download_retry_by_mod.get(mod_id, 0) or 0)
                         if retry_value > prev_retry:
                             self._active_download_retry_by_mod[mod_id] = retry_value
+            current_failure_detail = str(mod.get("failure_detail", "") or "")
+            next_failure_detail = normalized_failure_detail if is_failure else ""
+            if current_failure_detail != next_failure_detail:
+                if next_failure_detail:
+                    mod["failure_detail"] = next_failure_detail
+                else:
+                    mod.pop("failure_detail", None)
+                changed = True
         if status_changed and mod_id:
             retry_value = int(mod.get("retry_count", 0) or 0)
             self._emit_event(
@@ -2749,6 +2762,7 @@ class StreamlineWebBackend:
                     "invalidate_queue_view": invalidate_queue_view,
                     "retry_count": retry_value,
                     "max_retries": int(self._download_max_retries),
+                    "failure_detail": normalized_failure_detail if is_failure else "",
                 },
             )
             with self.state_lock:
@@ -3048,14 +3062,14 @@ class StreamlineWebBackend:
                 file_details = self._fetch_published_file_details_batch([mod_id], timeout=30, chunk_size=1).get(mod_id, {})
             file_url = file_details.get("file_url")
             if not file_url:
-                return False
+                return False, "The Steam Web API did not provide a download URL for this workshop item."
 
             filename = self._get_webapi_filename(mod, file_details)
             file_path = os.path.join(self._get_download_path(mod), filename)
 
             download_response = requests.get(file_url, stream=True, timeout=120)
             if download_response.status_code != 200:
-                return False
+                return False, f"The download server returned HTTP {download_response.status_code}."
 
             with open(file_path, "wb") as file:
                 for chunk in download_response.iter_content(chunk_size=8192):
@@ -3067,13 +3081,13 @@ class StreamlineWebBackend:
                         os.remove(file_path)
                 except OSError:
                     pass
-                return False
+                return False, "The downloaded file was missing or empty."
             with self.state_lock:
                 mod["_webapi_file_path"] = file_path
                 self.session_webapi_files[mod_id] = file_path
             self._update_mod_download_log(mod)
             self._mark_session_downloaded(mod)
-            return True
+            return True, ""
         except Exception as e:
             self.log(
                 f"WebAPI download failed for mod {mod_id}: {e}",
@@ -3087,7 +3101,7 @@ class StreamlineWebBackend:
                     "operation_state": "warn",
                 },
             )
-            return False
+            return False, f"Web API download error: {e}"
 
     def _download_mods_webapi_parallel(self, mods, cancel_is_immediate=False):
         webapi_mods = list(mods or [])
@@ -3141,16 +3155,23 @@ class StreamlineWebBackend:
                 return
 
             self._set_mod_status(mod, "Downloading")
-            success = self._download_mod_webapi(mod, file_details)
+            success, failure_detail = self._download_mod_webapi(mod, file_details)
             if success:
                 self._set_mod_status(mod, "Downloaded")
                 return
             with self.state_lock:
                 next_retry = int(mod.get("retry_count", 0) or 0) + 1
+            is_final_attempt = next_retry >= int(self._download_max_retries)
+            attempts_label = "Attempt" if next_retry == 1 else "Attempts"
+            final_failure_detail = (
+                f"The Steam Web API could not download workshop item {mod.get('mod_id', '')} "
+                f"after {next_retry} {attempts_label.lower()}.\n\nLast error:\n{failure_detail}"
+            )
             self._set_mod_status(
                 mod,
-                "Queued" if next_retry < int(self._download_max_retries) else "Failed",
+                "Queued" if not is_final_attempt else f"Failed After {next_retry} {attempts_label}",
                 retry_count=next_retry,
+                failure_detail=final_failure_detail if is_final_attempt else "",
             )
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="webapi-download") as executor:
@@ -3246,6 +3267,7 @@ class StreamlineWebBackend:
         cmd = [self.steamcmd_exe, "+login", *self._get_steamcmd_login_parts()]
         mod_lookup = {}
         status_map = {}
+        failure_details = {}
         for mod in download_candidates:
             app_id = str(mod.get("app_id"))
             mod_id = str(mod.get("mod_id"))
@@ -3289,12 +3311,18 @@ class StreamlineWebBackend:
                 if fail_match:
                     mod_id = str(fail_match.group(1))
                     if mod_id in status_map:
-                        next_status = f"Failed: {fail_match.group(2)}"
+                        failure_reason = str(fail_match.group(2)).strip() or "Unknown error"
+                        next_status = f"Failed: {failure_reason}"
+                        failure_details[mod_id] = clean_line
                         if status_map.get(mod_id) != next_status:
                             status_map[mod_id] = next_status
                             queue_mod = mod_lookup.get(mod_id)
-                            if queue_mod:
-                                self._set_mod_status(queue_mod, next_status)
+                            if queue_mod and failure_reason.casefold() != "failure":
+                                self._set_mod_status(
+                                    queue_mod,
+                                    next_status,
+                                    failure_detail=f"SteamCMD reported:\n{clean_line}",
+                                )
                                 status_updated = True
                 if status_updated:
                     self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=False)
@@ -3320,7 +3348,17 @@ class StreamlineWebBackend:
             elif final_status.casefold() == "failed: failure":
                 retry_mods.append(mod)
             else:
-                self._set_mod_status(mod, final_status)
+                failure_detail = ""
+                if final_status.casefold().startswith("failed"):
+                    raw_error = failure_details.get(mod_id, "")
+                    if raw_error:
+                        failure_detail = f"SteamCMD reported:\n{raw_error}"
+                    elif final_status == "Failed No Confirmation":
+                        failure_detail = (
+                            "SteamCMD exited without confirming whether this workshop item "
+                            "was downloaded."
+                        )
+                self._set_mod_status(mod, final_status, failure_detail=failure_detail)
 
         if confirmed_mod_ids and not (cancel_is_immediate and self.canceled):
             self._move_all_downloaded_mods(mod_ids=confirmed_mod_ids)
@@ -3334,7 +3372,20 @@ class StreamlineWebBackend:
             if next_retry < int(self._download_max_retries):
                 self._set_mod_status(mod, "Queued", retry_count=next_retry)
             else:
-                self._set_mod_status(mod, "Failed: Failure", retry_count=next_retry)
+                attempts_label = "attempt" if next_retry == 1 else "attempts"
+                raw_error = failure_details.get(str(mod.get("mod_id", "")), "")
+                failure_detail = (
+                    f"SteamCMD could not download workshop item {mod.get('mod_id', '')} "
+                    f"after {next_retry} {attempts_label}."
+                )
+                if raw_error:
+                    failure_detail += f"\n\nLast SteamCMD error:\n{raw_error}"
+                self._set_mod_status(
+                    mod,
+                    f"Failed After {next_retry} {attempts_label.title()}",
+                    retry_count=next_retry,
+                    failure_detail=failure_detail,
+                )
 
         self._maybe_log_download_progress(str(self._active_download_operation_id or ""), force=True)
 
