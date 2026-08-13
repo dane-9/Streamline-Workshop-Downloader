@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Streamline
+Comment=Download Steam Workshop content
+Exec=Streamline
+Icon=streamline
+Terminal=false
+Categories=Network;Utility;
+StartupWMClass=Streamline

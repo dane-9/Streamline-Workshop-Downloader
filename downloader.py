@@ -1079,10 +1079,41 @@ def run_pywebview_main_gui():
     else:
         create_window_kwargs["html"] = "<h2>Streamline</h2><p>Web UI files were not found.</p>"
 
+    qt_app = None
+    if platform.system().lower() == "linux":
+        from PySide6.QtCore import Qt, qInstallMessageHandler
+        from PySide6.QtGui import QIcon, QPixmap
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.setApplicationName("Streamline")
+        QApplication.setApplicationDisplayName("Streamline")
+        previous_qt_message_handler = None
+
+        def qt_message_handler(message_type, context, message):
+            if message == "Registered new object after initialization, existing clients won't be notified!":
+                return
+            if previous_qt_message_handler is not None:
+                previous_qt_message_handler(message_type, context, message)
+            else:
+                print(message, file=sys.stderr)
+
+        previous_qt_message_handler = qInstallMessageHandler(qt_message_handler)
+        qt_app = QApplication.instance() or QApplication(sys.argv)
+        if window_icon and os.path.isfile(window_icon):
+            icon_pixmap = QPixmap(window_icon)
+            if not icon_pixmap.isNull():
+                icon_pixmap = icon_pixmap.scaled(
+                    256,
+                    256,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                qt_app.setWindowIcon(QIcon(icon_pixmap))
+
     webview.create_window(**create_window_kwargs)
     try:
         if platform.system().lower() == "linux":
-            webview.start(debug=False, gui="qt", icon=window_icon)
+            webview.start(debug=False, gui="qt")
         elif platform.system().lower() == "windows":
             webview.start(debug=False)
         else:
