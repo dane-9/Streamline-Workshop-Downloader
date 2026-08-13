@@ -180,8 +180,12 @@ body.theme-default {
 
 body.theme-default .window-root {
   background-color: var(--window-bg);
-  background-image: linear-gradient(180deg, #171d25 0%, #24282f 42%, #20242a 100%);
-  background-repeat: no-repeat;
+  background-image:
+    url("../bg_grid.svg"),
+    linear-gradient(180deg, #171d25 0%, #24282f 42%, #20242a 100%);
+  background-position: left top, center;
+  background-repeat: repeat, no-repeat;
+  background-size: 28px 28px, cover;
 }
 
 body.theme-default .queue-table-wrap {
@@ -491,7 +495,7 @@ body.theme-light .tiny-icon-btn img {
   position: relative;
   left: -0.5px;
   height: 100%;
-  background: var(--window-bg);
+  background-color: var(--window-bg);
   color: var(--fg);
   display: flex;
   flex-direction: column;

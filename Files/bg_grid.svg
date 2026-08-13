@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28" role="img" aria-label="Grid background tile">
+  <defs>
+    <pattern id="subgrid" width="7" height="7" patternUnits="userSpaceOnUse">
+      <path d="M7 0H0V7" fill="none" stroke="#c4daef" stroke-opacity="0.01" stroke-width="0.45"/>
+    </pattern>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <rect width="28" height="28" fill="url(#subgrid)"/>
+      <path d="M28 0H0V28" fill="none" stroke="#d5e7f7" stroke-opacity="0.04" stroke-width="0.65"/>
+    </pattern>
+  </defs>
+
+  <rect width="28" height="28" fill="url(#grid)"/>
+</svg>
